@@ -23,7 +23,7 @@ type modbusPv struct {
 
 type ModbusConfig struct {
 	modbusUrl        string
-	modbusSpeed      uint16
+	baudRate         uint16
 	timeout          time.Duration
 	gridConfig       *energysource.GridConfig
 	modbusGridConfig *ModbusGridConfig
@@ -42,13 +42,18 @@ type ModbusPvConfig struct {
 	initialize   func(*modbus.ModbusClient, *modbusPv) error
 }
 
+type modbusSystem struct {
+}
+
 func NewModbusSystem(config *ModbusConfig) (*energysource.System, error) {
+	modbusSystem := &modbusSystem{}
+
 	modbusConfig := &modbus.ClientConfiguration{
 		URL:     config.modbusUrl,
 		Timeout: config.timeout,
 	}
-	if config.modbusSpeed > 0 {
-		modbusConfig.Speed = uint(config.modbusSpeed)
+	if config.baudRate > 0 {
+		modbusConfig.Speed = uint(config.baudRate)
 	}
 	modbusClient, err := modbus.NewClient(modbusConfig)
 
@@ -61,7 +66,7 @@ func NewModbusSystem(config *ModbusConfig) (*energysource.System, error) {
 	}
 	var grid *energysource.Grid = nil
 	if config.modbusGridConfig != nil {
-		mbg, err := newModbusGrid(modbusClient, config.gridConfig, config.modbusGridConfig)
+		mbg, err := modbusSystem.newModbusGrid(modbusClient, config.gridConfig, config.modbusGridConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +75,7 @@ func NewModbusSystem(config *ModbusConfig) (*energysource.System, error) {
 	}
 	var pvs []*energysource.Pv = nil
 	for ix := 0; ix < len(config.pvConfigs); ix++ {
-		mbpv, err := newModbusPv(modbusClient, &energysource.PvConfig{}, config.pvConfigs[ix])
+		mbpv, err := modbusSystem.newModbusPv(modbusClient, &energysource.PvConfig{}, config.pvConfigs[ix])
 		if err != nil {
 			return nil, err
 		}
@@ -78,11 +83,11 @@ func NewModbusSystem(config *ModbusConfig) (*energysource.System, error) {
 		pvs = append(pvs, &pv)
 	}
 	var system = energysource.NewSystem(grid, pvs)
-	go readSystemValues(modbusClient, system, config)
+	go modbusSystem.readSystemValues(modbusClient, system, config)
 	return system, nil
 }
 
-func readSystemValues(client *modbus.ModbusClient, system *energysource.System, config *ModbusConfig) {
+func (m *modbusSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System, config *ModbusConfig) {
 	ticker := time.NewTicker(time.Millisecond * 250)
 	tickerChannel := make(chan bool)
 	runtime.SetFinalizer(system, func(a *energysource.System) {
@@ -116,9 +121,9 @@ func readSystemValues(client *modbus.ModbusClient, system *energysource.System, 
 	}
 }
 
-func newModbusGrid(modbusClient *modbus.ModbusClient, gridConfig *energysource.GridConfig, config *ModbusGridConfig) (*modbusGrid, error) {
+func (m *modbusSystem) newModbusGrid(modbusClient *modbus.ModbusClient, gridConfig *energysource.GridConfig, config *ModbusGridConfig) (*modbusGrid, error) {
 	mg := &modbusGrid{
-		GridBase:     energysource.NewGrid(gridConfig),
+		GridBase:     energysource.NewGridBase(gridConfig),
 		modbusUnitId: config.modbusUnitId,
 	}
 	if config.initialize != nil {
@@ -130,9 +135,9 @@ func newModbusGrid(modbusClient *modbus.ModbusClient, gridConfig *energysource.G
 	return mg, nil
 }
 
-func newModbusPv(modbusClient *modbus.ModbusClient, pvConfig *energysource.PvConfig, config *ModbusPvConfig) (*modbusPv, error) {
+func (m *modbusSystem) newModbusPv(modbusClient *modbus.ModbusClient, pvConfig *energysource.PvConfig, config *ModbusPvConfig) (*modbusPv, error) {
 	mpv := &modbusPv{
-		PvBase:       energysource.NewPv(pvConfig),
+		PvBase:       energysource.NewPvBase(pvConfig),
 		modbusUnitId: config.modbusUnitId,
 	}
 	if config.initialize != nil {
@@ -142,15 +147,4 @@ func newModbusPv(modbusClient *modbus.ModbusClient, pvConfig *energysource.PvCon
 		}
 	}
 	return mpv, nil
-}
-
-func getValueFromRegisterResultArray(values []uint16, ix uint8, scaleFactor float32, defaultValue float32) float32 {
-	if values == nil {
-		return defaultValue
-	}
-	value := float32(int16(values[ix]))
-	if scaleFactor != 0 {
-		value /= scaleFactor
-	}
-	return value
 }

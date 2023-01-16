@@ -93,8 +93,8 @@ func (gc *GridConfig) ToMap() map[string]any {
 	return data
 }
 
-// NewGrid Constructs a new GridBase instance with the given voltage, phases and max current
-func NewGrid(gridConfig *GridConfig) *GridBase {
+// NewGridBase Constructs a new GridBase instance with the given voltage, phases and max current
+func NewGridBase(gridConfig *GridConfig) *GridBase {
 	return &GridBase{
 		EnergyFlowBase: &EnergyFlowBase{},
 		gridConfig:     gridConfig,

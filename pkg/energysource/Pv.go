@@ -12,7 +12,7 @@ type PvBase struct {
 type PvConfig struct {
 }
 
-func NewPv(pvConfig *PvConfig) *PvBase {
+func NewPvBase(pvConfig *PvConfig) *PvBase {
 	return &PvBase{
 		EnergyFlowBase: &EnergyFlowBase{},
 		pvConfig:       pvConfig,

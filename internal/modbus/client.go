@@ -556,6 +556,17 @@ func (mc *ModbusClient) ReadRawBytes(addr uint16, quantity uint16, regType RegTy
 	return
 }
 
+func (mc *ModbusClient) ValueFromResultArray(values []uint16, ix uint8, scaleFactor float32, defaultValue float32) float32 {
+	if values == nil {
+		return defaultValue
+	}
+	value := float32(int16(values[ix]))
+	if scaleFactor != 0 {
+		value /= scaleFactor
+	}
+	return value
+}
+
 // Writes a single coil (function code 05)
 func (mc *ModbusClient) WriteCoil(addr uint16, value bool) (err error) {
 	var req *pdu

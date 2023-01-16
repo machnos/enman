@@ -10,7 +10,7 @@ func TestNewGrid(t *testing.T) {
 		gridConfig *GridConfig
 	}
 	gridConfig, _ := NewGridConfig(230, 25, 3)
-	expected := NewGrid(gridConfig)
+	expected := NewGridBase(gridConfig)
 	tests := []struct {
 		name string
 		args args
@@ -20,9 +20,9 @@ func TestNewGrid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewGrid(tt.args.gridConfig)
+			got := NewGridBase(tt.args.gridConfig)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewGrid() got = %v, want %v", got, tt.want)
+				t.Errorf("NewGridBase() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

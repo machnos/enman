@@ -21,10 +21,10 @@ type carloGavazziMeter struct {
 
 func NewCarloGavazziSystem(modbusUrl string, gridConfig *energysource.GridConfig, gridUnitId *uint8, pvUnitIds []uint8) (*energysource.System, error) {
 	config := &ModbusConfig{
-		modbusUrl:   modbusUrl,
-		modbusSpeed: 9600,
-		timeout:     time.Millisecond * 500,
-		gridConfig:  gridConfig,
+		modbusUrl:  modbusUrl,
+		baudRate:   9600,
+		timeout:    time.Millisecond * 500,
+		gridConfig: gridConfig,
 		updateGridValues: func(client *modbus.ModbusClient, grid *modbusGrid) {
 			if grid.modbusUnitId <= 0 {
 				return
@@ -189,20 +189,20 @@ func (c *carloGavazziMeter) updateValues(modbusClient *modbus.ModbusClient, modb
 	modbusClient.SetUnitId(modbusUnitId)
 	if c.threePhase() {
 		values, _ := modbusClient.ReadRegisters(0, 5, modbus.INPUT_REGISTER)
-		_ = flow.SetVoltage(0, getValueFromRegisterResultArray(values, 0, 10, 0))
-		_ = flow.SetVoltage(1, getValueFromRegisterResultArray(values, 2, 10, 0))
-		_ = flow.SetVoltage(2, getValueFromRegisterResultArray(values, 4, 10, 0))
+		_ = flow.SetVoltage(0, modbusClient.ValueFromResultArray(values, 0, 10, 0))
+		_ = flow.SetVoltage(1, modbusClient.ValueFromResultArray(values, 2, 10, 0))
+		_ = flow.SetVoltage(2, modbusClient.ValueFromResultArray(values, 4, 10, 0))
 		values, _ = modbusClient.ReadRegisters(12, 11, modbus.INPUT_REGISTER)
-		_ = flow.SetCurrent(0, getValueFromRegisterResultArray(values, 0, 1000, 0))
-		_ = flow.SetCurrent(1, getValueFromRegisterResultArray(values, 2, 1000, 0))
-		_ = flow.SetCurrent(2, getValueFromRegisterResultArray(values, 4, 1000, 0))
-		_ = flow.SetPower(0, getValueFromRegisterResultArray(values, 6, 10, 0))
-		_ = flow.SetPower(1, getValueFromRegisterResultArray(values, 8, 10, 0))
-		_ = flow.SetPower(2, getValueFromRegisterResultArray(values, 10, 10, 0))
+		_ = flow.SetCurrent(0, modbusClient.ValueFromResultArray(values, 0, 1000, 0))
+		_ = flow.SetCurrent(1, modbusClient.ValueFromResultArray(values, 2, 1000, 0))
+		_ = flow.SetCurrent(2, modbusClient.ValueFromResultArray(values, 4, 1000, 0))
+		_ = flow.SetPower(0, modbusClient.ValueFromResultArray(values, 6, 10, 0))
+		_ = flow.SetPower(1, modbusClient.ValueFromResultArray(values, 8, 10, 0))
+		_ = flow.SetPower(2, modbusClient.ValueFromResultArray(values, 10, 10, 0))
 	} else {
 		values, _ := modbusClient.ReadRegisters(0, 5, modbus.INPUT_REGISTER)
-		_ = flow.SetVoltage(0, getValueFromRegisterResultArray(values, 0, 10, 0))
-		_ = flow.SetCurrent(0, getValueFromRegisterResultArray(values, 2, 1000, 0))
-		_ = flow.SetPower(0, getValueFromRegisterResultArray(values, 4, 10, 0))
+		_ = flow.SetVoltage(0, modbusClient.ValueFromResultArray(values, 0, 10, 0))
+		_ = flow.SetCurrent(0, modbusClient.ValueFromResultArray(values, 2, 1000, 0))
+		_ = flow.SetPower(0, modbusClient.ValueFromResultArray(values, 4, 10, 0))
 	}
 }

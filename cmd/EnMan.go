@@ -20,12 +20,19 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	var gridUnitId = uint8(31)
 	var pvUnitIds []uint8
-
 	system, err := internalenergysource.NewVictronSystem("tcp://einstein.energy.cleme:502", gridConfig, &gridUnitId, pvUnitIds)
+
 	//var gridUnitId = uint8(2)
 	//system, err := internalenergysource.NewCarloGavazziSystem("rtu:///dev/ttyUSB0", gridConfig, &gridUnitId, pvUnitIds)
+
+	//system, err := internalenergysource.NewDsmrSystem(&internalenergysource.DsmrConfig{
+	//	BaudRate: 115200,
+	//	Device:   "/dev/ttyUSB0",
+	//}, gridConfig)
+
 	if err != nil {
 		panic(err)
 	}
