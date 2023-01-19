@@ -4,7 +4,7 @@ import (
 	"enman/internal/modbus"
 	"enman/pkg/energysource"
 	"fmt"
-	"strconv"
+	"runtime"
 	"time"
 )
 
@@ -14,76 +14,31 @@ const (
 	em24ApplicationH          = uint16(7)
 )
 
-type carloGavazziMeter struct {
-	meterCode string
-	meterType string
+type carloGavazziSystem struct {
 }
 
-func NewCarloGavazziSystem(modbusUrl string, gridConfig *energysource.GridConfig, gridUnitId *uint8, pvUnitIds []uint8) (*energysource.System, error) {
-	config := &ModbusConfig{
-		modbusUrl:  modbusUrl,
-		baudRate:   9600,
-		timeout:    time.Millisecond * 500,
-		gridConfig: gridConfig,
-		updateGridValues: func(client *modbus.ModbusClient, grid *modbusGrid) {
-			if grid.modbusUnitId <= 0 {
-				return
-			}
-			c := &carloGavazziMeter{
-				meterCode: grid.meterCode,
-			}
-			c.updateValues(client, grid.modbusUnitId, grid.EnergyFlowBase)
-		},
-		updatePvValues: func(client *modbus.ModbusClient, pv *modbusPv) {
-			if pv.modbusUnitId <= 0 {
-				return
-			}
-			c := &carloGavazziMeter{
-				meterCode: pv.meterCode,
-			}
-			c.updateValues(client, pv.modbusUnitId, pv.EnergyFlowBase)
-		},
-	}
-	if gridUnitId != nil {
-		config.modbusGridConfig = &ModbusGridConfig{
-			modbusUnitId: *gridUnitId,
-			initialize: func(modbusClient *modbus.ModbusClient, grid *modbusGrid) error {
-				c := &carloGavazziMeter{}
-				err := c.initialize(modbusClient, grid.modbusUnitId)
-				if err != nil {
-					return err
-				}
-				grid.meterCode = c.meterCode
-				grid.meterType = c.meterType
-				return nil
-			},
-		}
-	}
-	if pvUnitIds != nil {
-		configs := make([]*ModbusPvConfig, len(pvUnitIds))
-		for ix := 0; ix < len(pvUnitIds); ix++ {
-			configs = append(configs, &ModbusPvConfig{
-				modbusUnitId: pvUnitIds[ix],
-				initialize: func(modbusClient *modbus.ModbusClient, pv *modbusPv) error {
-					c := &carloGavazziMeter{}
-					err := c.initialize(modbusClient, pv.modbusUnitId)
-					if err != nil {
-						return err
-					}
-					pv.meterCode = c.meterCode
-					pv.meterType = c.meterType
-					return nil
-				},
-			})
-		}
-		config.pvConfigs = configs
-	}
-	system, err := NewModbusSystem(config)
-	return system, err
+type carloGavazziGrid struct {
+	*energysource.GridBase
+	meter *carloGavazziModbusMeter
 }
 
-func (c *carloGavazziMeter) initialize(modbusClient *modbus.ModbusClient, modbusUnitId uint8) error {
-	modbusClient.SetUnitId(modbusUnitId)
+type carloGavazziPv struct {
+	*energysource.PvBase
+	meter *carloGavazziModbusMeter
+}
+
+type carloGavazziModbusMeter struct {
+	modbusUnitId uint8
+	lineIndexes  []uint8
+	meterCode    string
+	meterType    string
+	phases       uint8
+}
+
+func (c *carloGavazziModbusMeter) initialize(modbusClient *modbus.ModbusClient, modbusMeter *ModbusMeter) error {
+	c.modbusUnitId = modbusMeter.ModbusUnitId
+	c.lineIndexes = modbusMeter.LineIndexes
+	modbusClient.SetUnitId(c.modbusUnitId)
 	meterType, err := modbusClient.ReadRegister(0x000B, modbus.INPUT_REGISTER)
 	if err != nil {
 		return err
@@ -92,60 +47,88 @@ func (c *carloGavazziMeter) initialize(modbusClient *modbus.ModbusClient, modbus
 	switch meterType {
 	case 71:
 		c.meterType = "EM24-DIN AV"
+		c.phases = 3
 	case 72:
 		c.meterType = "EM24-DIN AV5"
+		c.phases = 3
 	case 73:
 		c.meterType = "EM24-DIN AV6"
+		c.phases = 3
 	case 100:
 		c.meterType = "EM110-DIN AV7 1 x S1"
+		c.phases = 1
 	case 101:
 		c.meterType = "EM111-DIN AV7 1 x S1"
+		c.phases = 1
 	case 102:
 		c.meterType = "EM112-DIN AV1 1 x S1"
+		c.phases = 1
 	case 103:
 		c.meterType = "EM111-DIN AV8 1 x S1"
+		c.phases = 1
 	case 104:
 		c.meterType = "EM112-DIN AV0 1 x S1"
+		c.phases = 1
 	case 110:
 		c.meterType = "EM110-DIN AV8 1 x S1"
+		c.phases = 1
 	case 114:
 		c.meterType = "EM111-DIN AV5 1 X S1 X"
+		c.phases = 1
 	case 120:
 		c.meterType = "ET112-DIN AV0 1 x S1 X"
+		c.phases = 1
 	case 121:
 		c.meterType = "ET112-DIN AV1 1 x S1 X"
+		c.phases = 1
 	case 331:
 		c.meterType = "EM330-DIN AV6 3"
+		c.phases = 3
 	case 332:
 		c.meterType = "EM330-DIN AV5 3"
+		c.phases = 3
 	case 335:
 		c.meterType = "ET330-DIN AV5 3"
+		c.phases = 3
 	case 336:
 		c.meterType = "ET330-DIN AV6 3"
+		c.phases = 3
 	case 340:
 		c.meterType = "EM340-DIN AV2 3 X S1 X"
+		c.phases = 3
 	case 341:
 		c.meterType = "EM340-DIN AV2 3 X S1"
+		c.phases = 3
 	case 345:
 		c.meterType = "ET340-DIN AV2 3 X S1 X"
+		c.phases = 3
 	case 346:
 		c.meterType = "EM341-DIN AV2 3 X OS X"
+		c.phases = 3
 	case 1744:
 		c.meterType = "EM530-DIN AV5 3 X S1 X"
+		c.phases = 3
 	case 1745:
 		c.meterType = "EM530-DIN AV5 3 X S1 PF A"
+		c.phases = 3
 	case 1746:
 		c.meterType = "EM530-DIN AV5 3 X S1 PF B"
+		c.phases = 3
 	case 1747:
 		c.meterType = "EM530-DIN AV5 3 X S1 PF C"
+		c.phases = 3
 	case 1760:
 		c.meterType = "EM540-DIN AV2 3 X S1 X"
+		c.phases = 3
 	case 1761:
 		c.meterType = "EM540-DIN AV2 3 X S1 PF A"
+		c.phases = 3
 	case 1762:
 		c.meterType = "EM540-DIN AV2 3 X S1 PF B"
+		c.phases = 3
 	case 1763:
 		c.meterType = "EM540-DIN AV2 3 X S1 PF C"
+		c.phases = 3
 	default:
 		c.meterType = fmt.Sprintf("Carlo Gavazzo %d", meterType)
 	}
@@ -163,7 +146,7 @@ func (c *carloGavazziMeter) initialize(modbusClient *modbus.ModbusClient, modbus
 			}
 			if frontSelector == 3 {
 				println("EM24 front selector is locked. Cannot update application to 'H'. Please use the joystick " +
-					"to manually update the EM24 to 'applicatin H', or set the front selector in an unlocked position " +
+					"to manually update the EM24 to 'application H', or set the front selector in an unlocked position " +
 					"and reinitialize the system.")
 			} else {
 				err := modbusClient.WriteRegister(em24ApplicationRegister, em24ApplicationH)
@@ -176,33 +159,112 @@ func (c *carloGavazziMeter) initialize(modbusClient *modbus.ModbusClient, modbus
 	return nil
 }
 
-func (c *carloGavazziMeter) threePhase() bool {
-	code, _ := strconv.Atoi(c.meterCode)
-	switch code {
-	case 71, 72, 73, 331, 332, 335, 336, 340, 341, 345, 346, 1744, 1745, 1746, 1747, 1760, 1761, 1762, 1763:
-		return true
-	}
-	return false
+type CarloGavazziConfig struct {
+	ModbusUrl        string
+	ModbusGridConfig *ModbusGridConfig
+	ModbusPvConfigs  []*ModbusPvConfig
 }
 
-func (c *carloGavazziMeter) updateValues(modbusClient *modbus.ModbusClient, modbusUnitId uint8, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(modbusUnitId)
-	if c.threePhase() {
+func NewCarloGavazziSystem(config *CarloGavazziConfig) (*energysource.System, error) {
+	modbusConfig := &modbus.ClientConfiguration{
+		URL:     config.ModbusUrl,
+		Timeout: time.Millisecond * 500,
+		Speed:   9600,
+	}
+	modbusClient, err := modbus.NewClient(modbusConfig)
+	if err != nil {
+		return nil, err
+	}
+	err = modbusClient.Open()
+	if err != nil {
+		return nil, err
+	}
+	var grid *energysource.Grid = nil
+	if config.ModbusGridConfig != nil {
+		meter := &carloGavazziModbusMeter{}
+		err := meter.initialize(modbusClient, config.ModbusGridConfig.ModbusMeter)
+		if err != nil {
+			return nil, err
+		}
+		g := energysource.Grid(carloGavazziGrid{
+			GridBase: energysource.NewGridBase(config.ModbusGridConfig.GridConfig),
+			meter:    meter,
+		})
+		grid = &g
+	}
+	var pvs []*energysource.Pv = nil
+	if config.ModbusPvConfigs != nil {
+		for ix := 0; ix < len(config.ModbusPvConfigs); ix++ {
+			meter := &carloGavazziModbusMeter{}
+			err := meter.initialize(modbusClient, config.ModbusPvConfigs[ix].ModbusMeter)
+			if err != nil {
+				return nil, err
+			}
+			pv := energysource.Pv(carloGavazziPv{
+				PvBase: energysource.NewPvBase(config.ModbusPvConfigs[ix].PvConfig),
+				meter:  meter,
+			})
+			pvs = append(pvs, &pv)
+		}
+	}
+	system := energysource.NewSystem(grid, pvs)
+	cgSystem := &carloGavazziSystem{}
+	go cgSystem.readSystemValues(modbusClient, system)
+	return system, nil
+}
+
+func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
+	ticker := time.NewTicker(time.Millisecond * 250)
+	tickerChannel := make(chan bool)
+	runtime.SetFinalizer(system, func(a *energysource.System) {
+		tickerChannel <- true
+		ticker.Stop()
+	})
+	defer func(client *modbus.ModbusClient) {
+		_ = client.Close()
+	}(client)
+
+	for {
+		select {
+		case <-ticker.C:
+			if system.Grid() != nil {
+				cgGrid, ok := (*system.Grid()).(carloGavazziGrid)
+				if ok {
+					cgGrid.meter.updateValues(client, cgGrid.EnergyFlowBase)
+				}
+			}
+			if system.Pvs() != nil {
+				for ix := 0; ix < len(system.Pvs()); ix++ {
+					cgPv, ok := (*system.Pvs()[ix]).(carloGavazziPv)
+					if ok {
+						cgPv.meter.updateValues(client, cgPv.EnergyFlowBase)
+					}
+				}
+			}
+		case <-tickerChannel:
+			return
+		}
+	}
+}
+
+func (c *carloGavazziModbusMeter) updateValues(modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(c.modbusUnitId)
+	if 3 == c.phases {
 		values, _ := modbusClient.ReadRegisters(0, 5, modbus.INPUT_REGISTER)
-		_ = flow.SetVoltage(0, modbusClient.ValueFromResultArray(values, 0, 10, 0))
-		_ = flow.SetVoltage(1, modbusClient.ValueFromResultArray(values, 2, 10, 0))
-		_ = flow.SetVoltage(2, modbusClient.ValueFromResultArray(values, 4, 10, 0))
+		for ix := 0; ix < len(c.lineIndexes); ix++ {
+			offset := c.lineIndexes[ix] * 2
+			_ = flow.SetVoltage(c.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset, 10, 0))
+		}
 		values, _ = modbusClient.ReadRegisters(12, 11, modbus.INPUT_REGISTER)
-		_ = flow.SetCurrent(0, modbusClient.ValueFromResultArray(values, 0, 1000, 0))
-		_ = flow.SetCurrent(1, modbusClient.ValueFromResultArray(values, 2, 1000, 0))
-		_ = flow.SetCurrent(2, modbusClient.ValueFromResultArray(values, 4, 1000, 0))
-		_ = flow.SetPower(0, modbusClient.ValueFromResultArray(values, 6, 10, 0))
-		_ = flow.SetPower(1, modbusClient.ValueFromResultArray(values, 8, 10, 0))
-		_ = flow.SetPower(2, modbusClient.ValueFromResultArray(values, 10, 10, 0))
+		for ix := 0; ix < len(c.lineIndexes); ix++ {
+			offset := c.lineIndexes[ix] * 2
+			_ = flow.SetCurrent(c.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset, 1000, 0))
+			_ = flow.SetPower(c.lineIndexes[ix], modbusClient.ValueFromResultArray(values, 6+offset, 10, 0))
+		}
 	} else {
 		values, _ := modbusClient.ReadRegisters(0, 5, modbus.INPUT_REGISTER)
-		_ = flow.SetVoltage(0, modbusClient.ValueFromResultArray(values, 0, 10, 0))
-		_ = flow.SetCurrent(0, modbusClient.ValueFromResultArray(values, 2, 1000, 0))
-		_ = flow.SetPower(0, modbusClient.ValueFromResultArray(values, 4, 10, 0))
+		_ = flow.SetVoltage(c.lineIndexes[0], modbusClient.ValueFromResultArray(values, 0, 10, 0))
+		_ = flow.SetCurrent(c.lineIndexes[0], modbusClient.ValueFromResultArray(values, 2, 1000, 0))
+		_ = flow.SetPower(c.lineIndexes[0], modbusClient.ValueFromResultArray(values, 4, 10, 0))
 	}
 }

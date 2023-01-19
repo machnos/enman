@@ -21,9 +21,18 @@ func main() {
 		panic(err)
 	}
 
-	var gridUnitId = uint8(31)
-	var pvUnitIds []uint8
-	system, err := internalenergysource.NewVictronSystem("tcp://einstein.energy.cleme:502", gridConfig, &gridUnitId, pvUnitIds)
+	config := &internalenergysource.VictronConfig{
+		ModbusUrl: "tcp://einstein.energy.cleme:502",
+		ModbusGridConfig: &internalenergysource.ModbusGridConfig{
+			GridConfig: gridConfig,
+			ModbusMeter: &internalenergysource.ModbusMeter{
+				ModbusUnitId: 31,
+				LineIndexes:  []uint8{0, 1, 2},
+			},
+		},
+	}
+
+	system, err := internalenergysource.NewVictronSystem(config)
 
 	//var gridUnitId = uint8(2)
 	//system, err := internalenergysource.NewCarloGavazziSystem("rtu:///dev/ttyUSB0", gridConfig, &gridUnitId, pvUnitIds)

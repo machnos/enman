@@ -3,60 +3,135 @@ package energysource
 import (
 	"enman/internal/modbus"
 	"enman/pkg/energysource"
+	"runtime"
+	"time"
 )
 
-func NewVictronSystem(modbusUrl string, gridConfig *energysource.GridConfig, gridUnitId *uint8, pvUnitIds []uint8) (*energysource.System, error) {
-	config := &ModbusConfig{
-		modbusUrl:  modbusUrl,
-		gridConfig: gridConfig,
-		updateGridValues: func(modbusClient *modbus.ModbusClient, grid *modbusGrid) {
-			if grid.modbusUnitId <= 0 {
-				return
-			}
-			modbusClient.SetUnitId(grid.modbusUnitId)
-			values, _ := modbusClient.ReadRegisters(2600, 3, modbus.INPUT_REGISTER)
-			_ = grid.SetPower(0, modbusClient.ValueFromResultArray(values, 0, 0, 0))
-			_ = grid.SetPower(1, modbusClient.ValueFromResultArray(values, 1, 0, 0))
-			_ = grid.SetPower(2, modbusClient.ValueFromResultArray(values, 2, 0, 0))
-			values, _ = modbusClient.ReadRegisters(2616, 6, modbus.INPUT_REGISTER)
-			_ = grid.SetVoltage(0, modbusClient.ValueFromResultArray(values, 0, 10, 0))
-			_ = grid.SetCurrent(0, modbusClient.ValueFromResultArray(values, 1, 10, 0))
-			_ = grid.SetVoltage(1, modbusClient.ValueFromResultArray(values, 2, 10, 0))
-			_ = grid.SetCurrent(1, modbusClient.ValueFromResultArray(values, 3, 10, 0))
-			_ = grid.SetVoltage(2, modbusClient.ValueFromResultArray(values, 4, 10, 0))
-			_ = grid.SetCurrent(2, modbusClient.ValueFromResultArray(values, 5, 10, 0))
-		},
-		updatePvValues: func(client *modbus.ModbusClient, pv *modbusPv) {
-			if pv.modbusUnitId <= 0 {
-				return
-			}
-			client.SetUnitId(pv.modbusUnitId)
-			values, _ := client.ReadRegisters(1027, 11, modbus.INPUT_REGISTER)
-			_ = pv.SetVoltage(0, client.ValueFromResultArray(values, 0, 10, 0))
-			_ = pv.SetCurrent(0, client.ValueFromResultArray(values, 1, 10, 0))
-			_ = pv.SetPower(0, client.ValueFromResultArray(values, 2, 0, 0))
-			_ = pv.SetVoltage(1, client.ValueFromResultArray(values, 4, 10, 0))
-			_ = pv.SetCurrent(1, client.ValueFromResultArray(values, 5, 10, 0))
-			_ = pv.SetPower(1, client.ValueFromResultArray(values, 6, 0, 0))
-			_ = pv.SetVoltage(2, client.ValueFromResultArray(values, 8, 10, 0))
-			_ = pv.SetCurrent(2, client.ValueFromResultArray(values, 9, 10, 0))
-			_ = pv.SetPower(2, client.ValueFromResultArray(values, 10, 0, 0))
-		},
+type victronSystem struct {
+}
+
+type victronGrid struct {
+	*energysource.GridBase
+	meter *victronModbusMeter
+}
+
+type victronPv struct {
+	*energysource.PvBase
+	meter *victronModbusMeter
+}
+
+type victronModbusMeter struct {
+	modbusUnitId uint8
+	lineIndexes  []uint8
+}
+
+func (v *victronModbusMeter) initialize(modbusMeter *ModbusMeter) {
+	v.modbusUnitId = modbusMeter.ModbusUnitId
+	v.lineIndexes = modbusMeter.LineIndexes
+}
+
+type VictronConfig struct {
+	ModbusUrl        string
+	ModbusGridConfig *ModbusGridConfig
+	ModbusPvConfigs  []*ModbusPvConfig
+}
+
+func NewVictronSystem(config *VictronConfig) (*energysource.System, error) {
+	modbusConfig := &modbus.ClientConfiguration{
+		URL:     config.ModbusUrl,
+		Timeout: time.Millisecond * 500,
 	}
-	if gridUnitId != nil {
-		config.modbusGridConfig = &ModbusGridConfig{
-			modbusUnitId: *gridUnitId,
-		}
+	modbusClient, err := modbus.NewClient(modbusConfig)
+	if err != nil {
+		return nil, err
 	}
-	if pvUnitIds != nil {
-		configs := make([]*ModbusPvConfig, len(pvUnitIds))
-		for ix := 0; ix < len(pvUnitIds); ix++ {
-			configs = append(configs, &ModbusPvConfig{
-				modbusUnitId: pvUnitIds[ix],
+	err = modbusClient.Open()
+	if err != nil {
+		return nil, err
+	}
+	var grid *energysource.Grid = nil
+	if config.ModbusGridConfig != nil {
+		meter := &victronModbusMeter{}
+		meter.initialize(config.ModbusGridConfig.ModbusMeter)
+		g := energysource.Grid(victronGrid{
+			GridBase: energysource.NewGridBase(config.ModbusGridConfig.GridConfig),
+			meter:    meter,
+		})
+		grid = &g
+	}
+	var pvs []*energysource.Pv = nil
+	if config.ModbusPvConfigs != nil {
+		for ix := 0; ix < len(config.ModbusPvConfigs); ix++ {
+			meter := &victronModbusMeter{}
+			meter.initialize(config.ModbusPvConfigs[ix].ModbusMeter)
+			pv := energysource.Pv(victronPv{
+				PvBase: energysource.NewPvBase(config.ModbusPvConfigs[ix].PvConfig),
+				meter:  meter,
 			})
+			pvs = append(pvs, &pv)
 		}
-		config.pvConfigs = configs
 	}
-	system, err := NewModbusSystem(config)
-	return system, err
+	system := energysource.NewSystem(grid, pvs)
+	vSystem := &victronSystem{}
+	go vSystem.readSystemValues(modbusClient, system)
+	return system, nil
+}
+
+func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
+	ticker := time.NewTicker(time.Millisecond * 250)
+	tickerChannel := make(chan bool)
+	runtime.SetFinalizer(system, func(a *energysource.System) {
+		tickerChannel <- true
+		ticker.Stop()
+	})
+	defer func(client *modbus.ModbusClient) {
+		_ = client.Close()
+	}(client)
+
+	for {
+		select {
+		case <-ticker.C:
+			if system.Grid() != nil {
+				vGrid, ok := (*system.Grid()).(victronGrid)
+				if ok {
+					vGrid.meter.updateGridValues(client, vGrid.EnergyFlowBase)
+				}
+			}
+			if system.Pvs() != nil {
+				for ix := 0; ix < len(system.Pvs()); ix++ {
+					vPv, ok := (*system.Pvs()[ix]).(victronPv)
+					if ok {
+						vPv.meter.updatePvValues(client, vPv.EnergyFlowBase)
+					}
+				}
+			}
+		case <-tickerChannel:
+			return
+		}
+	}
+}
+
+func (v *victronModbusMeter) updateGridValues(modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(v.modbusUnitId)
+	values, _ := modbusClient.ReadRegisters(2600, 3, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(v.lineIndexes); ix++ {
+		_ = flow.SetPower(v.lineIndexes[ix], modbusClient.ValueFromResultArray(values, v.lineIndexes[ix], 0, 0))
+	}
+	values, _ = modbusClient.ReadRegisters(2616, 6, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(v.lineIndexes); ix++ {
+		offset := v.lineIndexes[ix] * 2
+		_ = flow.SetVoltage(v.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset+0, 10, 0))
+		_ = flow.SetCurrent(v.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset+1, 10, 0))
+	}
+}
+
+func (v *victronModbusMeter) updatePvValues(modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(v.modbusUnitId)
+	values, _ := modbusClient.ReadRegisters(1027, 11, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(v.lineIndexes); ix++ {
+		offset := v.lineIndexes[ix] * 4
+		_ = flow.SetVoltage(v.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset+0, 10, 0))
+		_ = flow.SetCurrent(v.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset+1, 10, 0))
+		_ = flow.SetPower(v.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset+2, 0, 0))
+	}
 }
