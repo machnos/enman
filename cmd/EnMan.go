@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	internalenergysource "enman/internal/energysource"
+	ies "enman/internal/energysource"
 	"enman/pkg/energysource"
 	"fmt"
 	"io"
@@ -21,23 +21,35 @@ func main() {
 		panic(err)
 	}
 
-	config := &internalenergysource.VictronConfig{
+	config := &ies.VictronConfig{
 		ModbusUrl: "tcp://einstein.energy.cleme:502",
-		ModbusGridConfig: &internalenergysource.ModbusGridConfig{
-			GridConfig: gridConfig,
-			ModbusMeter: &internalenergysource.ModbusMeter{
-				ModbusUnitId: 31,
-				LineIndexes:  []uint8{0, 1, 2},
+		ModbusGridConfig: &ies.ModbusGridConfig{
+			Grid: gridConfig,
+			ModbusMeters: []*ies.ModbusMeterConfig{
+				{
+					ModbusUnitId: 31,
+					LineIndexes:  []uint8{0, 1, 2},
+				},
 			},
 		},
 	}
+	system, err := ies.NewVictronSystem(config)
 
-	system, err := internalenergysource.NewVictronSystem(config)
+	//config := &ies.CarloGavazziConfig{
+	//	ModbusUrl: "rtu:///dev/ttyUSB0",
+	//	ModbusGridConfig: &ies.ModbusGridConfig{
+	//		Grid: gridConfig,
+	//		ModbusMeters: []*ies.ModbusMeterConfig{
+	//			{
+	//				ModbusUnitId: 2,
+	//				LineIndexes:  []uint8{1, 2},
+	//			},
+	//		},
+	//	},
+	//}
+	//system, err := ies.NewCarloGavazziSystem(config)
 
-	//var gridUnitId = uint8(2)
-	//system, err := internalenergysource.NewCarloGavazziSystem("rtu:///dev/ttyUSB0", gridConfig, &gridUnitId, pvUnitIds)
-
-	//system, err := internalenergysource.NewDsmrSystem(&internalenergysource.DsmrConfig{
+	//system, err := ies.NewDsmrSystem(&ies.DsmrConfig{
 	//	BaudRate: 115200,
 	//	Device:   "/dev/ttyUSB0",
 	//}, gridConfig)

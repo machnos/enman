@@ -10,24 +10,15 @@ import (
 type victronSystem struct {
 }
 
-type victronGrid struct {
-	*energysource.GridBase
-	meter *victronModbusMeter
-}
-
-type victronPv struct {
-	*energysource.PvBase
-	meter *victronModbusMeter
-}
-
 type victronModbusMeter struct {
 	modbusUnitId uint8
 	lineIndexes  []uint8
 }
 
-func (v *victronModbusMeter) initialize(modbusMeter *ModbusMeter) {
+func (v *victronModbusMeter) initialize(modbusClient *modbus.ModbusClient, modbusMeter *ModbusMeterConfig) error {
 	v.modbusUnitId = modbusMeter.ModbusUnitId
 	v.lineIndexes = modbusMeter.LineIndexes
+	return nil
 }
 
 type VictronConfig struct {
@@ -37,44 +28,19 @@ type VictronConfig struct {
 }
 
 func NewVictronSystem(config *VictronConfig) (*energysource.System, error) {
-	modbusConfig := &modbus.ClientConfiguration{
-		URL:     config.ModbusUrl,
-		Timeout: time.Millisecond * 500,
-	}
-	modbusClient, err := modbus.NewClient(modbusConfig)
-	if err != nil {
-		return nil, err
-	}
-	err = modbusClient.Open()
-	if err != nil {
-		return nil, err
-	}
-	var grid *energysource.Grid = nil
-	if config.ModbusGridConfig != nil {
-		meter := &victronModbusMeter{}
-		meter.initialize(config.ModbusGridConfig.ModbusMeter)
-		g := energysource.Grid(victronGrid{
-			GridBase: energysource.NewGridBase(config.ModbusGridConfig.GridConfig),
-			meter:    meter,
-		})
-		grid = &g
-	}
-	var pvs []*energysource.Pv = nil
-	if config.ModbusPvConfigs != nil {
-		for ix := 0; ix < len(config.ModbusPvConfigs); ix++ {
-			meter := &victronModbusMeter{}
-			meter.initialize(config.ModbusPvConfigs[ix].ModbusMeter)
-			pv := energysource.Pv(victronPv{
-				PvBase: energysource.NewPvBase(config.ModbusPvConfigs[ix].PvConfig),
-				meter:  meter,
-			})
-			pvs = append(pvs, &pv)
-		}
-	}
-	system := energysource.NewSystem(grid, pvs)
 	vSystem := &victronSystem{}
-	go vSystem.readSystemValues(modbusClient, system)
-	return system, nil
+	return NewModbusSystem(
+		&ModbusConfig{
+			ModbusUrl: config.ModbusUrl,
+			Timeout:   time.Millisecond * 500,
+		},
+		config.ModbusGridConfig,
+		config.ModbusPvConfigs,
+		func() modbusMeter {
+			return modbusMeter(&victronModbusMeter{})
+		},
+		vSystem.readSystemValues,
+	)
 }
 
 func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
@@ -92,16 +58,26 @@ func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *en
 		select {
 		case <-ticker.C:
 			if system.Grid() != nil {
-				vGrid, ok := (*system.Grid()).(victronGrid)
+				mGrid, ok := (*system.Grid()).(modbusGrid)
 				if ok {
-					vGrid.meter.updateGridValues(client, vGrid.EnergyFlowBase)
+					for _, meter := range mGrid.meters {
+						vMeter, ok := (*meter).(*victronModbusMeter)
+						if ok {
+							vMeter.updateGridValues(client, mGrid.EnergyFlowBase)
+						}
+					}
 				}
 			}
 			if system.Pvs() != nil {
 				for ix := 0; ix < len(system.Pvs()); ix++ {
-					vPv, ok := (*system.Pvs()[ix]).(victronPv)
+					mPV, ok := (*system.Pvs()[ix]).(modbusPv)
 					if ok {
-						vPv.meter.updatePvValues(client, vPv.EnergyFlowBase)
+						for _, meter := range mPV.meters {
+							vMeter, ok := (*meter).(*victronModbusMeter)
+							if ok {
+								vMeter.updatePvValues(client, mPV.EnergyFlowBase)
+							}
+						}
 					}
 				}
 			}

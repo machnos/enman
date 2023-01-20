@@ -17,16 +17,6 @@ const (
 type carloGavazziSystem struct {
 }
 
-type carloGavazziGrid struct {
-	*energysource.GridBase
-	meter *carloGavazziModbusMeter
-}
-
-type carloGavazziPv struct {
-	*energysource.PvBase
-	meter *carloGavazziModbusMeter
-}
-
 type carloGavazziModbusMeter struct {
 	modbusUnitId uint8
 	lineIndexes  []uint8
@@ -35,10 +25,11 @@ type carloGavazziModbusMeter struct {
 	phases       uint8
 }
 
-func (c *carloGavazziModbusMeter) initialize(modbusClient *modbus.ModbusClient, modbusMeter *ModbusMeter) error {
+func (c *carloGavazziModbusMeter) initialize(modbusClient *modbus.ModbusClient, modbusMeter *ModbusMeterConfig) error {
 	c.modbusUnitId = modbusMeter.ModbusUnitId
 	c.lineIndexes = modbusMeter.LineIndexes
 	modbusClient.SetUnitId(c.modbusUnitId)
+	// Read meter type
 	meterType, err := modbusClient.ReadRegister(0x000B, modbus.INPUT_REGISTER)
 	if err != nil {
 		return err
@@ -166,51 +157,20 @@ type CarloGavazziConfig struct {
 }
 
 func NewCarloGavazziSystem(config *CarloGavazziConfig) (*energysource.System, error) {
-	modbusConfig := &modbus.ClientConfiguration{
-		URL:     config.ModbusUrl,
-		Timeout: time.Millisecond * 500,
-		Speed:   9600,
-	}
-	modbusClient, err := modbus.NewClient(modbusConfig)
-	if err != nil {
-		return nil, err
-	}
-	err = modbusClient.Open()
-	if err != nil {
-		return nil, err
-	}
-	var grid *energysource.Grid = nil
-	if config.ModbusGridConfig != nil {
-		meter := &carloGavazziModbusMeter{}
-		err := meter.initialize(modbusClient, config.ModbusGridConfig.ModbusMeter)
-		if err != nil {
-			return nil, err
-		}
-		g := energysource.Grid(carloGavazziGrid{
-			GridBase: energysource.NewGridBase(config.ModbusGridConfig.GridConfig),
-			meter:    meter,
-		})
-		grid = &g
-	}
-	var pvs []*energysource.Pv = nil
-	if config.ModbusPvConfigs != nil {
-		for ix := 0; ix < len(config.ModbusPvConfigs); ix++ {
-			meter := &carloGavazziModbusMeter{}
-			err := meter.initialize(modbusClient, config.ModbusPvConfigs[ix].ModbusMeter)
-			if err != nil {
-				return nil, err
-			}
-			pv := energysource.Pv(carloGavazziPv{
-				PvBase: energysource.NewPvBase(config.ModbusPvConfigs[ix].PvConfig),
-				meter:  meter,
-			})
-			pvs = append(pvs, &pv)
-		}
-	}
-	system := energysource.NewSystem(grid, pvs)
 	cgSystem := &carloGavazziSystem{}
-	go cgSystem.readSystemValues(modbusClient, system)
-	return system, nil
+	return NewModbusSystem(
+		&ModbusConfig{
+			ModbusUrl: config.ModbusUrl,
+			Timeout:   time.Millisecond * 500,
+			Speed:     9600,
+		},
+		config.ModbusGridConfig,
+		config.ModbusPvConfigs,
+		func() modbusMeter {
+			return modbusMeter(&carloGavazziModbusMeter{})
+		},
+		cgSystem.readSystemValues,
+	)
 }
 
 func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
@@ -228,16 +188,26 @@ func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, syste
 		select {
 		case <-ticker.C:
 			if system.Grid() != nil {
-				cgGrid, ok := (*system.Grid()).(carloGavazziGrid)
+				mGrid, ok := (*system.Grid()).(modbusGrid)
 				if ok {
-					cgGrid.meter.updateValues(client, cgGrid.EnergyFlowBase)
+					for _, meter := range mGrid.meters {
+						cgMeter, ok := (*meter).(*carloGavazziModbusMeter)
+						if ok {
+							cgMeter.updateValues(client, mGrid.EnergyFlowBase)
+						}
+					}
 				}
 			}
 			if system.Pvs() != nil {
 				for ix := 0; ix < len(system.Pvs()); ix++ {
-					cgPv, ok := (*system.Pvs()[ix]).(carloGavazziPv)
+					mPv, ok := (*system.Pvs()[ix]).(modbusPv)
 					if ok {
-						cgPv.meter.updateValues(client, cgPv.EnergyFlowBase)
+						for _, meter := range mPv.meters {
+							cgMeter, ok := (*meter).(*carloGavazziModbusMeter)
+							if ok {
+								cgMeter.updateValues(client, mPv.EnergyFlowBase)
+							}
+						}
 					}
 				}
 			}
