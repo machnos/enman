@@ -68,7 +68,7 @@ func TestRTUTransportReadRTUFrame(t *testing.T) {
 	p1, p2 = net.Pipe()
 	go feedTestPipe(t, txchan, p1)
 
-	rt = newRTUTransport(p2, "", 9600, 10*time.Millisecond, nil)
+	rt = newRTUTransport(p2, "", 9600, 10*time.Millisecond)
 
 	// read a valid response (illegal data address)
 	txchan <- []byte{

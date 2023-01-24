@@ -405,9 +405,7 @@ func TestServerExtractRole(t *testing.T) {
 	var err error
 	var role string
 
-	ms = &ModbusServer{
-		logger: newLogger("test-server-role-extraction", nil),
-	}
+	ms = &ModbusServer{}
 
 	// load a client cert without role OID
 	pemBlock, _ = pem.Decode([]byte(clientCert))

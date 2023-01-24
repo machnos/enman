@@ -3,10 +3,10 @@ package modbus
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
-	"log"
+	"enman/internal/log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +33,16 @@ const (
 	LOW_WORD_FIRST  WordOrder = 2
 )
 
+func (r RegType) String() string {
+	switch r {
+	case HOLDING_REGISTER:
+		return "Holding register"
+	case INPUT_REGISTER:
+		return "Input register"
+	}
+	return "unknown register type"
+}
+
 // Modbus client configuration object.
 type ClientConfiguration struct {
 	// URL sets the client mode and target location in the form
@@ -54,15 +64,11 @@ type ClientConfiguration struct {
 	// the server (tcp+tls only). Leaf (i.e. server) certificates can also
 	// be used in case of self-signed certs, or if cert pinning is required.
 	TLSRootCAs *x509.CertPool
-	// Logger provides a custom sink for log messages.
-	// If nil, messages will be written to stdout.
-	Logger *log.Logger
 }
 
 // Modbus client object.
 type ModbusClient struct {
 	conf          ClientConfiguration
-	logger        *logger
 	lock          sync.Mutex
 	endianness    Endianness
 	wordOrder     WordOrder
@@ -85,9 +91,6 @@ func NewClient(conf *ClientConfiguration) (mc *ModbusClient, err error) {
 		clientType = splitURL[0]
 		mc.conf.URL = splitURL[1]
 	}
-
-	mc.logger = newLogger(
-		fmt.Sprintf("modbus-client(%s)", mc.conf.URL), conf.Logger)
 
 	switch clientType {
 	case "rtu":
@@ -158,7 +161,7 @@ func NewClient(conf *ClientConfiguration) (mc *ModbusClient, err error) {
 		// modbus/mpab protocol has no inherent auth facility.
 		// (see requirements R-08 and R-19 of the MBAPS spec)
 		if mc.conf.TLSClientCert == nil {
-			mc.logger.Errorf("missing client certificate")
+			log.Error("missing client certificate")
 			err = ErrConfigurationError
 			return
 		}
@@ -166,7 +169,7 @@ func NewClient(conf *ClientConfiguration) (mc *ModbusClient, err error) {
 		// expect a CertPool object containing at least 1 CA or
 		// leaf certificate to validate the server-side cert
 		if mc.conf.TLSRootCAs == nil {
-			mc.logger.Errorf("missing CA/server certificate")
+			log.Error("missing CA/server certificate")
 			err = ErrConfigurationError
 			return
 		}
@@ -182,9 +185,9 @@ func NewClient(conf *ClientConfiguration) (mc *ModbusClient, err error) {
 
 	default:
 		if len(splitURL) != 2 {
-			mc.logger.Errorf("missing client type in URL '%s'", mc.conf.URL)
+			log.Errorf("missing client type in URL '%s'", mc.conf.URL)
 		} else {
-			mc.logger.Errorf("unsupported client type '%s'", clientType)
+			log.Errorf("unsupported client type '%s'", clientType)
 		}
 		err = ErrConfigurationError
 		return
@@ -214,6 +217,7 @@ func (mc *ModbusClient) Open() (err error) {
 			DataBits: mc.conf.DataBits,
 			Parity:   mc.conf.Parity,
 			StopBits: mc.conf.StopBits,
+			Timeout:  10 * time.Millisecond,
 		})
 
 		// open the serial device
@@ -227,7 +231,7 @@ func (mc *ModbusClient) Open() (err error) {
 
 		// create the RTU transport
 		mc.transport = newRTUTransport(
-			spw, mc.conf.URL, mc.conf.Speed, mc.conf.Timeout, mc.conf.Logger)
+			spw, mc.conf.URL, mc.conf.Speed, mc.conf.Timeout)
 
 	case modbusRTUOverTCP:
 		// connect to the remote host
@@ -241,7 +245,7 @@ func (mc *ModbusClient) Open() (err error) {
 
 		// create the RTU transport
 		mc.transport = newRTUTransport(
-			sock, mc.conf.URL, mc.conf.Speed, mc.conf.Timeout, mc.conf.Logger)
+			sock, mc.conf.URL, mc.conf.Speed, mc.conf.Timeout)
 
 	case modbusRTUOverUDP:
 		// open a socket to the remote host (note: no actual connection is
@@ -256,7 +260,7 @@ func (mc *ModbusClient) Open() (err error) {
 		// packets byte per byte
 		mc.transport = newRTUTransport(
 			newUDPSockWrapper(sock),
-			mc.conf.URL, mc.conf.Speed, mc.conf.Timeout, mc.conf.Logger)
+			mc.conf.URL, mc.conf.Speed, mc.conf.Timeout)
 
 	case modbusTCP:
 		// connect to the remote host
@@ -266,7 +270,7 @@ func (mc *ModbusClient) Open() (err error) {
 		}
 
 		// create the TCP transport
-		mc.transport = newTCPTransport(sock, mc.conf.Timeout, mc.conf.Logger)
+		mc.transport = newTCPTransport(sock, mc.conf.Timeout)
 
 	case modbusTCPOverTLS:
 		// connect to the remote host with TLS
@@ -289,12 +293,12 @@ func (mc *ModbusClient) Open() (err error) {
 		// force the TLS handshake
 		err = sock.(*tls.Conn).Handshake()
 		if err != nil {
-			sock.Close()
+			_ = sock.Close()
 			return
 		}
 
 		// create the TCP transport
-		mc.transport = newTCPTransport(sock, mc.conf.Timeout, mc.conf.Logger)
+		mc.transport = newTCPTransport(sock, mc.conf.Timeout)
 
 	case modbusTCPOverUDP:
 		// open a socket to the remote host (note: no actual connection is
@@ -308,7 +312,7 @@ func (mc *ModbusClient) Open() (err error) {
 		// an adapter to allow the transport to read the stream of
 		// packets byte per byte
 		mc.transport = newTCPTransport(
-			newUDPSockWrapper(sock), mc.conf.Timeout, mc.conf.Logger)
+			newUDPSockWrapper(sock), mc.conf.Timeout)
 
 	default:
 		// should never happen
@@ -316,6 +320,11 @@ func (mc *ModbusClient) Open() (err error) {
 	}
 
 	return
+}
+
+// Closes the underlying transport.
+func (mc *ModbusClient) URL() string {
+	return mc.conf.URL
 }
 
 // Closes the underlying transport.
@@ -344,13 +353,13 @@ func (mc *ModbusClient) SetEncoding(endianness Endianness, wordOrder WordOrder) 
 	defer mc.lock.Unlock()
 
 	if endianness != BIG_ENDIAN && endianness != LITTLE_ENDIAN {
-		mc.logger.Errorf("unknown endianness value %v", endianness)
+		log.Errorf("unknown endianness value %v", endianness)
 		err = ErrUnexpectedParameters
 		return
 	}
 
 	if wordOrder != HIGH_WORD_FIRST && wordOrder != LOW_WORD_FIRST {
-		mc.logger.Errorf("unknown word order value %v", wordOrder)
+		log.Errorf("unknown word order value %v", wordOrder)
 		err = ErrUnexpectedParameters
 		return
 	}
@@ -401,17 +410,29 @@ func (mc *ModbusClient) ReadDiscreteInput(addr uint16) (value bool, err error) {
 
 // Reads multiple 16-bit registers (function code 03 or 04).
 func (mc *ModbusClient) ReadRegisters(addr uint16, quantity uint16, regType RegType) (values []uint16, err error) {
+	if log.DebugEnabled() {
+		log.Debugf("Start reading %d %ss of unitId %d at %s, starting at address %d", quantity, regType, mc.unitId, mc.conf.URL, addr)
+	}
 	var mbPayload []byte
 
 	// read quantity uint16 registers, as bytes
 	mbPayload, err = mc.readRegisters(addr, quantity, regType)
 	if err != nil {
+		if log.DebugEnabled() {
+			log.Debugf("Failed to read registers: %s", err.Error())
+		}
 		return
 	}
 
 	// decode payload bytes as uint16s
 	values = bytesToUint16s(mc.endianness, mbPayload)
-
+	if log.DebugEnabled() {
+		var stringValues []string
+		for _, v := range values {
+			stringValues = append(stringValues, strconv.Itoa(int(v)))
+		}
+		log.Debugf("Retrieved values %s", strings.Join(stringValues, ", "))
+	}
 	return
 }
 
@@ -621,7 +642,7 @@ func (mc *ModbusClient) WriteCoil(addr uint16, value bool) (err error) {
 
 	default:
 		err = ErrProtocolError
-		mc.logger.Warningf("unexpected response code (%v)", res.functionCode)
+		log.Warningf("unexpected response code (%v)", res.functionCode)
 	}
 
 	return
@@ -640,19 +661,19 @@ func (mc *ModbusClient) WriteCoils(addr uint16, values []bool) (err error) {
 	quantity = uint16(len(values))
 	if quantity == 0 {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("quantity of coils is 0")
+		log.Error("quantity of coils is 0")
 		return
 	}
 
 	if quantity > 0x7b0 {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("quantity of coils exceeds 1968")
+		log.Error("quantity of coils exceeds 1968")
 		return
 	}
 
 	if uint32(addr)+uint32(quantity)-1 > 0xffff {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("end coil address is past 0xffff")
+		log.Error("end coil address is past 0xffff")
 		return
 	}
 
@@ -702,7 +723,7 @@ func (mc *ModbusClient) WriteCoils(addr uint16, values []bool) (err error) {
 
 	default:
 		err = ErrProtocolError
-		mc.logger.Warningf("unexpected response code (%v)", res.functionCode)
+		log.Warningf("unexpected response code (%v)", res.functionCode)
 	}
 
 	return
@@ -756,7 +777,7 @@ func (mc *ModbusClient) WriteRegister(addr uint16, value uint16) (err error) {
 
 	default:
 		err = ErrProtocolError
-		mc.logger.Warningf("unexpected response code (%v)", res.functionCode)
+		log.Warningf("unexpected response code (%v)", res.functionCode)
 	}
 
 	return
@@ -941,19 +962,19 @@ func (mc *ModbusClient) readBools(addr uint16, quantity uint16, di bool) (values
 
 	if quantity == 0 {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("quantity of coils/discrete inputs is 0")
+		log.Error("quantity of coils/discrete inputs is 0")
 		return
 	}
 
 	if quantity > 2000 {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("quantity of coils/discrete inputs exceeds 2000")
+		log.Error("quantity of coils/discrete inputs exceeds 2000")
 		return
 	}
 
 	if uint32(addr)+uint32(quantity)-1 > 0xffff {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("end coil/discrete input address is past 0xffff")
+		log.Error("end coil/discrete input address is past 0xffff")
 		return
 	}
 
@@ -1013,7 +1034,7 @@ func (mc *ModbusClient) readBools(addr uint16, quantity uint16, di bool) (values
 
 	default:
 		err = ErrProtocolError
-		mc.logger.Warningf("unexpected response code (%v)", res.functionCode)
+		log.Warningf("unexpected response code (%v)", res.functionCode)
 	}
 
 	return
@@ -1039,23 +1060,23 @@ func (mc *ModbusClient) readRegisters(addr uint16, quantity uint16, regType RegT
 		req.functionCode = fcReadInputRegisters
 	default:
 		err = ErrUnexpectedParameters
-		mc.logger.Errorf("unexpected register type (%v)", regType)
+		log.Errorf("unexpected register type (%v)", regType)
 		return
 	}
 
 	if quantity == 0 {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("quantity of registers is 0")
+		log.Error("quantity of registers is 0")
 	}
 
 	if quantity > 123 {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("quantity of registers exceeds 123")
+		log.Error("quantity of registers exceeds 123")
 	}
 
 	if uint32(addr)+uint32(quantity)-1 > 0xffff {
 		err = ErrUnexpectedParameters
-		mc.logger.Error("end register address is past 0xffff")
+		log.Error("end register address is past 0xffff")
 		return
 	}
 
@@ -1100,7 +1121,7 @@ func (mc *ModbusClient) readRegisters(addr uint16, quantity uint16, regType RegT
 
 	default:
 		err = ErrProtocolError
-		mc.logger.Warningf("unexpected response code (%v)", res.functionCode)
+		log.Warningf("unexpected response code (%v)", res.functionCode)
 	}
 
 	return
@@ -1122,19 +1143,19 @@ func (mc *ModbusClient) writeRegisters(addr uint16, values []byte) (err error) {
 
 	if quantity == 0 {
 		err = ErrUnexpectedParameters
-		mc.logger.Errorf("quantity of registers is 0")
+		log.Errorf("quantity of registers is 0")
 		return
 	}
 
 	if quantity > 123 {
 		err = ErrUnexpectedParameters
-		mc.logger.Errorf("quantity of registers exceeds 123")
+		log.Errorf("quantity of registers exceeds 123")
 		return
 	}
 
 	if uint32(addr)+uint32(quantity)-1 > 0xffff {
 		err = ErrUnexpectedParameters
-		mc.logger.Errorf("end register address is past 0xffff")
+		log.Error("end register address is past 0xffff")
 		return
 	}
 
@@ -1182,7 +1203,7 @@ func (mc *ModbusClient) writeRegisters(addr uint16, values []byte) (err error) {
 
 	default:
 		err = ErrProtocolError
-		mc.logger.Warningf("unexpected response code (%v)", res.functionCode)
+		log.Warningf("unexpected response code (%v)", res.functionCode)
 	}
 
 	return

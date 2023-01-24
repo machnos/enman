@@ -31,8 +31,8 @@ func NewDsmrSystem(config *DsmrConfig, gridConfig *energysource.GridConfig) (*en
 	if err != nil {
 		return nil, err
 	}
-	dsmrSystem := &dsmrSystem{}
-	go dsmrSystem.readSystemValues(serialPort, gb)
+	dSystem := &dsmrSystem{}
+	go dSystem.readSystemValues(serialPort, gb)
 	e := energysource.Grid(gb)
 	var system = energysource.NewSystem(&e, nil)
 	return system, nil
@@ -58,7 +58,6 @@ func (d *dsmrSystem) readSystemValues(serialPort serial.Port, gridBase *energyso
 		if err != nil {
 			continue
 		}
-		//println(message)
 		lines := strings.Split(message, "\n")
 		for ix := 0; ix < len(lines); ix++ {
 			trimmedLine := strings.TrimSpace(lines[ix])

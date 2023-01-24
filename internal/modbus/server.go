@@ -4,9 +4,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
+	"enman/internal/log"
 	"errors"
-	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -22,10 +21,18 @@ var modbusRoleOID asn1.ObjectIdentifier = asn1.ObjectIdentifier{
 type ServerConfiguration struct {
 	// URL defines where to listen at e.g. tcp://[::]:502
 	URL string
+	// Speed sets the serial link speed (in bps, rtu only)
+	Speed uint
+	// DataBits sets the number of bits per serial character (rtu only)
+	DataBits uint
+	// Parity sets the serial link parity mode (rtu only)
+	Parity uint
+	// StopBits sets the number of serial stop bits (rtu only)
+	StopBits uint
 	// Timeout sets the idle session timeout (client connections will
 	// be closed if idle for this long)
 	Timeout time.Duration
-	// MaxClients sets the maximum number of concurrent client connections
+	// MaxClients sets the maximum number of concurrent client connections (tcp only)
 	MaxClients uint
 	// TLSServerCert sets the server-side TLS key pair (tcp+tls only)
 	TLSServerCert *tls.Certificate
@@ -33,9 +40,6 @@ type ServerConfiguration struct {
 	// client connections (tcp+tls only). Leaf (i.e. client) certificates can
 	// also be used in case of self-signed certs, or if cert pinning is required.
 	TLSClientCAs *x509.CertPool
-	// Logger provides a custom sink for log messages.
-	// If nil, messages will be written to stdout.
-	Logger *log.Logger
 }
 
 // Request object passed to the coil handler.
@@ -141,14 +145,14 @@ type RequestHandler interface {
 
 // Modbus server object.
 type ModbusServer struct {
-	conf          ServerConfiguration
-	logger        *logger
-	lock          sync.Mutex
-	started       bool
-	handler       RequestHandler
-	tcpListener   net.Listener
-	tcpClients    []net.Conn
-	transportType transportType
+	conf              ServerConfiguration
+	lock              sync.Mutex
+	started           bool
+	handler           RequestHandler
+	serialPortWrapper *serialPortWrapper // rtu only
+	tcpListener       net.Listener       // tcp only
+	tcpClients        []net.Conn         // tcp only
+	transportType     transportType
 }
 
 // Returns a new modbus server.
@@ -170,16 +174,43 @@ func NewServer(conf *ServerConfiguration, reqHandler RequestHandler) (
 		ms.conf.URL = splitURL[1]
 	}
 
-	ms.logger = newLogger(
-		fmt.Sprintf("modbus-server(%s)", ms.conf.URL), ms.conf.Logger)
-
 	if ms.conf.URL == "" {
-		ms.logger.Errorf("missing host part in URL '%s'", conf.URL)
+		log.Errorf("missing host part in URL '%s'", conf.URL)
 		err = ErrConfigurationError
 		return
 	}
 
 	switch serverType {
+	case "rtu":
+		// set useful defaults
+		if ms.conf.Speed == 0 {
+			ms.conf.Speed = 19200
+		}
+
+		// note: the "modbus over serial line v1.02" document specifies an
+		// 11-bit character frame, with even parity and 1 stop bit as default,
+		// and mandates the use of 2 stop bits when no parity is used.
+		// This stack defaults to 8/N/2 as most devices seem to use no parity,
+		// but giving 8/N/1, 8/E/1 and 8/O/1 a shot may help with serial
+		// issues.
+		if ms.conf.DataBits == 0 {
+			ms.conf.DataBits = 8
+		}
+
+		if ms.conf.StopBits == 0 {
+			if ms.conf.Parity == PARITY_NONE {
+				ms.conf.StopBits = 2
+			} else {
+				ms.conf.StopBits = 1
+			}
+		}
+
+		//if ms.conf.Timeout == 0 {
+		//	ms.conf.Timeout = 300 * time.Millisecond
+		//}
+
+		ms.transportType = modbusRTU
+
 	case "tcp":
 		if ms.conf.Timeout == 0 {
 			ms.conf.Timeout = 120 * time.Second
@@ -202,7 +233,7 @@ func NewServer(conf *ServerConfiguration, reqHandler RequestHandler) (
 
 		// expect a server-side certificate
 		if ms.conf.TLSServerCert == nil {
-			ms.logger.Errorf("missing server certificate")
+			log.Error("missing server certificate")
 			err = ErrConfigurationError
 			return
 		}
@@ -210,7 +241,7 @@ func NewServer(conf *ServerConfiguration, reqHandler RequestHandler) (
 		// expect a CertPool object containing at least 1 CA or
 		// leaf certificate to validate client-side certificates
 		if ms.conf.TLSClientCAs == nil {
-			ms.logger.Errorf("missing CA/client certificates")
+			log.Error("missing CA/client certificates")
 			err = ErrConfigurationError
 			return
 		}
@@ -235,6 +266,30 @@ func (ms *ModbusServer) Start() (err error) {
 	}
 
 	switch ms.transportType {
+	case modbusRTU:
+		// create a serial port wrapper object
+		spw := newSerialPortWrapper(&serialPortConfig{
+			Device:   ms.conf.URL,
+			Speed:    ms.conf.Speed,
+			DataBits: ms.conf.DataBits,
+			Parity:   ms.conf.Parity,
+			StopBits: ms.conf.StopBits,
+			Timeout:  10 * time.Second,
+		})
+
+		// open the serial device
+		err = spw.Open()
+		if err != nil {
+			return
+		}
+
+		// discard potentially stale serial data
+		//discard(spw)
+
+		// create the RTU transport
+		ms.serialPortWrapper = spw
+		go ms.acceptRTUServer()
+
 	case modbusTCP, modbusTCPOverTLS:
 		// bind to a TCP socket
 		ms.tcpListener, err = net.Listen("tcp", ms.conf.URL)
@@ -276,7 +331,19 @@ func (ms *ModbusServer) Stop() (err error) {
 		}
 	}
 
+	if ms.transportType == modbusRTU {
+
+		err = ms.serialPortWrapper.Close()
+	}
 	return
+}
+
+func (ms *ModbusServer) acceptRTUServer() {
+	ms.handleTransport(
+		newRTUTransport(ms.serialPortWrapper, ms.conf.URL, ms.conf.Speed, ms.conf.Timeout),
+		"",
+		"",
+	)
 }
 
 // Accepts new client connections if the configured connection limit allows it.
@@ -295,7 +362,7 @@ func (ms *ModbusServer) acceptTCPClients() {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			ms.logger.Warningf("failed to accept client connection: %v", err)
+			log.Warningf("failed to accept client connection: %v", err)
 			continue
 		}
 
@@ -314,7 +381,7 @@ func (ms *ModbusServer) acceptTCPClients() {
 			// spin a client handler goroutine to serve the new client
 			go ms.handleTCPClient(sock)
 		} else {
-			ms.logger.Warningf("max. number of concurrent connections "+
+			log.Warningf("max. number of concurrent connections "+
 				"reached, rejecting %v", sock.RemoteAddr())
 			// discard the connection
 			sock.Close()
@@ -338,24 +405,24 @@ func (ms *ModbusServer) handleTCPClient(sock net.Conn) {
 	case modbusTCP:
 		// serve modbus requests over the raw TCP connection
 		ms.handleTransport(
-			newTCPTransport(sock, ms.conf.Timeout, ms.conf.Logger),
+			newTCPTransport(sock, ms.conf.Timeout),
 			sock.RemoteAddr().String(), "")
 
 	case modbusTCPOverTLS:
 		// start TLS negotiation over the raw TCP connection
 		tlsSock, clientRole, err = ms.startTLS(sock)
 		if err != nil {
-			ms.logger.Warningf("TLS handshake with %s failed: %v",
+			log.Warningf("TLS handshake with %s failed: %v",
 				sock.RemoteAddr().String(), err)
 		} else {
 			// serve modbus requests over the TLS tunnel
 			ms.handleTransport(
-				newTCPTransport(tlsSock, ms.conf.Timeout, ms.conf.Logger),
+				newTCPTransport(tlsSock, ms.conf.Timeout),
 				sock.RemoteAddr().String(), clientRole)
 		}
 
 	default:
-		ms.logger.Errorf("unimplemented transport type %v", ms.transportType)
+		log.Errorf("unimplemented transport type %v", ms.transportType)
 	}
 
 	// once done, remove our connection from the list of active client conns
@@ -441,7 +508,7 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 
 			// make sure the handler returned the expected number of items
 			if err == nil && resCount != int(quantity) {
-				ms.logger.Errorf("handler returned %v bools, "+
+				log.Errorf("handler returned %v bools, "+
 					"expected %v", resCount, quantity)
 				err = ErrServerDeviceFailure
 				break
@@ -627,7 +694,7 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 
 			// make sure the handler returned the expected number of items
 			if err == nil && resCount != int(quantity) {
-				ms.logger.Errorf("handler returned %v 16-bit values, "+
+				log.Errorf("handler returned %v 16-bit values, "+
 					"expected %v", resCount, quantity)
 				err = ErrServerDeviceFailure
 				break
@@ -772,7 +839,7 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 		// and log an error
 		if err == nil && res == nil {
 			err = ErrServerDeviceFailure
-			ms.logger.Errorf("internal server error (req: %v, res: %v, err: %v)",
+			log.Errorf("internal server error (req: %v, res: %v, err: %v)",
 				req, res, err)
 		}
 
@@ -780,7 +847,7 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 		// in which case close the transport and return.
 		if err != nil {
 			if err == ErrProtocolError {
-				ms.logger.Warningf(
+				log.Warningf(
 					"protocol error, closing link (client address: '%s')",
 					clientAddr)
 				t.Close()
@@ -797,7 +864,7 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 		// write the response to the transport
 		err = t.WriteResponse(res)
 		if err != nil {
-			ms.logger.Warningf("failed to write response: %v", err)
+			log.Warningf("failed to write response: %v", err)
 		}
 
 		// avoid holding on to stale data
@@ -869,7 +936,7 @@ func (ms *ModbusServer) extractRole(cert *x509.Certificate) (role string) {
 
 			// there must be only one role extension per cert (R-65)
 			if found {
-				ms.logger.Warning("client certificate contains more than one role OIDs")
+				log.Warning("client certificate contains more than one role OIDs")
 				badCert = true
 				break
 			}
@@ -885,7 +952,7 @@ func (ms *ModbusServer) extractRole(cert *x509.Certificate) (role string) {
 			// extract the ASN1 string
 			_, err = asn1.Unmarshal(ext.Value, &role)
 			if err != nil {
-				ms.logger.Warningf("failed to decode Modbus Role extension: %v", err)
+				log.Warningf("failed to decode Modbus Role extension: %v", err)
 				badCert = true
 				break
 			}

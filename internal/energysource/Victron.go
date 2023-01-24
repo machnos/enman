@@ -1,6 +1,7 @@
 package energysource
 
 import (
+	"enman/internal/log"
 	"enman/internal/modbus"
 	"enman/pkg/energysource"
 	"runtime"
@@ -44,7 +45,9 @@ func NewVictronSystem(config *VictronConfig) (*energysource.System, error) {
 }
 
 func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
-	ticker := time.NewTicker(time.Millisecond * 250)
+	pollInterval := uint16(250)
+	log.Infof("Start polling Victron modbus devices every %d milliseconds.", pollInterval)
+	ticker := time.NewTicker(time.Millisecond * time.Duration(pollInterval))
 	tickerChannel := make(chan bool)
 	runtime.SetFinalizer(system, func(a *energysource.System) {
 		tickerChannel <- true

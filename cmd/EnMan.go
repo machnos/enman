@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	ies "enman/internal/energysource"
+	"enman/internal/log"
 	"enman/pkg/energysource"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 )
@@ -16,6 +16,7 @@ type home struct {
 }
 
 func main() {
+	log.ActiveLevel = log.LvlInfo
 	gridConfig, err := energysource.NewGridConfig(230, 25, 3)
 	if err != nil {
 		panic(err)
@@ -66,7 +67,7 @@ func main() {
 	//http.ListenAndServe uses the default server structure.
 	err = http.ListenAndServe(":8080", mux)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err.Error())
 	}
 }
 
@@ -78,22 +79,22 @@ func printUsage(system *energysource.System) {
 		case <-ticker.C:
 			if system.Grid() != nil {
 				grid := *system.Grid()
-				println(fmt.Printf("Phases: %d, Power %4.2fW (L1: %4.2fW, L2: %4.2fW, L3: %4.2fW), Current %4.2fA (L1: %4.2fA, L2: %4.2fA, L3: %4.2fA), Voltage (L1: %4.2fV, L2: %4.2fV, L3: %4.2fV)",
+				log.Infof("Phases: %d, Power %4.2fW (L1: %4.2fW, L2: %4.2fW, L3: %4.2fW), Current %4.2fA (L1: %4.2fA, L2: %4.2fA, L3: %4.2fA), Voltage (L1: %4.2fV, L2: %4.2fV, L3: %4.2fV)",
 					grid.Phases(),
 					grid.TotalPower(), grid.Power(0), grid.Power(1), grid.Power(2),
 					grid.TotalCurrent(), grid.Current(0), grid.Current(1), grid.Current(2),
-					grid.Voltage(0), grid.Voltage(1), grid.Voltage(2)))
+					grid.Voltage(0), grid.Voltage(1), grid.Voltage(2))
 			}
 
 			if system.Pvs() != nil {
 				pvs := system.Pvs()
 				for ix := 0; ix < len(pvs); ix++ {
 					pv := *pvs[0]
-					println(fmt.Printf("PV phases: %d, Power %4.2fW (L1: %4.2fW, L2: %4.2fW, L3: %4.2fW), Current %4.2fA (L1: %4.2fA, L2: %4.2fA, L3: %4.2fA), Voltage (L1: %4.2fV, L2: %4.2fV, L3: %4.2fV)",
+					log.Infof("PV phases: %d, Power %4.2fW (L1: %4.2fW, L2: %4.2fW, L3: %4.2fW), Current %4.2fA (L1: %4.2fA, L2: %4.2fA, L3: %4.2fA), Voltage (L1: %4.2fV, L2: %4.2fV, L3: %4.2fV)",
 						pv.Phases(),
 						pv.TotalPower(), pv.Power(0), pv.Power(1), pv.Power(2),
 						pv.TotalCurrent(), pv.Current(0), pv.Current(1), pv.Current(2),
-						pv.Voltage(0), pv.Voltage(1), pv.Voltage(2)))
+						pv.Voltage(0), pv.Voltage(1), pv.Voltage(2))
 				}
 			}
 		case <-tickerChannel:

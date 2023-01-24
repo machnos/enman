@@ -1,6 +1,7 @@
 package energysource
 
 import (
+	"enman/internal/log"
 	"enman/internal/modbus"
 	"enman/pkg/energysource"
 	"fmt"
@@ -123,6 +124,7 @@ func (c *carloGavazziModbusMeter) initialize(modbusClient *modbus.ModbusClient, 
 	default:
 		c.meterType = fmt.Sprintf("Carlo Gavazzo %d", meterType)
 	}
+	log.Infof("Detected a %d phase Carlo Gavazzi %s (identification code %d) with unitId %d at %s.", c.phases, c.meterType, meterType, c.modbusUnitId, modbusClient.URL())
 	if meterType >= 71 && meterType <= 73 {
 		// type EM24 detected. Check if application is set to 'H'.
 		application, err := modbusClient.ReadRegister(em24ApplicationRegister, modbus.INPUT_REGISTER)
@@ -130,13 +132,15 @@ func (c *carloGavazziModbusMeter) initialize(modbusClient *modbus.ModbusClient, 
 			return err
 		}
 		if application != em24ApplicationH {
+			log.Infof("Detected a Carlo Gavazzi EM24 with unitId %d that is not configured as 'Application H'. "+
+				"Trying to set application mode to 'Application H'.", c.modbusUnitId)
 			// Application not set to 'H'. Check if we can update the value.
 			frontSelector, err := modbusClient.ReadRegister(em24FrontSelectorRegister, modbus.INPUT_REGISTER)
 			if err != nil {
 				return err
 			}
 			if frontSelector == 3 {
-				println("EM24 front selector is locked. Cannot update application to 'H'. Please use the joystick " +
+				log.Warning("EM24 front selector is locked. Cannot update application to 'H'. Please use the joystick " +
 					"to manually update the EM24 to 'application H', or set the front selector in an unlocked position " +
 					"and reinitialize the system.")
 			} else {
@@ -174,7 +178,9 @@ func NewCarloGavazziSystem(config *CarloGavazziConfig) (*energysource.System, er
 }
 
 func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
-	ticker := time.NewTicker(time.Millisecond * 250)
+	pollInterval := uint16(250)
+	log.Infof("Start polling Carlo Gavazzi modbus devices every %d milliseconds.", pollInterval)
+	ticker := time.NewTicker(time.Millisecond * time.Duration(pollInterval))
 	tickerChannel := make(chan bool)
 	runtime.SetFinalizer(system, func(a *energysource.System) {
 		tickerChannel <- true

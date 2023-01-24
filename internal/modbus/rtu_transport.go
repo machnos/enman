@@ -1,9 +1,8 @@
 package modbus
 
 import (
-	"fmt"
+	"enman/internal/log"
 	"io"
-	"log"
 	"time"
 )
 
@@ -12,7 +11,6 @@ const (
 )
 
 type rtuTransport struct {
-	logger       *logger
 	link         rtuLink
 	timeout      time.Duration
 	lastActivity time.Time
@@ -28,9 +26,8 @@ type rtuLink interface {
 }
 
 // Returns a new RTU transport.
-func newRTUTransport(link rtuLink, addr string, speed uint, timeout time.Duration, customLogger *log.Logger) (rt *rtuTransport) {
+func newRTUTransport(link rtuLink, addr string, speed uint, timeout time.Duration) (rt *rtuTransport) {
 	rt = &rtuTransport{
-		logger:  newLogger(fmt.Sprintf("rtu-transport(%s)", addr), customLogger),
 		link:    link,
 		timeout: timeout,
 		t1:      serialCharTime(speed),
@@ -51,7 +48,6 @@ func newRTUTransport(link rtuLink, addr string, speed uint, timeout time.Duratio
 // Closes the rtu link.
 func (rt *rtuTransport) Close() (err error) {
 	err = rt.link.Close()
-
 	return
 }
 
@@ -110,11 +106,70 @@ func (rt *rtuTransport) ExecuteRequest(req *pdu) (res *pdu, err error) {
 }
 
 // Reads a request from the rtu link.
-func (rt *rtuTransport) ReadRequest() (req *pdu, err error) {
+func (rt *rtuTransport) ReadRequest() (*pdu, error) {
+	wrapper, ok := rt.link.(*serialPortWrapper)
 	// reading requests from RTU links is currently unsupported
-	err = fmt.Errorf("unimplemented")
+	if !ok {
+		return nil, ErrConfigurationError
+	}
+SkipFrameError:
+	for {
+		rxbuf := make([]byte, maxRTUFrameLength)
+		// if the line was active less than 3.5 char times ago,
+		// let t3.5 expire before transmitting
+		t := time.Since(rt.lastActivity.Add(rt.t35))
+		if t < 0 {
+			time.Sleep(t * (-1))
+		}
 
-	return
+		byteCount, err := wrapper.port.Read(rxbuf)
+		if err != nil {
+			println(err.Error())
+		}
+
+		if err != nil {
+			return nil, err
+		}
+		if byteCount <= 4 {
+			err = ErrShortFrame
+			return nil, err
+		}
+		if err != nil && err != io.ErrUnexpectedEOF {
+			return nil, err
+		}
+
+		if byteCount != 0 {
+
+			// Set the length of the packet to the number of read bytes.
+			packet := rxbuf[:byteCount]
+			var crc crc
+			crc.init()
+			crc.add(packet[0:(byteCount - 2)])
+
+			// compare CRC values
+			if !crc.isEqual(packet[(byteCount-2)], packet[(byteCount-1)]) {
+				return nil, ErrBadCRC
+			}
+			//frame, err := NewRTUFrame(packet)
+			if err != nil {
+				log.Errorf("bad serial frame error %v", err)
+				//The next line prevents RTU server from exiting when it receives a bad frame. Simply discard the erroneous
+				//frame and wait for next frame by jumping back to the beginning of the 'for' loop.
+				log.Error("Keep the RTU server running!!")
+				continue SkipFrameError
+				//return
+			}
+
+			rt.lastActivity = time.Now()
+			return &pdu{
+				unitId:       packet[0],
+				functionCode: packet[1],
+				// pass the byte count + trailing data as payload, withtout the CRC
+				payload: packet[2 : byteCount-2],
+			}, nil
+		}
+	}
+	return nil, nil
 }
 
 // Writes a response to the rtu link.
@@ -173,7 +228,7 @@ func (rt *rtuTransport) readRTUFrame() (res *pdu, err error) {
 		return
 	}
 	if byteCount != bytesNeeded {
-		rt.logger.Warningf("expected %v bytes, received %v", bytesNeeded, byteCount)
+		log.Errorf("expected %v bytes, received %v", bytesNeeded, byteCount)
 		err = ErrShortFrame
 		return
 	}

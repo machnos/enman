@@ -20,6 +20,7 @@ type serialPortConfig struct {
 	DataBits uint
 	Parity   uint
 	StopBits uint
+	Timeout  time.Duration
 }
 
 func newSerialPortWrapper(conf *serialPortConfig) (spw *serialPortWrapper) {
@@ -48,7 +49,7 @@ func (spw *serialPortWrapper) Open() (err error) {
 		DataBits: int(spw.conf.DataBits),
 		Parity:   parity,
 		StopBits: int(spw.conf.StopBits),
-		Timeout:  10 * time.Millisecond,
+		Timeout:  spw.conf.Timeout,
 	})
 
 	return

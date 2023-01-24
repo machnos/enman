@@ -1,9 +1,8 @@
 package modbus
 
 import (
-	"fmt"
+	"enman/internal/log"
 	"io"
-	"log"
 	"net"
 	"time"
 )
@@ -14,18 +13,16 @@ const (
 )
 
 type tcpTransport struct {
-	logger    *logger
 	socket    net.Conn
 	timeout   time.Duration
 	lastTxnId uint16
 }
 
 // Returns a new TCP transport.
-func newTCPTransport(socket net.Conn, timeout time.Duration, customLogger *log.Logger) (tt *tcpTransport) {
+func newTCPTransport(socket net.Conn, timeout time.Duration) (tt *tcpTransport) {
 	tt = &tcpTransport{
 		socket:  socket,
 		timeout: timeout,
-		logger:  newLogger(fmt.Sprintf("tcp-transport(%s)", socket.RemoteAddr()), customLogger),
 	}
 
 	return
@@ -111,7 +108,7 @@ func (tt *tcpTransport) readResponse() (res *pdu, err error) {
 
 		// ignore unknown transaction identifiers
 		if tt.lastTxnId != txnId {
-			tt.logger.Warningf("received unexpected transaction id "+
+			log.Warningf("received unexpected transaction id "+
 				"(expected 0x%04x, received 0x%04x)",
 				tt.lastTxnId, txnId)
 			continue
@@ -172,7 +169,7 @@ func (tt *tcpTransport) readMBAPFrame() (p *pdu, txnId uint16, err error) {
 	// validate the protocol identifier
 	if protocolId != 0x0000 {
 		err = ErrUnknownProtocolId
-		tt.logger.Warningf("received unexpected protocol id 0x%04x", protocolId)
+		log.Warningf("received unexpected protocol id 0x%04x", protocolId)
 		return
 	}
 
