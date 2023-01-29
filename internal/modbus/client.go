@@ -577,11 +577,22 @@ func (mc *ModbusClient) ReadRawBytes(addr uint16, quantity uint16, regType RegTy
 	return
 }
 
-func (mc *ModbusClient) ValueFromResultArray(values []uint16, ix uint8, scaleFactor float32, defaultValue float32) float32 {
-	if values == nil {
+func (mc *ModbusClient) ValueFromInt16ResultArray(values []uint16, ix uint8, scaleFactor float32, defaultValue float32) float32 {
+	if values == nil || len(values) <= int(ix) {
 		return defaultValue
 	}
 	value := float32(int16(values[ix]))
+	if scaleFactor != 0 {
+		value /= scaleFactor
+	}
+	return value
+}
+
+func (mc *ModbusClient) ValueFromUint16ResultArray(values []uint16, ix uint8, scaleFactor float32, defaultValue float32) float32 {
+	if values == nil || len(values) <= int(ix) {
+		return defaultValue
+	}
+	value := float32(values[ix])
 	if scaleFactor != 0 {
 		value /= scaleFactor
 	}

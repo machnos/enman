@@ -24,14 +24,18 @@ type EnergyFlow interface {
 	Voltage(lineIx uint8) float32
 	Current(lineIx uint8) float32
 	TotalCurrent() float32
+	TotalEnergyConsumed() float32
+	TotalEnergyProvided() float32
 	ToMap() map[string]any
 }
 
 type EnergyFlowBase struct {
 	EnergyFlow
-	current [MaxPhases]float32
-	power   [MaxPhases]float32
-	voltage [MaxPhases]float32
+	current             [MaxPhases]float32
+	power               [MaxPhases]float32
+	voltage             [MaxPhases]float32
+	totalEnergyConsumed float32
+	totalEnergyProvided float32
 }
 
 func (efb *EnergyFlowBase) Phases() uint8 {
@@ -103,6 +107,22 @@ func (efb *EnergyFlowBase) SetCurrent(lineIx uint8, current float32) (bool, erro
 	changed := efb.current[lineIx] != current
 	efb.current[lineIx] = current
 	return changed, nil
+}
+
+func (efb *EnergyFlowBase) TotalEnergyConsumed() float32 {
+	return efb.totalEnergyConsumed
+}
+
+func (efb *EnergyFlowBase) SetTotalEnergyConsumed(totalEnergyConsumed float32) {
+	efb.totalEnergyConsumed = totalEnergyConsumed
+}
+
+func (efb *EnergyFlowBase) TotalEnergyProvided() float32 {
+	return efb.totalEnergyProvided
+}
+
+func (efb *EnergyFlowBase) SetTotalEnergyProvided(totalEnergyProvided float32) {
+	efb.totalEnergyProvided = totalEnergyProvided
 }
 
 func (efb *EnergyFlowBase) TotalCurrent() float32 {

@@ -16,6 +16,8 @@ type GridBase struct {
 
 func (gb *GridBase) ToMap() map[string]any {
 	data := gb.EnergyFlowBase.ToMap()
+	data["total_energy_consumed"] = gb.TotalEnergyConsumed()
+	data["total_energy_provided"] = gb.TotalEnergyProvided()
 	data["config"] = gb.gridConfig.ToMap()
 	return data
 }

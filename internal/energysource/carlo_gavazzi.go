@@ -213,11 +213,11 @@ func NewCarloGavazziSystem(config *CarloGavazziConfig) (*energysource.System, er
 		func() modbusMeter {
 			return modbusMeter(&carloGavazziModbusMeter{})
 		},
-		cgSystem.readSystemValues,
+		cgSystem.updateValues,
 	)
 }
 
-func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
+func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *energysource.System) {
 	pollInterval := uint16(250)
 	log.Infof("Start polling Carlo Gavazzi modbus devices every %d milliseconds.", pollInterval)
 	ticker := time.NewTicker(time.Millisecond * time.Duration(pollInterval))
@@ -230,33 +230,44 @@ func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, syste
 		_ = client.Close()
 	}(client)
 
+	var runMinute = -1
 	for {
 		select {
 		case <-ticker.C:
 			changed := false
+			updateTotals := false
+			_, minutes, _ := time.Now().Clock()
+			if runMinute != minutes {
+				runMinute = minutes
+				updateTotals = true
+			}
 			if system.Grid() != nil {
 				mGrid, ok := system.Grid().(modbusGrid)
 				if ok {
 					for _, meter := range mGrid.meters {
 						cgMeter, ok := (*meter).(*carloGavazziModbusMeter)
 						if ok && cgMeter.protocol != nil {
-							if cgMeter.protocol.updateValues(cgMeter, client, mGrid.EnergyFlowBase) {
+							if cgMeter.protocol.updateInstantValues(cgMeter, client, mGrid.EnergyFlowBase) {
 								changed = true
+							}
+							if updateTotals {
+								cgMeter.protocol.updateTotalValues(cgMeter, client, mGrid.EnergyFlowBase)
 							}
 						}
 					}
 				}
 			}
 			if system.Pvs() != nil {
-				for ix := 0; ix < len(system.Pvs()); ix++ {
-					mPv, ok := system.Pvs()[ix].(modbusPv)
+				for _, pv := range system.Pvs() {
+					mPv, ok := pv.(modbusPv)
 					if ok {
 						for _, meter := range mPv.meters {
 							cgMeter, ok := (*meter).(*carloGavazziModbusMeter)
-							if ok && cgMeter.protocol != nil {
-								if cgMeter.protocol.updateValues(cgMeter, client, mPv.EnergyFlowBase) {
-									changed = true
-								}
+							if ok && cgMeter.protocol != nil && cgMeter.protocol.updateInstantValues(cgMeter, client, mPv.EnergyFlowBase) {
+								changed = true
+							}
+							if updateTotals {
+								cgMeter.protocol.updateTotalValues(cgMeter, client, mPv.EnergyFlowBase)
 							}
 						}
 					}
@@ -273,7 +284,8 @@ func (c *carloGavazziSystem) readSystemValues(client *modbus.ModbusClient, syste
 
 type cgMeterProtocol interface {
 	initialize(*carloGavazziModbusMeter, *modbus.ModbusClient)
-	updateValues(*carloGavazziModbusMeter, *modbus.ModbusClient, *energysource.EnergyFlowBase) bool
+	updateInstantValues(*carloGavazziModbusMeter, *modbus.ModbusClient, *energysource.EnergyFlowBase) bool
+	updateTotalValues(*carloGavazziModbusMeter, *modbus.ModbusClient, *energysource.EnergyFlowBase)
 }
 
 type eM24Protocol struct {
@@ -284,8 +296,16 @@ func (u *eM24Protocol) initialize(meter *carloGavazziModbusMeter, modbusClient *
 	readEM24Serial(meter, modbusClient)
 }
 
-func (u *eM24Protocol) updateValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
+func (u *eM24Protocol) updateInstantValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
 	return updateGenericCarloGavazziThreePhaseMeter(meter, modbusClient, flow)
+}
+
+func (u *eM24Protocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(meter.modbusUnitId)
+	values, _ := modbusClient.ReadRegisters(0x003e, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ = modbusClient.ReadRegisters(0x005c, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 }
 
 type ex100SeriesProtocol struct {
@@ -296,8 +316,16 @@ func (u *ex100SeriesProtocol) initialize(meter *carloGavazziModbusMeter, modbusC
 	readGenericCarloGavazziSerial(meter, modbusClient)
 }
 
-func (u *ex100SeriesProtocol) updateValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
+func (u *ex100SeriesProtocol) updateInstantValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
 	return updateGenericCarloGavazziSinglePhaseMeter(meter, modbusClient, flow)
+}
+
+func (u *ex100SeriesProtocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(meter.modbusUnitId)
+	values, _ := modbusClient.ReadRegisters(0x0010, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ = modbusClient.ReadRegisters(0x0020, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 }
 
 type ex300SeriesProtocol struct {
@@ -308,8 +336,16 @@ func (u *ex300SeriesProtocol) initialize(meter *carloGavazziModbusMeter, modbusC
 	readGenericCarloGavazziSerial(meter, modbusClient)
 }
 
-func (u *ex300SeriesProtocol) updateValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
+func (u *ex300SeriesProtocol) updateInstantValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
 	return updateGenericCarloGavazziThreePhaseMeter(meter, modbusClient, flow)
+}
+
+func (u *ex300SeriesProtocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(meter.modbusUnitId)
+	values, _ := modbusClient.ReadRegisters(0x0034, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ = modbusClient.ReadRegisters(0x004e, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 }
 
 type eM530and540Protocol struct {
@@ -320,8 +356,16 @@ func (u *eM530and540Protocol) initialize(meter *carloGavazziModbusMeter, modbusC
 	readGenericCarloGavazziSerial(meter, modbusClient)
 }
 
-func (u *eM530and540Protocol) updateValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
+func (u *eM530and540Protocol) updateInstantValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
 	return updateGenericCarloGavazziThreePhaseMeter(meter, modbusClient, flow)
+}
+
+func (u *eM530and540Protocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
+	modbusClient.SetUnitId(meter.modbusUnitId)
+	values, _ := modbusClient.ReadRegisters(0x0034, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ = modbusClient.ReadRegisters(0x004e, 1, modbus.INPUT_REGISTER)
+	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 }
 
 func updateGenericCarloGavazziThreePhaseMeter(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
@@ -330,15 +374,15 @@ func updateGenericCarloGavazziThreePhaseMeter(meter *carloGavazziModbusMeter, mo
 	values, _ := modbusClient.ReadRegisters(0, 5, modbus.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		offset := meter.lineIndexes[ix] * 2
-		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset, 10, 0))
+		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 10, 0))
 		changed = changed || valueChanged
 	}
 	values, _ = modbusClient.ReadRegisters(12, 11, modbus.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		offset := meter.lineIndexes[ix] * 2
-		valueChanged, _ := flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromResultArray(values, offset, 1000, 0))
+		valueChanged, _ := flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 1000, 0))
 		changed = changed || valueChanged
-		valueChanged, _ = flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromResultArray(values, 6+offset, 10, 0))
+		valueChanged, _ = flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, 6+offset, 10, 0))
 		changed = changed || valueChanged
 	}
 	return changed
@@ -348,11 +392,11 @@ func updateGenericCarloGavazziSinglePhaseMeter(meter *carloGavazziModbusMeter, m
 	modbusClient.SetUnitId(meter.modbusUnitId)
 	changed := false
 	values, _ := modbusClient.ReadRegisters(0, 5, modbus.INPUT_REGISTER)
-	valueChanged, _ := flow.SetVoltage(meter.lineIndexes[0], modbusClient.ValueFromResultArray(values, 0, 10, 0))
+	valueChanged, _ := flow.SetVoltage(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 	changed = changed || valueChanged
-	valueChanged, _ = flow.SetCurrent(meter.lineIndexes[0], modbusClient.ValueFromResultArray(values, 2, 1000, 0))
+	valueChanged, _ = flow.SetCurrent(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 2, 1000, 0))
 	changed = changed || valueChanged
-	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromResultArray(values, 4, 10, 0))
+	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 4, 10, 0))
 	changed = changed || valueChanged
 	return changed
 }

@@ -2,7 +2,9 @@ package main
 
 import (
 	"enman/internal/modbus"
+	"fmt"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -34,11 +36,22 @@ func main() {
 	}
 	println("Application type: ", values[0])
 
-	values, err = client.ReadRegisters(0x1100, 1, modbus.INPUT_REGISTER)
-	if err != nil {
-		println(err.Error())
-		syscall.Exit(-1)
+	for ix := 0; ix < 10; ix++ {
+		client.SetUnitId(2)
+		values, err = client.ReadRegisters(0x003e, 1, modbus.INPUT_REGISTER)
+		if err != nil {
+			println(err.Error())
+			syscall.Exit(-1)
+		}
+		kwhTotPlus := float32(values[0]) / 10
+		values, err = client.ReadRegisters(0x005c, 1, modbus.INPUT_REGISTER)
+		if err != nil {
+			println(err.Error())
+			syscall.Exit(-1)
+		}
+		kwhTotMin := float32(values[0]) / 10
+		fmt.Printf("kwh+ tot: %4.2f, kwh(-) tot: %4.2f\n", kwhTotPlus, kwhTotMin)
+		time.Sleep(time.Second * 1)
 	}
-	println("Password: ", values[0])
 
 }
