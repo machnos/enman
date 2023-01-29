@@ -32,15 +32,15 @@ func NewDsmrSystem(config *DsmrConfig, gridConfig *energysource.GridConfig) (*en
 		return nil, err
 	}
 	dSystem := &dsmrSystem{}
-	go dSystem.readSystemValues(serialPort, gb)
 	e := energysource.Grid(gb)
-	var system = energysource.NewSystem(&e, nil)
+	var system = energysource.NewSystem(e, nil)
+	go dSystem.readSystemValues(serialPort, system)
 	return system, nil
 }
 
-func (d *dsmrSystem) readSystemValues(serialPort serial.Port, gridBase *energysource.GridBase) {
+func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysource.System) {
 	tickerChannel := make(chan bool)
-	runtime.SetFinalizer(gridBase, func(a *energysource.GridBase) {
+	runtime.SetFinalizer(system, func(system *energysource.System) {
 		tickerChannel <- true
 	})
 	defer func(serialPort serial.Port) {
@@ -49,6 +49,7 @@ func (d *dsmrSystem) readSystemValues(serialPort serial.Port, gridBase *energyso
 
 	reader := bufio.NewReader(serialPort)
 	for {
+
 		// telegram data is suffixed with a CRC code
 		// this CRC code starts with ! so let's read until we receive that char
 		//if <-tickerChannel {
@@ -58,52 +59,72 @@ func (d *dsmrSystem) readSystemValues(serialPort serial.Port, gridBase *energyso
 		if err != nil {
 			continue
 		}
+		gridBase, ok := system.Grid().(*energysource.GridBase)
+		if !ok {
+			continue
+		}
+		changed := false
 		lines := strings.Split(message, "\n")
 		for ix := 0; ix < len(lines); ix++ {
 			trimmedLine := strings.TrimSpace(lines[ix])
 			if strings.HasPrefix(trimmedLine, "1-0:32.7.0") {
-				_ = gridBase.SetVoltage(0, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := gridBase.SetVoltage(0, d.ValueFromObisLine(trimmedLine))
+				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:52.7.0") {
-				_ = gridBase.SetVoltage(1, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := gridBase.SetVoltage(1, d.ValueFromObisLine(trimmedLine))
+				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:72.7.0") {
-				_ = gridBase.SetVoltage(2, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := gridBase.SetVoltage(2, d.ValueFromObisLine(trimmedLine))
+				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:31.7.0") {
-				_ = gridBase.SetCurrent(0, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := gridBase.SetCurrent(0, d.ValueFromObisLine(trimmedLine))
+				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:51.7.0") {
-				_ = gridBase.SetCurrent(1, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := gridBase.SetCurrent(1, d.ValueFromObisLine(trimmedLine))
+				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:71.7.0") {
-				_ = gridBase.SetCurrent(2, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := gridBase.SetCurrent(2, d.ValueFromObisLine(trimmedLine))
+				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:21.7.0") {
 				value := d.ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					_ = gridBase.SetPower(0, value*1000)
+					valueChanged, _ := gridBase.SetPower(0, value*1000)
+					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:41.7.0") {
 				value := d.ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					_ = gridBase.SetPower(1, value*1000)
+					valueChanged, _ := gridBase.SetPower(1, value*1000)
+					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:61.7.0") {
 				value := d.ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					_ = gridBase.SetPower(2, value*1000)
+					valueChanged, _ := gridBase.SetPower(2, value*1000)
+					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:22.7.0") {
 				value := d.ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					_ = gridBase.SetPower(0, value*-1000)
+					valueChanged, _ := gridBase.SetPower(0, value*-1000)
+					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:42.7.0") {
 				value := d.ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					_ = gridBase.SetPower(1, value*-1000)
+					valueChanged, _ := gridBase.SetPower(1, value*-1000)
+					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:62.7.0") {
 				value := d.ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					_ = gridBase.SetPower(2, value*-1000)
+					valueChanged, _ := gridBase.SetPower(2, value*-1000)
+					changed = changed || valueChanged
 				}
 			}
+		}
+		if changed && system.LoadUpdated() != nil {
+			system.LoadUpdated() <- true
 		}
 	}
 }

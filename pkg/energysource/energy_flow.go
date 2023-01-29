@@ -28,6 +28,7 @@ type EnergyFlow interface {
 }
 
 type EnergyFlowBase struct {
+	EnergyFlow
 	current [MaxPhases]float32
 	power   [MaxPhases]float32
 	voltage [MaxPhases]float32
@@ -50,13 +51,14 @@ func (efb *EnergyFlowBase) Power(lineIx uint8) float32 {
 }
 
 // SetPower Sets the power of the grid at a given line index.
-func (efb *EnergyFlowBase) SetPower(lineIx uint8, power float32) error {
+func (efb *EnergyFlowBase) SetPower(lineIx uint8, power float32) (bool, error) {
 	if !validLineIx(lineIx) {
-		return fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
 			MinPhases-1, MaxPhases-1, lineIx)
 	}
+	changed := efb.power[lineIx] != power
 	efb.power[lineIx] = power
-	return nil
+	return changed, nil
 }
 
 func (efb *EnergyFlowBase) TotalPower() float32 {
@@ -75,13 +77,14 @@ func (efb *EnergyFlowBase) Voltage(lineIx uint8) float32 {
 }
 
 // SetVoltage Sets the voltage of the grid at a given line index.
-func (efb *EnergyFlowBase) SetVoltage(lineIx uint8, voltage float32) error {
+func (efb *EnergyFlowBase) SetVoltage(lineIx uint8, voltage float32) (bool, error) {
 	if !validLineIx(lineIx) {
-		return fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
 			MinPhases-1, MaxPhases-1, lineIx)
 	}
+	changed := efb.voltage[lineIx] != voltage
 	efb.voltage[lineIx] = voltage
-	return nil
+	return changed, nil
 }
 
 func (efb *EnergyFlowBase) Current(lineIx uint8) float32 {
@@ -92,13 +95,14 @@ func (efb *EnergyFlowBase) Current(lineIx uint8) float32 {
 }
 
 // SetCurrent Sets the current of the grid at a given line index.
-func (efb *EnergyFlowBase) SetCurrent(lineIx uint8, current float32) error {
+func (efb *EnergyFlowBase) SetCurrent(lineIx uint8, current float32) (bool, error) {
 	if !validLineIx(lineIx) {
-		return fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
 			MinPhases-1, MaxPhases-1, lineIx)
 	}
+	changed := efb.current[lineIx] != current
 	efb.current[lineIx] = current
-	return nil
+	return changed, nil
 }
 
 func (efb *EnergyFlowBase) TotalCurrent() float32 {

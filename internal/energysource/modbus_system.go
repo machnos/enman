@@ -38,6 +38,7 @@ type modbusPv struct {
 }
 
 type modbusMeter interface {
+	SerialNumber() string
 	initialize(client *modbus.ModbusClient, config *ModbusMeterConfig) error
 }
 
@@ -60,12 +61,12 @@ func NewModbusSystem(config *ModbusConfig,
 	if err != nil {
 		return nil, err
 	}
-	var grid *energysource.Grid = nil
+	var grid energysource.Grid = nil
 	if gridConfig != nil && gridConfig.ModbusMeters != nil {
 		var gridMeters []*modbusMeter = nil
-		for _, modbusMeter := range gridConfig.ModbusMeters {
+		for _, mbMeter := range gridConfig.ModbusMeters {
 			meter := newMeter()
-			err := meter.initialize(modbusClient, modbusMeter)
+			err := meter.initialize(modbusClient, mbMeter)
 			if err != nil {
 				return nil, err
 			}
@@ -75,9 +76,9 @@ func NewModbusSystem(config *ModbusConfig,
 			GridBase: energysource.NewGridBase(gridConfig.Grid),
 			meters:   gridMeters,
 		})
-		grid = &g
+		grid = g
 	}
-	var pvs []*energysource.Pv = nil
+	var pvs []energysource.Pv = nil
 	if pvConfigs != nil {
 		for _, modbusPvConfig := range pvConfigs {
 			var pvMeters []*modbusMeter = nil
@@ -93,7 +94,7 @@ func NewModbusSystem(config *ModbusConfig,
 				PvBase: energysource.NewPvBase(modbusPvConfig.Pv),
 				meters: pvMeters,
 			})
-			pvs = append(pvs, &pv)
+			pvs = append(pvs, pv)
 		}
 	}
 	system := energysource.NewSystem(grid, pvs)
