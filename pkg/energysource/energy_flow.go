@@ -24,18 +24,20 @@ type EnergyFlow interface {
 	Voltage(lineIx uint8) float32
 	Current(lineIx uint8) float32
 	TotalCurrent() float32
+	EnergyConsumed(lineIx uint8) float32
 	TotalEnergyConsumed() float32
+	EnergyProvided(lineIx uint8) float32
 	TotalEnergyProvided() float32
 	ToMap() map[string]any
 }
 
 type EnergyFlowBase struct {
 	EnergyFlow
-	current             [MaxPhases]float32
-	power               [MaxPhases]float32
-	voltage             [MaxPhases]float32
-	totalEnergyConsumed float32
-	totalEnergyProvided float32
+	current        [MaxPhases]float32
+	power          [MaxPhases]float32
+	voltage        [MaxPhases]float32
+	energyConsumed [MaxPhases]float32
+	energyProvided [MaxPhases]float32
 }
 
 func (efb *EnergyFlowBase) Phases() uint8 {
@@ -109,22 +111,6 @@ func (efb *EnergyFlowBase) SetCurrent(lineIx uint8, current float32) (bool, erro
 	return changed, nil
 }
 
-func (efb *EnergyFlowBase) TotalEnergyConsumed() float32 {
-	return efb.totalEnergyConsumed
-}
-
-func (efb *EnergyFlowBase) SetTotalEnergyConsumed(totalEnergyConsumed float32) {
-	efb.totalEnergyConsumed = totalEnergyConsumed
-}
-
-func (efb *EnergyFlowBase) TotalEnergyProvided() float32 {
-	return efb.totalEnergyProvided
-}
-
-func (efb *EnergyFlowBase) SetTotalEnergyProvided(totalEnergyProvided float32) {
-	efb.totalEnergyProvided = totalEnergyProvided
-}
-
 func (efb *EnergyFlowBase) TotalCurrent() float32 {
 	totalCurrent := float32(0)
 	for i := 0; i < len(efb.current); i++ {
@@ -133,18 +119,72 @@ func (efb *EnergyFlowBase) TotalCurrent() float32 {
 	return totalCurrent
 }
 
+func (efb *EnergyFlowBase) EnergyConsumed(lineIx uint8) float32 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efb.energyConsumed[lineIx]
+}
+
+func (efb *EnergyFlowBase) SetEnergyConsumed(lineIx uint8, energyConsumed float32) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efb.energyConsumed[lineIx] != energyConsumed
+	efb.energyConsumed[lineIx] = energyConsumed
+	return changed, nil
+}
+
+func (efb *EnergyFlowBase) TotalEnergyConsumed() float32 {
+	totalEnergyConsumed := float32(0)
+	for i := 0; i < len(efb.energyConsumed); i++ {
+		totalEnergyConsumed += efb.energyConsumed[i]
+	}
+	return totalEnergyConsumed
+}
+
+func (efb *EnergyFlowBase) EnergyProvided(lineIx uint8) float32 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efb.energyProvided[lineIx]
+}
+
+func (efb *EnergyFlowBase) SetEnergyProvided(lineIx uint8, energyProvided float32) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efb.energyProvided[lineIx] != energyProvided
+	efb.energyProvided[lineIx] = energyProvided
+	return changed, nil
+}
+
+func (efb *EnergyFlowBase) TotalEnergyProvided() float32 {
+	totalEnergyProvided := float32(0)
+	for i := 0; i < len(efb.energyProvided); i++ {
+		totalEnergyProvided += efb.energyProvided[i]
+	}
+	return totalEnergyProvided
+}
+
 func (efb *EnergyFlowBase) ToMap() map[string]any {
 	phases := efb.Phases()
 	data := map[string]any{
-		"phases":        phases,
-		"total_current": efb.TotalCurrent(),
-		"total_power":   efb.TotalPower(),
+		"phases":                phases,
+		"total_current":         efb.TotalCurrent(),
+		"total_power":           efb.TotalPower(),
+		"total_energy_consumed": efb.TotalEnergyConsumed(),
+		"total_energy_provided": efb.TotalEnergyProvided(),
 	}
 	for ix := uint8(0); ix < phases; ix++ {
 		data[fmt.Sprintf("l%d", ix)] = map[string]any{
-			"voltage": efb.Voltage(ix),
-			"current": efb.Current(ix),
-			"power":   efb.Power(ix),
+			"voltage":         efb.Voltage(ix),
+			"current":         efb.Current(ix),
+			"power":           efb.Power(ix),
+			"energy_consumed": efb.EnergyConsumed(ix),
+			"energy_provided": efb.EnergyProvided(ix),
 		}
 	}
 	return data

@@ -176,9 +176,20 @@ func (v *victronModbusMeter) updatePvValues(modbusClient *modbus.ModbusClient, f
 
 func (v *victronModbusMeter) updateGridTotals(modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(v.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(2635, 3, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 100, 0))
-	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 2, 100, 0))
+	values, _ := modbusClient.ReadRegisters(2623, 11, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(v.lineIndexes); ix++ {
+		offset := v.lineIndexes[ix] * 2
+		_, _ = flow.SetEnergyConsumed(v.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 100, 0))
+	}
+	values, err := modbusClient.ReadRegisters(2637, 1, modbus.INPUT_REGISTER)
+	if values != nil && err == nil {
+		// Provided energy per phase is far from correct, so we split the total energy (which seems to be correct) equally over the given phases.
+		provided := modbusClient.ValueFromUint16ResultArray(values, 0, 100, 0)
+		providedPerPhase := provided / float32(len(v.lineIndexes))
+		for ix := 0; ix < len(v.lineIndexes); ix++ {
+			_, _ = flow.SetEnergyProvided(v.lineIndexes[ix], providedPerPhase)
+		}
+	}
 }
 
 func (v *victronModbusMeter) updatePvTotals(modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
@@ -187,9 +198,8 @@ func (v *victronModbusMeter) updatePvTotals(modbusClient *modbus.ModbusClient, f
 	if err != nil || values == nil || len(values) < 3 {
 		return
 	}
-
-	total := modbusClient.ValueFromUint16ResultArray(values, 0, 100, 0) +
-		modbusClient.ValueFromUint16ResultArray(values, 2, 100, 0) +
-		modbusClient.ValueFromUint16ResultArray(values, 4, 100, 0)
-	flow.SetTotalEnergyConsumed(total)
+	for ix := 0; ix < len(v.lineIndexes); ix++ {
+		offset := v.lineIndexes[ix] * 2
+		_, _ = flow.SetEnergyConsumed(v.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 100, 0))
+	}
 }

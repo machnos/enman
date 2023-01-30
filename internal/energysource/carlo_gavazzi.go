@@ -302,10 +302,20 @@ func (u *eM24Protocol) updateInstantValues(meter *carloGavazziModbusMeter, modbu
 
 func (u *eM24Protocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(0x003e, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
-	values, _ = modbusClient.ReadRegisters(0x005c, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ := modbusClient.ReadRegisters(0x0046, 5, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(meter.lineIndexes); ix++ {
+		offset := meter.lineIndexes[ix] * 2
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 10, 0))
+	}
+	values, err := modbusClient.ReadRegisters(0x005c, 1, modbus.INPUT_REGISTER)
+	if values != nil && err == nil {
+		// No option to read provided energy per phase, so we split the energy equally over the given phases.
+		provided := modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0)
+		providedPerPhase := provided / float32(len(meter.lineIndexes))
+		for ix := 0; ix < len(meter.lineIndexes); ix++ {
+			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
+		}
+	}
 }
 
 type ex100SeriesProtocol struct {
@@ -323,9 +333,9 @@ func (u *ex100SeriesProtocol) updateInstantValues(meter *carloGavazziModbusMeter
 func (u *ex100SeriesProtocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(meter.modbusUnitId)
 	values, _ := modbusClient.ReadRegisters(0x0010, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	_, _ = flow.SetEnergyConsumed(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 	values, _ = modbusClient.ReadRegisters(0x0020, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	_, _ = flow.SetEnergyProvided(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
 }
 
 type ex300SeriesProtocol struct {
@@ -342,10 +352,28 @@ func (u *ex300SeriesProtocol) updateInstantValues(meter *carloGavazziModbusMeter
 
 func (u *ex300SeriesProtocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(0x0034, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
-	values, _ = modbusClient.ReadRegisters(0x004e, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ := modbusClient.ReadRegisters(0x0040, 5, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(meter.lineIndexes); ix++ {
+		offset := meter.lineIndexes[ix] * 2
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 10, 0))
+	}
+	if strings.HasPrefix(meter.meterType, "ET") {
+		values, _ := modbusClient.ReadRegisters(0x0060, 5, modbus.INPUT_REGISTER)
+		for ix := 0; ix < len(meter.lineIndexes); ix++ {
+			offset := meter.lineIndexes[ix] * 2
+			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 10, 0))
+		}
+	} else {
+		values, err := modbusClient.ReadRegisters(0x004e, 1, modbus.INPUT_REGISTER)
+		if values != nil && err == nil {
+			// No option to read provided energy per phase, so we split the energy equally over the given phases.
+			provided := modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0)
+			providedPerPhase := provided / float32(len(meter.lineIndexes))
+			for ix := 0; ix < len(meter.lineIndexes); ix++ {
+				_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
+			}
+		}
+	}
 }
 
 type eM530and540Protocol struct {
@@ -362,10 +390,20 @@ func (u *eM530and540Protocol) updateInstantValues(meter *carloGavazziModbusMeter
 
 func (u *eM530and540Protocol) updateTotalValues(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(0x0034, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
-	values, _ = modbusClient.ReadRegisters(0x004e, 1, modbus.INPUT_REGISTER)
-	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0))
+	values, _ := modbusClient.ReadRegisters(0x0040, 5, modbus.INPUT_REGISTER)
+	for ix := 0; ix < len(meter.lineIndexes); ix++ {
+		offset := meter.lineIndexes[ix] * 2
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 10, 0))
+	}
+	values, err := modbusClient.ReadRegisters(0x004e, 1, modbus.INPUT_REGISTER)
+	if values != nil && err == nil {
+		// No option to read provided energy per phase, so we split the energy equally over the given phases.
+		provided := modbusClient.ValueFromUint16ResultArray(values, 0, 10, 0)
+		providedPerPhase := provided / float32(len(meter.lineIndexes))
+		for ix := 0; ix < len(meter.lineIndexes); ix++ {
+			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
+		}
+	}
 }
 
 func updateGenericCarloGavazziThreePhaseMeter(meter *carloGavazziModbusMeter, modbusClient *modbus.ModbusClient, flow *energysource.EnergyFlowBase) bool {
@@ -382,7 +420,7 @@ func updateGenericCarloGavazziThreePhaseMeter(meter *carloGavazziModbusMeter, mo
 		offset := meter.lineIndexes[ix] * 2
 		valueChanged, _ := flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 1000, 0))
 		changed = changed || valueChanged
-		valueChanged, _ = flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, 6+offset, 10, 0))
+		valueChanged, _ = flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromInt16ResultArray(values, 6+offset, 10, 0))
 		changed = changed || valueChanged
 	}
 	return changed
@@ -396,7 +434,7 @@ func updateGenericCarloGavazziSinglePhaseMeter(meter *carloGavazziModbusMeter, m
 	changed = changed || valueChanged
 	valueChanged, _ = flow.SetCurrent(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 2, 1000, 0))
 	changed = changed || valueChanged
-	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromUint16ResultArray(values, 4, 10, 0))
+	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromInt16ResultArray(values, 4, 10, 0))
 	changed = changed || valueChanged
 	return changed
 }
