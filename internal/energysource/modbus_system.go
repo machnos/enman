@@ -24,7 +24,7 @@ type ModbusPvConfig struct {
 
 type ModbusMeterConfig struct {
 	ModbusUnitId uint8
-	LineIndexes  []uint8
+	LineIndices  []uint8
 }
 
 type modbusGrid struct {
@@ -46,7 +46,8 @@ func NewModbusSystem(config *ModbusConfig,
 	gridConfig *ModbusGridConfig,
 	pvConfigs []*ModbusPvConfig,
 	newMeter func() modbusMeter,
-	updateSystemValues func(client *modbus.ModbusClient, system *energysource.System),
+	updateChannels *energysource.UpdateChannels,
+	updateSystemValues func(client *modbus.ModbusClient, system *energysource.System, updateChannels *energysource.UpdateChannels),
 ) (*energysource.System, error) {
 	modbusConfig := &modbus.ClientConfiguration{
 		URL:     config.ModbusUrl,
@@ -72,11 +73,10 @@ func NewModbusSystem(config *ModbusConfig,
 			}
 			gridMeters = append(gridMeters, &meter)
 		}
-		g := energysource.Grid(modbusGrid{
+		grid = energysource.Grid(modbusGrid{
 			GridBase: energysource.NewGridBase(gridConfig.Grid),
 			meters:   gridMeters,
 		})
-		grid = g
 	}
 	var pvs []energysource.Pv = nil
 	if pvConfigs != nil {
@@ -98,6 +98,6 @@ func NewModbusSystem(config *ModbusConfig,
 		}
 	}
 	system := energysource.NewSystem(grid, pvs)
-	go updateSystemValues(modbusClient, system)
+	go updateSystemValues(modbusClient, system, updateChannels)
 	return system, nil
 }

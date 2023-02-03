@@ -18,12 +18,12 @@ type victronModbusMeter struct {
 }
 
 func (v *victronModbusMeter) SerialNumber() string {
-	return v.SerialNumber()
+	return v.serialNumber
 }
 
 func (v *victronModbusMeter) initialize(modbusClient *modbus.ModbusClient, modbusMeter *ModbusMeterConfig) error {
 	v.modbusUnitId = modbusMeter.ModbusUnitId
-	v.lineIndexes = modbusMeter.LineIndexes
+	v.lineIndexes = modbusMeter.LineIndices
 	return nil
 }
 
@@ -33,7 +33,7 @@ type VictronConfig struct {
 	ModbusPvConfigs  []*ModbusPvConfig
 }
 
-func NewVictronSystem(config *VictronConfig) (*energysource.System, error) {
+func NewVictronSystem(config *VictronConfig, updateChannels *energysource.UpdateChannels) (*energysource.System, error) {
 	vSystem := &victronSystem{}
 	return NewModbusSystem(
 		&ModbusConfig{
@@ -45,11 +45,12 @@ func NewVictronSystem(config *VictronConfig) (*energysource.System, error) {
 		func() modbusMeter {
 			return modbusMeter(&victronModbusMeter{})
 		},
+		updateChannels,
 		vSystem.readSystemValues,
 	)
 }
 
-func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System) {
+func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *energysource.System, updateChannels *energysource.UpdateChannels) {
 	pollInterval := uint16(250)
 	log.Infof("Start polling Victron modbus devices every %d milliseconds.", pollInterval)
 	ticker := time.NewTicker(time.Millisecond * time.Duration(pollInterval))
@@ -66,7 +67,6 @@ func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *en
 	for {
 		select {
 		case <-ticker.C:
-			changed := false
 			updateTotals := false
 			_, minutes, _ := time.Now().Clock()
 			if runMinute != minutes {
@@ -76,6 +76,7 @@ func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *en
 			if system.Grid() != nil {
 				mGrid, ok := system.Grid().(modbusGrid)
 				if ok {
+					changed := false
 					for _, meter := range mGrid.meters {
 						vMeter, ok := (*meter).(*victronModbusMeter)
 						if ok {
@@ -87,12 +88,16 @@ func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *en
 							}
 						}
 					}
+					if changed && updateChannels != nil {
+						updateChannels.GridUpdated() <- mGrid
+					}
 				}
 			}
 			if system.Pvs() != nil {
 				for ix := 0; ix < len(system.Pvs()); ix++ {
 					mPV, ok := system.Pvs()[ix].(modbusPv)
 					if ok {
+						changed := false
 						for _, meter := range mPV.meters {
 							vMeter, ok := (*meter).(*victronModbusMeter)
 							if ok {
@@ -104,11 +109,11 @@ func (c *victronSystem) readSystemValues(client *modbus.ModbusClient, system *en
 								}
 							}
 						}
+						if changed && updateChannels != nil {
+							updateChannels.PvUpdated() <- mPV
+						}
 					}
 				}
-			}
-			if changed && system.LoadUpdated() != nil {
-				system.LoadUpdated() <- true
 			}
 		case <-stopChannel:
 			return

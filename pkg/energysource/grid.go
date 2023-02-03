@@ -16,14 +16,13 @@ type GridBase struct {
 
 func (gb *GridBase) ToMap() map[string]any {
 	data := gb.EnergyFlowBase.ToMap()
-	data["total_energy_consumed"] = gb.TotalEnergyConsumed()
-	data["total_energy_provided"] = gb.TotalEnergyProvided()
 	data["config"] = gb.gridConfig.ToMap()
 	return data
 }
 
 // GridConfig Represents the static values a utility grid can have. For example the voltage the grid is running on.
 type GridConfig struct {
+	name               string
 	voltage            float32
 	maxCurrentPerPhase float32
 	phases             uint8
@@ -87,6 +86,7 @@ func (gc *GridConfig) MaxTotalPower() uint32 {
 
 func (gc *GridConfig) ToMap() map[string]any {
 	data := map[string]any{
+		"name":                  gc.name,
 		"phases":                gc.phases,
 		"voltage":               gc.Voltage(),
 		"max_current_per_phase": gc.MaxCurrentPerPhase(),
@@ -98,13 +98,17 @@ func (gc *GridConfig) ToMap() map[string]any {
 // NewGridBase Constructs a new GridBase instance with the given voltage, phases and max current
 func NewGridBase(gridConfig *GridConfig) *GridBase {
 	return &GridBase{
-		EnergyFlowBase: &EnergyFlowBase{},
-		gridConfig:     gridConfig,
+		EnergyFlowBase: &EnergyFlowBase{
+			name: gridConfig.name,
+		},
+		gridConfig: gridConfig,
 	}
 }
 
-func NewGridConfig(voltage float32, maxCurrentPerPhase float32, phases uint8) (*GridConfig, error) {
-	var gridConfig = GridConfig{}
+func NewGridConfig(name string, voltage float32, maxCurrentPerPhase float32, phases uint8) (*GridConfig, error) {
+	var gridConfig = GridConfig{
+		name: name,
+	}
 	err := gridConfig.SetVoltage(voltage)
 	if err != nil {
 		return nil, err

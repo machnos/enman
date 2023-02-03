@@ -31,12 +31,12 @@ type carloGavazziModbusMeter struct {
 }
 
 func (c *carloGavazziModbusMeter) SerialNumber() string {
-	return c.SerialNumber()
+	return c.serialNumber
 }
 
 func (c *carloGavazziModbusMeter) initialize(modbusClient *modbus.ModbusClient, modbusMeter *ModbusMeterConfig) error {
 	c.modbusUnitId = modbusMeter.ModbusUnitId
-	c.lineIndexes = modbusMeter.LineIndexes
+	c.lineIndexes = modbusMeter.LineIndices
 	modbusClient.SetUnitId(c.modbusUnitId)
 	// Read meter type
 	meterType, err := modbusClient.ReadRegister(0x000B, modbus.INPUT_REGISTER)
@@ -200,7 +200,7 @@ type CarloGavazziConfig struct {
 	ModbusPvConfigs  []*ModbusPvConfig
 }
 
-func NewCarloGavazziSystem(config *CarloGavazziConfig) (*energysource.System, error) {
+func NewCarloGavazziSystem(config *CarloGavazziConfig, updateChannels *energysource.UpdateChannels) (*energysource.System, error) {
 	cgSystem := &carloGavazziSystem{}
 	return NewModbusSystem(
 		&ModbusConfig{
@@ -213,11 +213,12 @@ func NewCarloGavazziSystem(config *CarloGavazziConfig) (*energysource.System, er
 		func() modbusMeter {
 			return modbusMeter(&carloGavazziModbusMeter{})
 		},
+		updateChannels,
 		cgSystem.updateValues,
 	)
 }
 
-func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *energysource.System) {
+func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *energysource.System, updateChannels *energysource.UpdateChannels) {
 	pollInterval := uint16(250)
 	log.Infof("Start polling Carlo Gavazzi modbus devices every %d milliseconds.", pollInterval)
 	ticker := time.NewTicker(time.Millisecond * time.Duration(pollInterval))
@@ -234,7 +235,6 @@ func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *e
 	for {
 		select {
 		case <-ticker.C:
-			changed := false
 			updateTotals := false
 			_, minutes, _ := time.Now().Clock()
 			if runMinute != minutes {
@@ -244,6 +244,7 @@ func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *e
 			if system.Grid() != nil {
 				mGrid, ok := system.Grid().(modbusGrid)
 				if ok {
+					changed := false
 					for _, meter := range mGrid.meters {
 						cgMeter, ok := (*meter).(*carloGavazziModbusMeter)
 						if ok && cgMeter.protocol != nil {
@@ -255,12 +256,16 @@ func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *e
 							}
 						}
 					}
+					if changed && updateChannels != nil {
+						updateChannels.GridUpdated() <- mGrid
+					}
 				}
 			}
 			if system.Pvs() != nil {
 				for _, pv := range system.Pvs() {
 					mPv, ok := pv.(modbusPv)
 					if ok {
+						changed := false
 						for _, meter := range mPv.meters {
 							cgMeter, ok := (*meter).(*carloGavazziModbusMeter)
 							if ok && cgMeter.protocol != nil && cgMeter.protocol.updateInstantValues(cgMeter, client, mPv.EnergyFlowBase) {
@@ -270,11 +275,11 @@ func (c *carloGavazziSystem) updateValues(client *modbus.ModbusClient, system *e
 								cgMeter.protocol.updateTotalValues(cgMeter, client, mPv.EnergyFlowBase)
 							}
 						}
+						if changed && updateChannels != nil {
+							updateChannels.PvUpdated() <- mPv
+						}
 					}
 				}
-			}
-			if changed && system.LoadUpdated() != nil {
-				system.LoadUpdated() <- true
 			}
 		case <-stopChannel:
 			return

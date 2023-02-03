@@ -18,7 +18,7 @@ type DsmrConfig struct {
 type dsmrSystem struct {
 }
 
-func NewDsmrSystem(config *DsmrConfig, gridConfig *energysource.GridConfig) (*energysource.System, error) {
+func NewDsmrSystem(config *DsmrConfig, updateChannels *energysource.UpdateChannels, gridConfig *energysource.GridConfig) (*energysource.System, error) {
 	gb := energysource.NewGridBase(gridConfig)
 	serialPort, err := serial.Open(&serial.Config{
 		Address:  config.Device,
@@ -34,11 +34,11 @@ func NewDsmrSystem(config *DsmrConfig, gridConfig *energysource.GridConfig) (*en
 	dSystem := &dsmrSystem{}
 	e := energysource.Grid(gb)
 	var system = energysource.NewSystem(e, nil)
-	go dSystem.readSystemValues(serialPort, system)
+	go dSystem.readSystemValues(serialPort, system, updateChannels)
 	return system, nil
 }
 
-func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysource.System) {
+func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysource.System, updateChannels *energysource.UpdateChannels) {
 	tickerChannel := make(chan bool)
 	runtime.SetFinalizer(system, func(system *energysource.System) {
 		tickerChannel <- true
@@ -141,8 +141,8 @@ func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysour
 			_, _ = gridBase.SetEnergyConsumed(ix, consumedPerPhase)
 			_, _ = gridBase.SetEnergyProvided(ix, providedPerPhase)
 		}
-		if changed && system.LoadUpdated() != nil {
-			system.LoadUpdated() <- true
+		if changed && updateChannels != nil {
+			updateChannels.GridUpdated() <- gridBase
 		}
 	}
 }

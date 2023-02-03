@@ -18,6 +18,7 @@ const (
 )
 
 type EnergyFlow interface {
+	Name() string
 	Phases() uint8
 	Power(lineIx uint8) float32
 	TotalPower() float32
@@ -33,11 +34,16 @@ type EnergyFlow interface {
 
 type EnergyFlowBase struct {
 	EnergyFlow
+	name           string
 	current        [MaxPhases]float32
 	power          [MaxPhases]float32
 	voltage        [MaxPhases]float32
 	energyConsumed [MaxPhases]float32
 	energyProvided [MaxPhases]float32
+}
+
+func (efb *EnergyFlowBase) Name() string {
+	return efb.name
 }
 
 func (efb *EnergyFlowBase) Phases() uint8 {
@@ -172,6 +178,7 @@ func (efb *EnergyFlowBase) TotalEnergyProvided() float32 {
 func (efb *EnergyFlowBase) ToMap() map[string]any {
 	phases := efb.Phases()
 	data := map[string]any{
+		"name":                  efb.Name(),
 		"phases":                phases,
 		"total_current":         efb.TotalCurrent(),
 		"total_power":           efb.TotalPower(),
