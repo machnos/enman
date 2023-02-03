@@ -17,27 +17,22 @@ func (p *PvBase) ToMap() map[string]any {
 }
 
 type PvConfig struct {
-	name string
 }
 
 func (pvc *PvConfig) ToMap() map[string]any {
-	data := map[string]any{
-		"name": pvc.name,
-	}
+	data := map[string]any{}
 	return data
 }
 
-func NewPvBase(pvConfig *PvConfig) *PvBase {
+func NewPvBase(name string, pvConfig *PvConfig) *PvBase {
 	return &PvBase{
 		EnergyFlowBase: &EnergyFlowBase{
-			name: pvConfig.name,
+			name: name,
 		},
 		pvConfig: pvConfig,
 	}
 }
 
-func NewPvConfig(name string) *PvConfig {
-	return &PvConfig{
-		name: name,
-	}
+func NewPvConfig() *PvConfig {
+	return &PvConfig{}
 }

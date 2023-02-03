@@ -1,10 +1,12 @@
 package persistency
 
-import "enman/pkg/energysource"
+import (
+	energysource2 "enman/internal/energysource"
+)
 
 type Repository interface {
-	StoreGridValues(energysource.Grid)
-	StorePvValues(energysource.Pv)
+	StoreGridValues(energysource2.Grid)
+	StorePvValues(energysource2.Pv)
 	Close()
 }
 
@@ -12,10 +14,10 @@ type NoopRepository struct {
 	Repository
 }
 
-func (n *NoopRepository) StoreGridValues(grid energysource.Grid) {
+func (n *NoopRepository) StoreGridValues(grid energysource2.Grid) {
 }
 
-func (n *NoopRepository) StorePvValues(energysource.Pv) {
+func (n *NoopRepository) StorePvValues(energysource2.Pv) {
 }
 
 func (n *NoopRepository) Close() {

@@ -1,16 +1,16 @@
 package balance
 
 import (
+	"enman/internal"
 	"enman/internal/persistency"
-	"enman/pkg/energysource"
 )
 
-func StartUpdateLoop(updateChannels *energysource.UpdateChannels, repository persistency.Repository) {
+func StartUpdateLoop(updateChannels *internal.UpdateChannels, repository persistency.Repository) {
 	go startGridUpdateLoop(updateChannels, repository)
 	go startPvUpdateLoop(updateChannels, repository)
 }
 
-func startGridUpdateLoop(updateChannels *energysource.UpdateChannels, repository persistency.Repository) {
+func startGridUpdateLoop(updateChannels *internal.UpdateChannels, repository persistency.Repository) {
 	for {
 		grid := <-updateChannels.GridUpdated()
 		repository.StoreGridValues(grid)
@@ -47,7 +47,7 @@ func startGridUpdateLoop(updateChannels *energysource.UpdateChannels, repository
 	}
 }
 
-func startPvUpdateLoop(updateChannels *energysource.UpdateChannels, repository persistency.Repository) {
+func startPvUpdateLoop(updateChannels *internal.UpdateChannels, repository persistency.Repository) {
 	for {
 		pv := <-updateChannels.PvUpdated()
 		repository.StorePvValues(pv)

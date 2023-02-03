@@ -2,12 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"enman/internal"
 	"enman/internal/balance"
 	"enman/internal/config"
-	ies "enman/internal/energysource"
+	"enman/internal/energysource"
+	"enman/internal/energysource/modbus"
+	"enman/internal/energysource/modbus/carlo_gavazzi"
+	"enman/internal/energysource/modbus/dsmr"
+	"enman/internal/energysource/modbus/victron"
 	"enman/internal/log"
 	"enman/internal/persistency"
-	"enman/pkg/energysource"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,75 +20,42 @@ import (
 )
 
 type home struct {
-	system *energysource.System
+	system            *internal.System
+	modbusUpdateLoops map[string]*modbus.UpdateLoop
+}
+
+func (h *home) Close() {
+	for _, value := range h.modbusUpdateLoops {
+		value.Close()
+	}
 }
 
 func main() {
 	log.ActiveLevel = log.LvlInfo
 
-	configuration := config.LoadConfiguration()
+	configFile := *flag.String("config-file", "config.json", "Full path to the configuration file")
+	flag.Parse()
+
+	configuration := config.LoadConfiguration(configFile)
 	if configuration == nil {
 		syscall.Exit(-1)
 	}
 	var repository persistency.Repository
 	if configuration.Influx != nil {
-		//repository = persistency.NewInfluxRepository("http://127.0.0.1:8086", "JaLvEBCyFj9n_rXjPmg5eLLBCY87hfz0e2lldSh9egyeIBTVTR2i270MpMYcCyEScP29G9rJmHPrXHarQOiMPA==")
 		repository = persistency.NewInfluxRepository(configuration.Influx.ServerUrl, configuration.Influx.Token)
 		defer repository.Close()
 	} else {
 		repository = persistency.NewNoopRepository()
 	}
 
-	//repository := persistency.NewInfluxRepository("http://127.0.0.1:8086", "JaLvEBCyFj9n_rXjPmg5eLLBCY87hfz0e2lldSh9egyeIBTVTR2i270MpMYcCyEScP29G9rJmHPrXHarQOiMPA==")
-
-	h := &home{}
-	updateChannels := energysource.NewUpdateChannels()
+	h := &home{
+		system:            &internal.System{},
+		modbusUpdateLoops: make(map[string]*modbus.UpdateLoop),
+	}
+	updateChannels := internal.NewUpdateChannels()
 	addGrid(h, configuration.Grid, updateChannels)
 	addPvs(h, configuration.Pvs, updateChannels)
-
-	//config := &ies.VictronConfig{
-	//	ModbusUrl: "tcp://einstein.energy.cleme:502",
-	//	ModbusGridConfig: &ies.ModbusGridConfig{
-	//		Grid: gridConfig,
-	//		ModbusMeters: []*ies.ModbusMeterConfig{
-	//			{
-	//				ModbusUnitId: 31,
-	//				LineIndices:  []uint8{0, 1, 2},
-	//			},
-	//		},
-	//	},
-	//}
-	//system, err := ies.NewVictronSystem(config, updateChannels)
-
-	//config := &ies.CarloGavazziConfig{
-	//	ModbusUrl: "rtu:///dev/ttyUSB0",
-	//	ModbusGridConfig: &ies.ModbusGridConfig{
-	//		Grid: gridConfig,
-	//		ModbusMeters: []*ies.ModbusMeterConfig{
-	//			{
-	//				ModbusUnitId: 2,
-	//				LineIndices:  []uint8{0, 1, 2},
-	//			},
-	//		},
-	//	},
-	//	ModbusPvConfigs: []*ies.ModbusPvConfig{
-	//		{
-	//			Pv: energysource.NewPvConfig("Enphase"),
-	//			ModbusMeters: []*ies.ModbusMeterConfig{
-	//				{
-	//					ModbusUnitId: 3,
-	//					LineIndices:  []uint8{0},
-	//				},
-	//				{
-	//					ModbusUnitId: 4,
-	//					LineIndices:  []uint8{1},
-	//				},
-	//			},
-	//		},
-	//	},
-	//}
-	//system, err := ies.NewCarloGavazziSystem(config, updateChannels)
-
+	defer h.Close()
 	balance.StartUpdateLoop(updateChannels, repository)
 	mux := http.NewServeMux()
 
@@ -91,128 +63,154 @@ func main() {
 	mux.HandleFunc("/api", h.dataAsJson)
 
 	//http.ListenAndServe uses the default server structure.
-	err := http.ListenAndServe(":8081", mux)
+	err := http.ListenAndServe(fmt.Sprintf(":%d", configuration.Http.Port), mux)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 }
 
-func addGrid(h *home, grid *config.Grid, updateChannels *energysource.UpdateChannels) {
+func addGrid(h *home, grid *config.Grid, updateChannels *internal.UpdateChannels) {
 	gridConfig, err := energysource.NewGridConfig(
-		grid.Name,
-		float32(grid.Voltage),
-		float32(grid.MaxCurrent),
+		grid.Voltage,
+		grid.MaxCurrent,
 		grid.Phases,
 	)
 	if err != nil {
 		log.Fatalf("Unable to create grid configuration: %s", err.Error())
 		panic(err)
 	}
-	var system *energysource.System
+	var g energysource.Grid
 	switch grid.Brand {
 	case config.CarloGavazzi:
-		cfg := &ies.CarloGavazziConfig{
-			ModbusUrl: grid.ConnectURL,
-			ModbusGridConfig: &ies.ModbusGridConfig{
-				Grid: gridConfig,
-			},
+		if h.modbusUpdateLoops[grid.ConnectURL] == nil {
+			updateLoop, err := modbus.NewUpdateLoop(carlo_gavazzi.NewModbusConfiguration(grid.ConnectURL), updateChannels)
+			if err != nil {
+				log.Fatalf("Unable to setup modbus connection to %s: %s", grid.ConnectURL, err.Error())
+				panic(err)
+			}
+			h.modbusUpdateLoops[grid.ConnectURL] = updateLoop
+		}
+		mbConfig := &modbus.GridConfig{
+			GridConfig: gridConfig,
 		}
 		if len(grid.Meters) > 0 {
-			cfg.ModbusGridConfig.ModbusMeters = make([]*ies.ModbusMeterConfig, len(grid.Meters))
+			mbConfig.ModbusMeters = make([]*modbus.MeterConfig, len(grid.Meters))
 			for ix, meter := range grid.Meters {
-				cfg.ModbusGridConfig.ModbusMeters[ix] = &ies.ModbusMeterConfig{
+				mbConfig.ModbusMeters[ix] = &modbus.MeterConfig{
 					ModbusUnitId: meter.ModbusUnitId,
 					LineIndices:  meter.LineIndices,
 				}
 			}
 		}
-		system, err = ies.NewCarloGavazziSystem(cfg, updateChannels)
+		g, err = carlo_gavazzi.NewGrid(grid.Name, mbConfig, h.modbusUpdateLoops[grid.ConnectURL])
+		if err != nil {
+			log.Fatalf("Unable to create Carlo Gavazzi grid: %s", err.Error())
+			panic(err)
+		}
 	case config.DSMR:
-		system, err = ies.NewDsmrSystem(&ies.DsmrConfig{
+		g, err = dsmr.NewDsmrGrid(&dsmr.DsmrConfig{
 			BaudRate: 115200,
 			Device:   grid.ConnectURL,
-		}, updateChannels, gridConfig)
+		}, updateChannels.GridUpdated(), gridConfig)
 	case config.Victron:
-		cfg := &ies.VictronConfig{
-			ModbusUrl: grid.ConnectURL,
-			ModbusGridConfig: &ies.ModbusGridConfig{
-				Grid: gridConfig,
-			},
+		if h.modbusUpdateLoops[grid.ConnectURL] == nil {
+			updateLoop, err := modbus.NewUpdateLoop(victron.NewModbusConfiguration(grid.ConnectURL), updateChannels)
+			if err != nil {
+				log.Fatalf("Unable to setup modbus connection to %s: %s", grid.ConnectURL, err.Error())
+				panic(err)
+			}
+			h.modbusUpdateLoops[grid.ConnectURL] = updateLoop
+		}
+		mbConfig := &modbus.GridConfig{
+			GridConfig: gridConfig,
 		}
 		if len(grid.Meters) > 0 {
-			cfg.ModbusGridConfig.ModbusMeters = make([]*ies.ModbusMeterConfig, len(grid.Meters))
+			mbConfig.ModbusMeters = make([]*modbus.MeterConfig, len(grid.Meters))
 			for ix, meter := range grid.Meters {
-				cfg.ModbusGridConfig.ModbusMeters[ix] = &ies.ModbusMeterConfig{
+				mbConfig.ModbusMeters[ix] = &modbus.MeterConfig{
 					ModbusUnitId: meter.ModbusUnitId,
 					LineIndices:  meter.LineIndices,
 				}
 			}
 		}
-		system, err = ies.NewVictronSystem(cfg, updateChannels)
+		g, err = victron.NewGrid(grid.Name, mbConfig, h.modbusUpdateLoops[grid.ConnectURL])
+		if err != nil {
+			log.Fatalf("Unable to create Carlo Gavazzi grid: %s", err.Error())
+			panic(err)
+		}
+
 	}
-	if err != nil {
-		log.Fatalf("Unable to load grid meters: %s", err.Error())
-		panic(err)
-	}
-	if h.system == nil {
-		h.system = system
-	} else {
-		h.system.Merge(system)
+	if g != nil {
+		h.system.SetGrid(g)
 	}
 }
 
-func addPvs(h *home, pvs []*config.Pv, updateChannels *energysource.UpdateChannels) {
+func addPvs(h *home, pvs []*config.Pv, updateChannels *internal.UpdateChannels) {
 	if pvs == nil || len(pvs) == 0 {
 		return
 	}
-	var system *energysource.System
-	var err error
-	for ixPv, pv := range pvs {
+	pvConfig := energysource.NewPvConfig()
+	for _, pv := range pvs {
 		switch pv.Brand {
 		case config.CarloGavazzi:
-			cfg := &ies.CarloGavazziConfig{
-				ModbusUrl:       pv.ConnectURL,
-				ModbusPvConfigs: make([]*ies.ModbusPvConfig, len(pvs)),
+			if h.modbusUpdateLoops[pv.ConnectURL] == nil {
+				updateLoop, err := modbus.NewUpdateLoop(carlo_gavazzi.NewModbusConfiguration(pv.ConnectURL), updateChannels)
+				if err != nil {
+					log.Fatalf("Unable to setup modbus connection to %s: %s", pv.ConnectURL, err.Error())
+					panic(err)
+				}
+				h.modbusUpdateLoops[pv.ConnectURL] = updateLoop
+			}
+			mbConfig := &modbus.PvConfig{
+				PvConfig: pvConfig,
 			}
 			if len(pv.Meters) > 0 {
-				cfg.ModbusPvConfigs[ixPv].ModbusMeters = make([]*ies.ModbusMeterConfig, len(pv.Meters))
-				for ixM, meter := range pv.Meters {
-					cfg.ModbusPvConfigs[ixPv].ModbusMeters[ixM] = &ies.ModbusMeterConfig{
+				mbConfig.ModbusMeters = make([]*modbus.MeterConfig, len(pv.Meters))
+				for ix, meter := range pv.Meters {
+					mbConfig.ModbusMeters[ix] = &modbus.MeterConfig{
 						ModbusUnitId: meter.ModbusUnitId,
 						LineIndices:  meter.LineIndices,
 					}
 				}
 			}
-			system, err = ies.NewCarloGavazziSystem(cfg, updateChannels)
+			p, err := carlo_gavazzi.NewPv(pv.Name, mbConfig, h.modbusUpdateLoops[pv.ConnectURL])
+			if err != nil {
+				log.Fatalf("Unable to create Carlo Gavazzi pv: %s", err.Error())
+				panic(err)
+			}
+			h.system.AddPv(p)
 		case config.Victron:
-			cfg := &ies.VictronConfig{
-				ModbusUrl:       pv.ConnectURL,
-				ModbusPvConfigs: make([]*ies.ModbusPvConfig, len(pvs)),
+			if h.modbusUpdateLoops[pv.ConnectURL] == nil {
+				updateLoop, err := modbus.NewUpdateLoop(victron.NewModbusConfiguration(pv.ConnectURL), updateChannels)
+				if err != nil {
+					log.Fatalf("Unable to setup modbus connection to %s: %s", pv.ConnectURL, err.Error())
+					panic(err)
+				}
+				h.modbusUpdateLoops[pv.ConnectURL] = updateLoop
+			}
+			mbConfig := &modbus.PvConfig{
+				PvConfig: pvConfig,
 			}
 			if len(pv.Meters) > 0 {
-				cfg.ModbusPvConfigs[ixPv].ModbusMeters = make([]*ies.ModbusMeterConfig, len(pv.Meters))
-				for ixM, meter := range pv.Meters {
-					cfg.ModbusPvConfigs[ixPv].ModbusMeters[ixM] = &ies.ModbusMeterConfig{
+				mbConfig.ModbusMeters = make([]*modbus.MeterConfig, len(pv.Meters))
+				for ix, meter := range pv.Meters {
+					mbConfig.ModbusMeters[ix] = &modbus.MeterConfig{
 						ModbusUnitId: meter.ModbusUnitId,
 						LineIndices:  meter.LineIndices,
 					}
 				}
 			}
-			system, err = ies.NewVictronSystem(cfg, updateChannels)
-		}
-		if err != nil {
-			log.Fatalf("Unable to load grid meters: %s", err.Error())
-			panic(err)
-		}
-		if h.system == nil {
-			h.system = system
-		} else {
-			h.system.Merge(system)
+			p, err := victron.NewPv(pv.Name, mbConfig, h.modbusUpdateLoops[pv.ConnectURL])
+			if err != nil {
+				log.Fatalf("Unable to create Victron pv: %s", err.Error())
+				panic(err)
+			}
+			h.system.AddPv(p)
 		}
 	}
 }
 
-func (h home) printStatusAsHtml(w http.ResponseWriter, r *http.Request) {
+func (h *home) printStatusAsHtml(w http.ResponseWriter, r *http.Request) {
 	if h.system.Grid() == nil {
 		_, _ = io.WriteString(w, "Grid not found")
 		return
@@ -225,7 +223,7 @@ func (h home) printStatusAsHtml(w http.ResponseWriter, r *http.Request) {
 		g.Voltage(0), g.Voltage(1), g.Voltage(2)))
 }
 
-func (h home) dataAsJson(w http.ResponseWriter, r *http.Request) {
+func (h *home) dataAsJson(w http.ResponseWriter, r *http.Request) {
 	data, err := json.Marshal(map[string]any{
 		"system": h.system.ToMap(),
 	})

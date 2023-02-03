@@ -1,9 +1,9 @@
-package energysource
+package dsmr
 
 import (
 	"bufio"
+	"enman/internal/energysource"
 	"enman/internal/serial"
-	"enman/pkg/energysource"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,15 +11,13 @@ import (
 )
 
 type DsmrConfig struct {
+	Name     string
 	Device   string
 	BaudRate uint32
 }
 
-type dsmrSystem struct {
-}
-
-func NewDsmrSystem(config *DsmrConfig, updateChannels *energysource.UpdateChannels, gridConfig *energysource.GridConfig) (*energysource.System, error) {
-	gb := energysource.NewGridBase(gridConfig)
+func NewDsmrGrid(config *DsmrConfig, updateChannel chan energysource.Grid, gridConfig *energysource.GridConfig) (*energysource.GridBase, error) {
+	gb := energysource.NewGridBase(config.Name, gridConfig)
 	serialPort, err := serial.Open(&serial.Config{
 		Address:  config.Device,
 		BaudRate: 115200,
@@ -31,16 +29,13 @@ func NewDsmrSystem(config *DsmrConfig, updateChannels *energysource.UpdateChanne
 	if err != nil {
 		return nil, err
 	}
-	dSystem := &dsmrSystem{}
-	e := energysource.Grid(gb)
-	var system = energysource.NewSystem(e, nil)
-	go dSystem.readSystemValues(serialPort, system, updateChannels)
-	return system, nil
+	go readSystemValues(serialPort, gb, updateChannel)
+	return gb, nil
 }
 
-func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysource.System, updateChannels *energysource.UpdateChannels) {
+func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updateChannel chan energysource.Grid) {
 	tickerChannel := make(chan bool)
-	runtime.SetFinalizer(system, func(system *energysource.System) {
+	runtime.SetFinalizer(grid, func(grid *energysource.GridBase) {
 		tickerChannel <- true
 	})
 	defer func(serialPort serial.Port) {
@@ -59,10 +54,6 @@ func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysour
 		if err != nil {
 			continue
 		}
-		gridBase, ok := system.Grid().(*energysource.GridBase)
-		if !ok {
-			continue
-		}
 		changed := false
 		totalEnergyConsumed := float32(0)
 		totalEnergyProvided := float32(0)
@@ -70,84 +61,84 @@ func (d *dsmrSystem) readSystemValues(serialPort serial.Port, system *energysour
 		for ix := 0; ix < len(lines); ix++ {
 			trimmedLine := strings.TrimSpace(lines[ix])
 			if strings.HasPrefix(trimmedLine, "1-0:1.8.1.255") {
-				totalEnergyConsumed += d.ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyConsumed += ValueFromObisLine(trimmedLine) * 1000
 			} else if strings.HasPrefix(trimmedLine, "1-0:1.8.2.255") {
-				totalEnergyConsumed += d.ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyConsumed += ValueFromObisLine(trimmedLine) * 1000
 			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.1.255") {
-				totalEnergyProvided += d.ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyProvided += ValueFromObisLine(trimmedLine) * 1000
 			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.2.255") {
-				totalEnergyProvided += d.ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyProvided += ValueFromObisLine(trimmedLine) * 1000
 			} else if strings.HasPrefix(trimmedLine, "1-0:32.7.0") {
-				valueChanged, _ := gridBase.SetVoltage(0, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := grid.SetVoltage(0, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:52.7.0") {
-				valueChanged, _ := gridBase.SetVoltage(1, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := grid.SetVoltage(1, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:72.7.0") {
-				valueChanged, _ := gridBase.SetVoltage(2, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := grid.SetVoltage(2, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:31.7.0") {
-				valueChanged, _ := gridBase.SetCurrent(0, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := grid.SetCurrent(0, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:51.7.0") {
-				valueChanged, _ := gridBase.SetCurrent(1, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := grid.SetCurrent(1, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:71.7.0") {
-				valueChanged, _ := gridBase.SetCurrent(2, d.ValueFromObisLine(trimmedLine))
+				valueChanged, _ := grid.SetCurrent(2, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
 			} else if strings.HasPrefix(trimmedLine, "1-0:21.7.0") {
-				value := d.ValueFromObisLine(trimmedLine)
+				value := ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					valueChanged, _ := gridBase.SetPower(0, value*1000)
+					valueChanged, _ := grid.SetPower(0, value*1000)
 					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:41.7.0") {
-				value := d.ValueFromObisLine(trimmedLine)
+				value := ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					valueChanged, _ := gridBase.SetPower(1, value*1000)
+					valueChanged, _ := grid.SetPower(1, value*1000)
 					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:61.7.0") {
-				value := d.ValueFromObisLine(trimmedLine)
+				value := ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					valueChanged, _ := gridBase.SetPower(2, value*1000)
+					valueChanged, _ := grid.SetPower(2, value*1000)
 					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:22.7.0") {
-				value := d.ValueFromObisLine(trimmedLine)
+				value := ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					valueChanged, _ := gridBase.SetPower(0, value*-1000)
+					valueChanged, _ := grid.SetPower(0, value*-1000)
 					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:42.7.0") {
-				value := d.ValueFromObisLine(trimmedLine)
+				value := ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					valueChanged, _ := gridBase.SetPower(1, value*-1000)
+					valueChanged, _ := grid.SetPower(1, value*-1000)
 					changed = changed || valueChanged
 				}
 			} else if strings.HasPrefix(trimmedLine, "1-0:62.7.0") {
-				value := d.ValueFromObisLine(trimmedLine)
+				value := ValueFromObisLine(trimmedLine)
 				if value > 0 {
-					valueChanged, _ := gridBase.SetPower(2, value*-1000)
+					valueChanged, _ := grid.SetPower(2, value*-1000)
 					changed = changed || valueChanged
 				}
 			}
 		}
 
 		// No option to read the totals per phase, so spread them over the phases evenly.
-		consumedPerPhase := totalEnergyConsumed / float32(gridBase.Phases())
-		providedPerPhase := totalEnergyConsumed / float32(gridBase.Phases())
-		for ix := uint8(0); ix < gridBase.Phases(); ix++ {
-			_, _ = gridBase.SetEnergyConsumed(ix, consumedPerPhase)
-			_, _ = gridBase.SetEnergyProvided(ix, providedPerPhase)
+		consumedPerPhase := totalEnergyConsumed / float32(grid.Phases())
+		providedPerPhase := totalEnergyConsumed / float32(grid.Phases())
+		for ix := uint8(0); ix < grid.Phases(); ix++ {
+			_, _ = grid.SetEnergyConsumed(ix, consumedPerPhase)
+			_, _ = grid.SetEnergyProvided(ix, providedPerPhase)
 		}
-		if changed && updateChannels != nil {
-			updateChannels.GridUpdated() <- gridBase
+		if changed && updateChannel != nil {
+			updateChannel <- grid
 		}
 	}
 }
 
-func (d *dsmrSystem) ValueFromObisLine(obisLine string) float32 {
+func ValueFromObisLine(obisLine string) float32 {
 	value := obisLine[strings.Index(obisLine, "(")+1 : strings.Index(obisLine, "*")]
 	float, err := strconv.ParseFloat(value, 32)
 	if err != nil {

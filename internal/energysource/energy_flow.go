@@ -4,9 +4,9 @@ import "fmt"
 
 const (
 	// MinVoltage The minimum voltage a grid must have.
-	MinVoltage float32 = 1
+	MinVoltage uint16 = 1
 	// MaxVoltage the maximum voltage a grid may have.
-	MaxVoltage float32 = 600
+	MaxVoltage uint16 = 600
 	// MinCurrentPerPhase The minimum current per phase a grid must have.
 	MinCurrentPerPhase float32 = 0.1
 	// MaxCurrentPerPhase The maximum current per phase a grid may have.

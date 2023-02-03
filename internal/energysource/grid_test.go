@@ -10,7 +10,7 @@ func TestNewGrid(t *testing.T) {
 		gridConfig *GridConfig
 	}
 	gridConfig, _ := NewGridConfig(230, 25, 3)
-	expected := NewGridBase(gridConfig)
+	expected := NewGridBase("test", gridConfig)
 	tests := []struct {
 		name string
 		args args
@@ -20,7 +20,7 @@ func TestNewGrid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewGridBase(tt.args.gridConfig)
+			got := NewGridBase("test", tt.args.gridConfig)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewGridBase() got = %v, want %v", got, tt.want)
 			}
@@ -30,12 +30,12 @@ func TestNewGrid(t *testing.T) {
 
 func TestGridConfig_Voltage(t *testing.T) {
 	type fields struct {
-		voltage float32
+		voltage uint16
 	}
 	tests := []struct {
 		name   string
 		fields fields
-		want   float32
+		want   uint16
 	}{
 		{"110v", fields{110}, 110},
 		{"230v", fields{230}, 230},
@@ -54,10 +54,10 @@ func TestGridConfig_Voltage(t *testing.T) {
 
 func TestGridConfig_SetVoltage(t *testing.T) {
 	type fields struct {
-		voltage float32
+		voltage uint16
 	}
 	type args struct {
-		voltage float32
+		voltage uint16
 	}
 	tests := []struct {
 		name    string
@@ -194,7 +194,7 @@ func TestGridConfig_SetPhases(t *testing.T) {
 
 func TestGridConfig_MaxPowerPerPhase(t *testing.T) {
 	type fields struct {
-		voltage            float32
+		voltage            uint16
 		maxCurrentPerPhase float32
 	}
 	tests := []struct {
@@ -220,7 +220,7 @@ func TestGridConfig_MaxPowerPerPhase(t *testing.T) {
 
 func TestGridConfig_MaxTotalPower(t *testing.T) {
 	type fields struct {
-		voltage            float32
+		voltage            uint16
 		maxCurrentPerPhase float32
 		phases             uint8
 	}
@@ -248,7 +248,7 @@ func TestGridConfig_MaxTotalPower(t *testing.T) {
 
 func TestNewGridConfig(t *testing.T) {
 	type args struct {
-		voltage            float32
+		voltage            uint16
 		maxCurrentPerPhase float32
 		phases             uint8
 	}

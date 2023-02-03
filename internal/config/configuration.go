@@ -15,6 +15,7 @@ const (
 )
 
 type Configuration struct {
+	Http   *Http   `json:"http"`
 	Grid   *Grid   `json:"grid"`
 	Pvs    []*Pv   `json:"pvs"`
 	Influx *Influx `json:"influx"`
@@ -25,7 +26,7 @@ type Grid struct {
 	ConnectURL string         `json:"connect_url"`
 	Brand      Brand          `json:"brand"`
 	Voltage    uint16         `json:"voltage"`
-	MaxCurrent uint8          `json:"max_current"`
+	MaxCurrent float32        `json:"max_current"`
 	Phases     uint8          `json:"phases"`
 	Meters     []*ModbusMeter `json:"meters"`
 }
@@ -47,8 +48,12 @@ type Influx struct {
 	Token     string `json:"token"`
 }
 
-func LoadConfiguration() *Configuration {
-	file, err := os.Open("conf.json")
+type Http struct {
+	Port uint16 `json:"port"`
+}
+
+func LoadConfiguration(configFile string) *Configuration {
+	file, err := os.Open(configFile)
 	if err != nil {
 		log.Fatalf("Unable to load configuration file: %s", err.Error())
 		panic(err)

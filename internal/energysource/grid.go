@@ -8,6 +8,13 @@ type Grid interface {
 	EnergyFlow
 }
 
+// GridConfig Represents the static values a utility grid can have. For example the voltage the grid is running on.
+type GridConfig struct {
+	voltage            uint16
+	maxCurrentPerPhase float32
+	phases             uint8
+}
+
 // GridBase Represents all live properties a utility grid can have.
 type GridBase struct {
 	*EnergyFlowBase
@@ -18,14 +25,6 @@ func (gb *GridBase) ToMap() map[string]any {
 	data := gb.EnergyFlowBase.ToMap()
 	data["config"] = gb.gridConfig.ToMap()
 	return data
-}
-
-// GridConfig Represents the static values a utility grid can have. For example the voltage the grid is running on.
-type GridConfig struct {
-	name               string
-	voltage            float32
-	maxCurrentPerPhase float32
-	phases             uint8
 }
 
 // MaxCurrentPerPhase Gives the maximum current per phase the grid can provide.
@@ -45,12 +44,12 @@ func (gc *GridConfig) setMaxCurrentPerPhase(maxCurrentPerPhase float32) error {
 }
 
 // Voltage Gives the voltage the grid is running on.
-func (gc *GridConfig) Voltage() float32 {
+func (gc *GridConfig) Voltage() uint16 {
 	return gc.voltage
 }
 
 // SetVoltage Sets the voltage of the grid at a given line index.
-func (gc *GridConfig) SetVoltage(voltage float32) error {
+func (gc *GridConfig) SetVoltage(voltage uint16) error {
 	if voltage < MinVoltage || voltage > MaxVoltage {
 		return fmt.Errorf("grid voltage must be between %f and %f (inclusive), provided %f",
 			MinVoltage, MaxVoltage, voltage)
@@ -76,7 +75,7 @@ func (gc *GridConfig) SetPhases(phases uint8) error {
 
 // MaxPowerPerPhase Calculates the maximum power (in watts) per phase.
 func (gc *GridConfig) MaxPowerPerPhase() uint32 {
-	return uint32(gc.MaxCurrentPerPhase() * gc.Voltage())
+	return uint32(gc.MaxCurrentPerPhase() * float32(gc.Voltage()))
 }
 
 // MaxTotalPower Calculates the maximum total power (in watts) this grid can consume.
@@ -86,7 +85,6 @@ func (gc *GridConfig) MaxTotalPower() uint32 {
 
 func (gc *GridConfig) ToMap() map[string]any {
 	data := map[string]any{
-		"name":                  gc.name,
 		"phases":                gc.phases,
 		"voltage":               gc.Voltage(),
 		"max_current_per_phase": gc.MaxCurrentPerPhase(),
@@ -96,19 +94,17 @@ func (gc *GridConfig) ToMap() map[string]any {
 }
 
 // NewGridBase Constructs a new GridBase instance with the given voltage, phases and max current
-func NewGridBase(gridConfig *GridConfig) *GridBase {
+func NewGridBase(name string, gridConfig *GridConfig) *GridBase {
 	return &GridBase{
 		EnergyFlowBase: &EnergyFlowBase{
-			name: gridConfig.name,
+			name: name,
 		},
 		gridConfig: gridConfig,
 	}
 }
 
-func NewGridConfig(name string, voltage float32, maxCurrentPerPhase float32, phases uint8) (*GridConfig, error) {
-	var gridConfig = GridConfig{
-		name: name,
-	}
+func NewGridConfig(voltage uint16, maxCurrentPerPhase float32, phases uint8) (*GridConfig, error) {
+	var gridConfig = GridConfig{}
 	err := gridConfig.SetVoltage(voltage)
 	if err != nil {
 		return nil, err
