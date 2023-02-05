@@ -22,6 +22,35 @@ func main() {
 		syscall.Exit(-1)
 	}
 	client.SetUnitId(2)
+
+	client.SetEncoding(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST)
+	readUint32, err := client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	if err != nil {
+		return
+	}
+	fmt.Printf("Big, LWF, %d, %d\n", readUint32, int32(readUint32))
+
+	client.SetEncoding(modbus.LITTLE_ENDIAN, modbus.LOW_WORD_FIRST)
+	readUint32, err = client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	if err != nil {
+		return
+	}
+	fmt.Printf("Little, LWF, %d, %d\n", readUint32, int32(readUint32))
+
+	client.SetEncoding(modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST)
+	readUint32, err = client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	if err != nil {
+		return
+	}
+	fmt.Printf("Big, HWF, %d, %d\n", readUint32, int32(readUint32))
+
+	client.SetEncoding(modbus.LITTLE_ENDIAN, modbus.HIGH_WORD_FIRST)
+	readUint32, err = client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	if err != nil {
+		return
+	}
+	fmt.Printf("Little, HWF, %d, %d\n", readUint32, int32(readUint32))
+
 	values, err := client.ReadRegisters(0xb, 1, modbus.INPUT_REGISTER)
 	if err != nil {
 		println(err.Error())

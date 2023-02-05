@@ -599,6 +599,28 @@ func (mc *ModbusClient) ValueFromUint16ResultArray(values []uint16, ix uint8, sc
 	return value
 }
 
+func (mc *ModbusClient) ValueFromInt32ResultArray(values []uint32, ix uint8, scaleFactor float32, defaultValue float32) float32 {
+	if values == nil || len(values) <= int(ix) {
+		return defaultValue
+	}
+	value := float32(int32(values[ix]))
+	if scaleFactor != 0 {
+		value /= scaleFactor
+	}
+	return value
+}
+
+func (mc *ModbusClient) ValueFromUint32ResultArray(values []uint32, ix uint8, scaleFactor float32, defaultValue float32) float32 {
+	if values == nil || len(values) <= int(ix) {
+		return defaultValue
+	}
+	value := float32(values[ix])
+	if scaleFactor != 0 {
+		value /= scaleFactor
+	}
+	return value
+}
+
 // Writes a single coil (function code 05)
 func (mc *ModbusClient) WriteCoil(addr uint16, value bool) (err error) {
 	var req *pdu

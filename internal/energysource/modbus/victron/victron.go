@@ -165,15 +165,15 @@ func updatePvValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flo
 
 func updateGridTotals(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(2623, 11, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(2622, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix] * 2
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 100, 0))
+		offset := meter.lineIndexes[ix]
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 100, 0))
 	}
-	values, err := modbusClient.ReadRegisters(2637, 1, modbusProtocol.INPUT_REGISTER)
+	values, err := modbusClient.ReadUint32s(2636, 1, modbusProtocol.INPUT_REGISTER)
 	if values != nil && err == nil {
 		// Provided energy per phase is far from correct, so we split the total energy (which seems to be correct) equally over the given phases.
-		provided := modbusClient.ValueFromUint16ResultArray(values, 0, 100, 0)
+		provided := modbusClient.ValueFromUint32ResultArray(values, 0, 100, 0)
 		providedPerPhase := provided / float32(len(meter.lineIndexes))
 		for ix := 0; ix < len(meter.lineIndexes); ix++ {
 			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
@@ -183,12 +183,12 @@ func updateGridTotals(meter *Meter, modbusClient *modbusProtocol.ModbusClient, f
 
 func updatePvTotals(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
 	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, err := modbusClient.ReadRegisters(1046, 5, modbusProtocol.INPUT_REGISTER)
+	values, err := modbusClient.ReadUint32s(1046, 3, modbusProtocol.INPUT_REGISTER)
 	if err != nil || values == nil || len(values) < 3 {
 		return
 	}
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix] * 2
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset, 100, 0))
+		offset := meter.lineIndexes[ix]
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 100, 0))
 	}
 }
