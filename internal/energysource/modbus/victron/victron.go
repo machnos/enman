@@ -106,11 +106,10 @@ func updatePvMeterValues(client *modbusProtocol.ModbusClient, pv *modbus.Pv, upd
 }
 
 func updateGridValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) bool {
-	modbusClient.SetUnitId(meter.modbusUnitId)
 	if len(meter.serialNumber) == 0 {
 		// Cannot set the serial number in the initialize function because we don't know the role (pv,grid etc) of the meter over there.
 		// Unfortunately different meter roles have different addresses to read the serial number of the meter.
-		bytes, err := modbusClient.ReadBytes(2609, 14, modbusProtocol.INPUT_REGISTER)
+		bytes, err := modbusClient.ReadBytes(meter.modbusUnitId, 2609, 14, modbusProtocol.INPUT_REGISTER)
 		if err != nil {
 			log.Warningf("Unable to read Victron serial: %s", err.Error())
 			meter.serialNumber = "unknown"
@@ -120,28 +119,27 @@ func updateGridValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, f
 	}
 
 	changed := false
-	values, _ := modbusClient.ReadRegisters(2600, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadRegisters(meter.modbusUnitId, 2600, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		valueChanged, _ := flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromInt16ResultArray(values, meter.lineIndexes[ix], 0, 0))
+		valueChanged, _ := flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromInt16sResultArray(values, meter.lineIndexes[ix], 0, 0))
 		changed = changed || valueChanged
 	}
-	values, _ = modbusClient.ReadRegisters(2616, 6, modbusProtocol.INPUT_REGISTER)
+	values, _ = modbusClient.ReadRegisters(meter.modbusUnitId, 2616, 6, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		offset := meter.lineIndexes[ix] * 2
-		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset+0, 10, 0))
+		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint16sResultArray(values, offset+0, 10, 0))
 		changed = changed || valueChanged
-		valueChanged, _ = flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromInt16ResultArray(values, offset+1, 10, 0))
+		valueChanged, _ = flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromInt16sResultArray(values, offset+1, 10, 0))
 		changed = changed || valueChanged
 	}
 	return changed
 }
 
 func updatePvValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) bool {
-	modbusClient.SetUnitId(meter.modbusUnitId)
 	if len(meter.serialNumber) == 0 {
 		// Cannot set the serial number in the initialize function because we don't know the role (pv,grid etc) of the meter over there.
 		// Unfortunately different meter roles have different addresses to read the serial number of the meter.
-		bytes, err := modbusClient.ReadBytes(1039, 14, modbusProtocol.INPUT_REGISTER)
+		bytes, err := modbusClient.ReadBytes(meter.modbusUnitId, 1039, 14, modbusProtocol.INPUT_REGISTER)
 		if err != nil {
 			log.Warningf("Unable to read Victron serial: %s", err.Error())
 			meter.serialNumber = "unknown"
@@ -150,31 +148,30 @@ func updatePvValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flo
 		}
 	}
 	changed := false
-	values, _ := modbusClient.ReadRegisters(1027, 11, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadRegisters(meter.modbusUnitId, 1027, 11, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		offset := meter.lineIndexes[ix] * 4
-		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset+0, 10, 0))
+		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint16sResultArray(values, offset+0, 10, 0))
 		changed = changed || valueChanged
-		valueChanged, _ = flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromInt16ResultArray(values, offset+1, 10, 0))
+		valueChanged, _ = flow.SetCurrent(meter.lineIndexes[ix], modbusClient.ValueFromInt16sResultArray(values, offset+1, 10, 0))
 		changed = changed || valueChanged
-		valueChanged, _ = flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromUint16ResultArray(values, offset+2, 0, 0))
+		valueChanged, _ = flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromUint16sResultArray(values, offset+2, 0, 0))
 		changed = changed || valueChanged
 	}
 	return changed
 }
 
 func updateGridTotals(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadUint32s(2622, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 2622, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		offset := meter.lineIndexes[ix]
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 100, 0))
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, offset, 100, 0)))
 	}
-	values, err := modbusClient.ReadUint32s(2636, 1, modbusProtocol.INPUT_REGISTER)
+	values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 2636, 1, modbusProtocol.INPUT_REGISTER)
 	if values != nil && err == nil {
 		// Provided energy per phase is far from correct, so we split the total energy (which seems to be correct) equally over the given phases.
-		provided := modbusClient.ValueFromUint32ResultArray(values, 0, 100, 0)
-		providedPerPhase := provided / float32(len(meter.lineIndexes))
+		provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 100, 0))
+		providedPerPhase := provided / float64(len(meter.lineIndexes))
 		for ix := 0; ix < len(meter.lineIndexes); ix++ {
 			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
 		}
@@ -182,13 +179,11 @@ func updateGridTotals(meter *Meter, modbusClient *modbusProtocol.ModbusClient, f
 }
 
 func updatePvTotals(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, err := modbusClient.ReadUint32s(1046, 3, modbusProtocol.INPUT_REGISTER)
+	values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 1046, 3, modbusProtocol.INPUT_REGISTER)
 	if err != nil || values == nil || len(values) < 3 {
 		return
 	}
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix]
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 100, 0))
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 100, 0)))
 	}
 }

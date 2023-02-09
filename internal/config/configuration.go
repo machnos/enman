@@ -9,33 +9,37 @@ import (
 type Brand string
 
 const (
+	ABB          Brand = "ABB"
 	CarloGavazzi Brand = "Carlo Gavazzi"
 	Victron      Brand = "Victron"
 	DSMR         Brand = "DSMR"
 )
 
 type Configuration struct {
-	Http   *Http   `json:"http"`
-	Grid   *Grid   `json:"grid"`
-	Pvs    []*Pv   `json:"pvs"`
-	Influx *Influx `json:"influx"`
+	Http          *Http            `json:"http"`
+	Grid          *Grid            `json:"grid"`
+	Pvs           []*Pv            `json:"pvs"`
+	Persistency   *Persistency     `json:"persistency"`
+	ModbusServers []*ModbusServers `json:"modbus_servers"`
 }
 
 type Grid struct {
-	Name       string         `json:"name"`
-	ConnectURL string         `json:"connect_url"`
-	Brand      Brand          `json:"brand"`
-	Voltage    uint16         `json:"voltage"`
-	MaxCurrent float32        `json:"max_current"`
-	Phases     uint8          `json:"phases"`
-	Meters     []*ModbusMeter `json:"meters"`
+	Name                 string                `json:"name"`
+	ConnectURL           string                `json:"connect_url"`
+	Brand                Brand                 `json:"brand"`
+	Voltage              uint16                `json:"voltage"`
+	MaxCurrent           float32               `json:"max_current"`
+	Phases               uint8                 `json:"phases"`
+	Meters               []*ModbusMeter        `json:"meters"`
+	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }
 
 type Pv struct {
-	Name       string         `json:"name"`
-	ConnectURL string         `json:"connect_url"`
-	Brand      Brand          `json:"brand"`
-	Meters     []*ModbusMeter `json:"meters"`
+	Name                 string                `json:"name"`
+	ConnectURL           string                `json:"connect_url"`
+	Brand                Brand                 `json:"brand"`
+	Meters               []*ModbusMeter        `json:"meters"`
+	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }
 
 type ModbusMeter struct {
@@ -43,9 +47,28 @@ type ModbusMeter struct {
 	LineIndices  []uint8 `json:"line_indices"`
 }
 
+type ModbusMeterSimulator struct {
+	ModbusUnitId uint8  `json:"modbus_unit_id"`
+	MeterType    string `json:"meter_type"`
+}
+
+type Persistency struct {
+	Influx *Influx `json:"influx"`
+}
+
 type Influx struct {
 	ServerUrl string `json:"server_url"`
 	Token     string `json:"token"`
+}
+
+type ModbusServers struct {
+	ServerUrl  string `json:"server_url"`
+	Speed      uint16 `json:"speed"`
+	DataBits   uint8  `json:"data_bits"`
+	Parity     uint8  `json:"parity"`
+	StopBits   uint8  `json:"stop_bits"`
+	Timeout    uint16 `json:"timeout"`
+	MaxClients uint8  `json:"max_clients"`
 }
 
 type Http struct {

@@ -79,7 +79,7 @@ func TestBytesToUint16(t *testing.T) {
 func TestBytesToUint16s(t *testing.T) {
 	var results []uint16
 
-	results = bytesToUint16s(BIG_ENDIAN, []byte{0x11, 0x22, 0x33, 0x44})
+	results = BytesToUint16s(BIG_ENDIAN, []byte{0x11, 0x22, 0x33, 0x44})
 	if len(results) != 2 {
 		t.Errorf("expected 2 values, got %v", len(results))
 	}
@@ -90,7 +90,7 @@ func TestBytesToUint16s(t *testing.T) {
 		t.Errorf("expected 0x3344, got 0x%04x", results[1])
 	}
 
-	results = bytesToUint16s(LITTLE_ENDIAN, []byte{0x11, 0x22, 0x33, 0x44})
+	results = BytesToUint16s(LITTLE_ENDIAN, []byte{0x11, 0x22, 0x33, 0x44})
 	if len(results) != 2 {
 		t.Errorf("expected 2 values, got %v", len(results))
 	}
@@ -107,7 +107,7 @@ func TestBytesToUint16s(t *testing.T) {
 func TestUint32ToBytes(t *testing.T) {
 	var out []byte
 
-	out = uint32ToBytes(BIG_ENDIAN, HIGH_WORD_FIRST, 0x87654321)
+	out = Uint32ToBytes(BIG_ENDIAN, HIGH_WORD_FIRST, 0x87654321)
 	if len(out) != 4 {
 		t.Errorf("expected 4 bytes, got %v", len(out))
 	}
@@ -117,7 +117,7 @@ func TestUint32ToBytes(t *testing.T) {
 			out[0], out[1], out[2], out[3])
 	}
 
-	out = uint32ToBytes(BIG_ENDIAN, LOW_WORD_FIRST, 0x87654321)
+	out = Uint32ToBytes(BIG_ENDIAN, LOW_WORD_FIRST, 0x87654321)
 	if len(out) != 4 {
 		t.Errorf("expected 4 bytes, got %v", len(out))
 	}
@@ -126,7 +126,7 @@ func TestUint32ToBytes(t *testing.T) {
 			out[0], out[1], out[2], out[3])
 	}
 
-	out = uint32ToBytes(LITTLE_ENDIAN, LOW_WORD_FIRST, 0x87654321)
+	out = Uint32ToBytes(LITTLE_ENDIAN, LOW_WORD_FIRST, 0x87654321)
 	if len(out) != 4 {
 		t.Errorf("expected 4 bytes, got %v", len(out))
 	}
@@ -135,7 +135,7 @@ func TestUint32ToBytes(t *testing.T) {
 			out[0], out[1], out[2], out[3])
 	}
 
-	out = uint32ToBytes(LITTLE_ENDIAN, HIGH_WORD_FIRST, 0x87654321)
+	out = Uint32ToBytes(LITTLE_ENDIAN, HIGH_WORD_FIRST, 0x87654321)
 	if len(out) != 4 {
 		t.Errorf("expected 4 bytes, got %v", len(out))
 	}

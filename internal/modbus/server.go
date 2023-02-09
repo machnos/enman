@@ -804,7 +804,7 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 					Addr:       addr,
 					Quantity:   quantity,
 					IsWrite:    true, // this is a write request
-					Args:       bytesToUint16s(BIG_ENDIAN, req.payload[5:]),
+					Args:       BytesToUint16s(BIG_ENDIAN, req.payload[5:]),
 				})
 			if err != nil {
 				break

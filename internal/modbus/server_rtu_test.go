@@ -39,10 +39,9 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 		t.Errorf("client.Open() should have succeeded, got: %v", err)
 	}
 	defer client.Close()
-	client.SetUnitId(9)
 
 	// make sure both coils and discrete inputs are all false/0
-	coils, err = client.ReadCoils(0x0000, 10)
+	coils, err = client.ReadCoils(9, 0x0000, 10)
 	if err != nil {
 		t.Errorf("client.ReadCoils() should have succeeded, got: %v", err)
 	}
@@ -52,7 +51,7 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 		}
 	}
 
-	dis, err = client.ReadDiscreteInputs(0x0000, 10)
+	dis, err = client.ReadDiscreteInputs(9, 0x0000, 10)
 	if err != nil {
 		t.Errorf("client.ReadDiscreteInputs() should have succeeded, got: %v", err)
 	}
@@ -68,7 +67,7 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 	}
 
 	// read the discrete inputs again
-	dis, err = client.ReadDiscreteInputs(0x0000, 10)
+	dis, err = client.ReadDiscreteInputs(9, 0x0000, 10)
 	if err != nil {
 		t.Errorf("client.ReadDiscreteInput() should have succeeded, got: %v", err)
 	}
@@ -81,25 +80,25 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 	}
 
 	// reading past the array size should return ErrIllegalDataAddress
-	_, err = client.ReadDiscreteInputs(0x000a, 1)
+	_, err = client.ReadDiscreteInputs(9, 0x000a, 1)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("expected ErrIllegalDataAddress, got: %v", err)
 	}
-	_, err = client.ReadCoils(0x000a, 1)
+	_, err = client.ReadCoils(9, 0x000a, 1)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("expected ErrIllegalDataAddress, got: %v", err)
 	}
-	_, err = client.ReadDiscreteInputs(0x8, 3)
+	_, err = client.ReadDiscreteInputs(9, 0x8, 3)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("expected ErrIllegalDataAddress, got: %v", err)
 	}
-	_, err = client.ReadCoils(0x8, 3)
+	_, err = client.ReadCoils(9, 0x8, 3)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("expected ErrIllegalDataAddress, got: %v", err)
 	}
 
 	// the coils shouldn't have changed
-	coils, err = client.ReadCoils(0x0000, 10)
+	coils, err = client.ReadCoils(9, 0x0000, 10)
 	if err != nil {
 		t.Errorf("client.ReadCoils() should have succeeded, got: %v", err)
 	}
@@ -110,13 +109,13 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 	}
 
 	// write to a single coil
-	err = client.WriteCoil(0x0004, true)
+	err = client.WriteCoil(9, 0x0004, true)
 	if err != nil {
 		t.Errorf("client.WriteCoil() should have succeeded, got: %v", err)
 	}
 
 	// make sure it has been written to
-	coils, err = client.ReadCoils(0x0003, 3)
+	coils, err = client.ReadCoils(9, 0x0003, 3)
 	if err != nil {
 		t.Errorf("client.ReadCoils() should have succeeded, got: %v", err)
 	}
@@ -127,7 +126,7 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 	}
 
 	// write to multiple coils at once
-	err = client.WriteCoils(0x0005, []bool{
+	err = client.WriteCoils(9, 0x0005, []bool{
 		true, false, true, true,
 	})
 	if err != nil {
@@ -135,7 +134,7 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 	}
 
 	// make sure the write went through
-	coils, err = client.ReadCoils(0x0005, 4)
+	coils, err = client.ReadCoils(9, 0x0005, 4)
 	if err != nil {
 		t.Errorf("client.ReadCoils() should have succeeded, got: %v", err)
 	}
@@ -147,22 +146,21 @@ func TestRTUServerCoilsAndDiscreteInputs(t *testing.T) {
 
 	// switch to another unit ID and make sure both coil and discrete input operations
 	// return ErrIllegalFunction
-	client.SetUnitId(5)
-	err = client.WriteCoils(0x0005, []bool{
+	err = client.WriteCoils(5, 0x0005, []bool{
 		true, false, true, true,
 	})
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteCoils() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	err = client.WriteCoil(0x0005, false)
+	err = client.WriteCoil(5, 0x0005, false)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteCoil() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	coils, err = client.ReadCoils(0x0005, 1)
+	coils, err = client.ReadCoils(5, 0x0005, 1)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.ReadCoils() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	coils, err = client.ReadDiscreteInputs(0x0005, 1)
+	coils, err = client.ReadDiscreteInputs(5, 0x0005, 1)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.ReadDiscreteInputs() should have returned ErrIllegalFunction, got: %v", err)
 	}
@@ -203,10 +201,9 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 		t.Errorf("client.Open() should have succeeded, got: %v", err)
 	}
 	defer client.Close()
-	client.SetUnitId(9)
 
 	// all 10 input registers should be 0x0000
-	regs, err = client.ReadRegisters(0x0000, 10, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -220,7 +217,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	for i := range th.input {
 		th.input[i] = 0xa710 + uint16(i)
 	}
-	regs, err = client.ReadRegisters(0x0000, 10, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -232,7 +229,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading addr 0x0009 (the very last register) should succeed
-	regs, err = client.ReadRegisters(0x0009, 1, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0009, 1, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -241,17 +238,17 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading past address 0x000a should fail
-	regs, err = client.ReadRegisters(0x0001, 10, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0001, 10, INPUT_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(0x0000, 11, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 11, INPUT_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
 
 	// all 10 holding registers should still be 0x0000
-	regs, err = client.ReadRegisters(0x0000, 10, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -262,13 +259,13 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// write to a single valid register (with opcode 0x06)
-	err = client.WriteRegister(0x0007, 0xfea1)
+	err = client.WriteRegister(9, 0x0007, 0xfea1)
 	if err != nil {
 		t.Errorf("client.WriteRegister() should have succeeded, got: %v", err)
 	}
 
 	// make sure it has been written to
-	regs, err = client.ReadRegisters(0x0005, 5, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0005, 5, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -292,7 +289,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// write multiple registers at once (with function code 0x10)
-	err = client.WriteRegisters(0x0001, []uint16{
+	err = client.WriteRegisters(9, 0x0001, []uint16{
 		0x0c11, 0x0c22, 0x0c33, 0x0c44,
 		0x0c55, 0x0c66, 0x0c77, 0x0c88,
 		0x0c99,
@@ -302,13 +299,13 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// write to a single valid register (with opcode 0x06)
-	err = client.WriteRegister(0x0000, 0x0c00)
+	err = client.WriteRegister(9, 0x0000, 0x0c00)
 	if err != nil {
 		t.Errorf("client.WriteRegister() should have succeeded, got: %v", err)
 	}
 
 	// make sure they have all been written to
-	regs, err = client.ReadRegisters(0x0000, 10, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -327,7 +324,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading addr 0x0009 (the very last register) should succeed
-	regs, err = client.ReadRegisters(0x0009, 1, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0009, 1, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -336,33 +333,32 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading past address 0x000a should fail
-	regs, err = client.ReadRegisters(0x0001, 10, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0001, 10, HOLDING_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(0x0000, 11, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 11, HOLDING_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
 
 	// switch to another unit ID and make sure both holding and input register operations
 	// return ErrIllegalFunction
-	client.SetUnitId(2)
-	err = client.WriteRegisters(0x0005, []uint16{
+	err = client.WriteRegisters(2, 0x0005, []uint16{
 		0x0000, 0x0001,
 	})
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteRegisters() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	err = client.WriteRegister(0x0001, 0xffff)
+	err = client.WriteRegister(2, 0x0001, 0xffff)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteRegister() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(0x0005, 1, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(2, 0x0005, 1, HOLDING_REGISTER)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(0x0005, 1, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(2, 0x0005, 1, INPUT_REGISTER)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalFunction, got: %v", err)
 	}

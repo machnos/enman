@@ -25,10 +25,10 @@ type EnergyFlow interface {
 	Voltage(lineIx uint8) float32
 	Current(lineIx uint8) float32
 	TotalCurrent() float32
-	EnergyConsumed(lineIx uint8) float32
-	TotalEnergyConsumed() float32
-	EnergyProvided(lineIx uint8) float32
-	TotalEnergyProvided() float32
+	EnergyConsumed(lineIx uint8) float64
+	TotalEnergyConsumed() float64
+	EnergyProvided(lineIx uint8) float64
+	TotalEnergyProvided() float64
 	ToMap() map[string]any
 }
 
@@ -38,8 +38,8 @@ type EnergyFlowBase struct {
 	current        [MaxPhases]float32
 	power          [MaxPhases]float32
 	voltage        [MaxPhases]float32
-	energyConsumed [MaxPhases]float32
-	energyProvided [MaxPhases]float32
+	energyConsumed [MaxPhases]float64
+	energyProvided [MaxPhases]float64
 }
 
 func (efb *EnergyFlowBase) Name() string {
@@ -125,14 +125,14 @@ func (efb *EnergyFlowBase) TotalCurrent() float32 {
 	return totalCurrent
 }
 
-func (efb *EnergyFlowBase) EnergyConsumed(lineIx uint8) float32 {
+func (efb *EnergyFlowBase) EnergyConsumed(lineIx uint8) float64 {
 	if !validLineIx(lineIx) {
 		return 0
 	}
 	return efb.energyConsumed[lineIx]
 }
 
-func (efb *EnergyFlowBase) SetEnergyConsumed(lineIx uint8, energyConsumed float32) (bool, error) {
+func (efb *EnergyFlowBase) SetEnergyConsumed(lineIx uint8, energyConsumed float64) (bool, error) {
 	if !validLineIx(lineIx) {
 		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
 			MinPhases-1, MaxPhases-1, lineIx)
@@ -142,22 +142,22 @@ func (efb *EnergyFlowBase) SetEnergyConsumed(lineIx uint8, energyConsumed float3
 	return changed, nil
 }
 
-func (efb *EnergyFlowBase) TotalEnergyConsumed() float32 {
-	totalEnergyConsumed := float32(0)
+func (efb *EnergyFlowBase) TotalEnergyConsumed() float64 {
+	totalEnergyConsumed := float64(0)
 	for i := 0; i < len(efb.energyConsumed); i++ {
 		totalEnergyConsumed += efb.energyConsumed[i]
 	}
 	return totalEnergyConsumed
 }
 
-func (efb *EnergyFlowBase) EnergyProvided(lineIx uint8) float32 {
+func (efb *EnergyFlowBase) EnergyProvided(lineIx uint8) float64 {
 	if !validLineIx(lineIx) {
 		return 0
 	}
 	return efb.energyProvided[lineIx]
 }
 
-func (efb *EnergyFlowBase) SetEnergyProvided(lineIx uint8, energyProvided float32) (bool, error) {
+func (efb *EnergyFlowBase) SetEnergyProvided(lineIx uint8, energyProvided float64) (bool, error) {
 	if !validLineIx(lineIx) {
 		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
 			MinPhases-1, MaxPhases-1, lineIx)
@@ -167,8 +167,8 @@ func (efb *EnergyFlowBase) SetEnergyProvided(lineIx uint8, energyProvided float3
 	return changed, nil
 }
 
-func (efb *EnergyFlowBase) TotalEnergyProvided() float32 {
-	totalEnergyProvided := float32(0)
+func (efb *EnergyFlowBase) TotalEnergyProvided() float64 {
+	totalEnergyProvided := float64(0)
 	for i := 0; i < len(efb.energyProvided); i++ {
 		totalEnergyProvided += efb.energyProvided[i]
 	}

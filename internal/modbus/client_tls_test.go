@@ -288,7 +288,7 @@ func TestTCPoverTLSClient(t *testing.T) {
 	// attempt to read two registers: since the client cert won't pass
 	// the validation step yet (no cert in server cert pool),
 	// expect a tls error
-	regs, err = client.ReadRegisters(0x1000, 2, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(1, 0x1000, 2, INPUT_REGISTER)
 	if err == nil {
 		t.Errorf("ReadRegisters() should have failed")
 	}
@@ -307,7 +307,7 @@ func TestTCPoverTLSClient(t *testing.T) {
 	}
 
 	// attempt to read two registers: should succeed
-	regs, err = client.ReadRegisters(0x1000, 2, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(1, 0x1000, 2, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestTCPoverTLSClient(t *testing.T) {
 	}
 
 	// attempt to read another: should succeed
-	regs, err = client.ReadRegisters(0x1002, 1, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(1, 0x1002, 1, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("ReadRegisters() should have succeeded, got: %v", err)
 	}

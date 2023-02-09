@@ -36,7 +36,7 @@ func bytesToUint16(endianness Endianness, in []byte) (out uint16) {
 	return
 }
 
-func bytesToUint16s(endianness Endianness, in []byte) (out []uint16) {
+func BytesToUint16s(endianness Endianness, in []byte) (out []uint16) {
 	for i := 0; i < len(in); i += 2 {
 		out = append(out, bytesToUint16(endianness, in[i:i+2]))
 	}
@@ -71,7 +71,7 @@ func bytesToUint32s(endianness Endianness, wordOrder WordOrder, in []byte) (out 
 	return
 }
 
-func uint32ToBytes(endianness Endianness, wordOrder WordOrder, in uint32) (out []byte) {
+func Uint32ToBytes(endianness Endianness, wordOrder WordOrder, in uint32) (out []byte) {
 	out = make([]byte, 4)
 
 	switch endianness {
@@ -107,7 +107,7 @@ func bytesToFloat32s(endianness Endianness, wordOrder WordOrder, in []byte) (out
 }
 
 func float32ToBytes(endianness Endianness, wordOrder WordOrder, in float32) (out []byte) {
-	out = uint32ToBytes(endianness, wordOrder, math.Float32bits(in))
+	out = Uint32ToBytes(endianness, wordOrder, math.Float32bits(in))
 
 	return
 }

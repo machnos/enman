@@ -28,152 +28,151 @@ type Meter struct {
 	protocol     cgMeterProtocol
 }
 
-func (m *Meter) SerialNumber() string {
-	return m.serialNumber
+func (meter *Meter) SerialNumber() string {
+	return meter.serialNumber
 }
 
-func (m *Meter) Initialize(modbusClient *modbusProtocol.ModbusClient, modbusMeter *modbus.MeterConfig) error {
-	m.modbusUnitId = modbusMeter.ModbusUnitId
-	m.lineIndexes = modbusMeter.LineIndices
-	modbusClient.SetUnitId(m.modbusUnitId)
+func (meter *Meter) Initialize(modbusClient *modbusProtocol.ModbusClient, modbusMeter *modbus.MeterConfig) error {
+	meter.modbusUnitId = modbusMeter.ModbusUnitId
+	meter.lineIndexes = modbusMeter.LineIndices
 	// Read meter type
-	meterType, err := modbusClient.ReadRegister(0x000b, modbusProtocol.INPUT_REGISTER)
+	meterType, err := modbusClient.ReadRegister(meter.modbusUnitId, 0x000b, modbusProtocol.INPUT_REGISTER)
 	if err != nil {
 		return err
 	}
-	m.meterCode = fmt.Sprintf("%d", meterType)
+	meter.meterCode = fmt.Sprintf("%d", meterType)
 	switch meterType {
 	case 71:
-		m.meterType = "EM24-DIN AV"
-		m.phases = 3
-		m.protocol = &eM24Protocol{}
+		meter.meterType = "EM24-DIN AV"
+		meter.phases = 3
+		meter.protocol = &eM24Protocol{}
 	case 72:
-		m.meterType = "EM24-DIN AV5"
-		m.phases = 3
-		m.protocol = &eM24Protocol{}
+		meter.meterType = "EM24-DIN AV5"
+		meter.phases = 3
+		meter.protocol = &eM24Protocol{}
 	case 73:
-		m.meterType = "EM24-DIN AV6"
-		m.phases = 3
-		m.protocol = &eM24Protocol{}
+		meter.meterType = "EM24-DIN AV6"
+		meter.phases = 3
+		meter.protocol = &eM24Protocol{}
 	case 100:
-		m.meterType = "EM110-DIN AV7 1 x S1"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM110-DIN AV7 1 x S1"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 101:
-		m.meterType = "EM111-DIN AV7 1 x S1"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM111-DIN AV7 1 x S1"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 102:
-		m.meterType = "EM112-DIN AV1 1 x S1"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM112-DIN AV1 1 x S1"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 103:
-		m.meterType = "EM111-DIN AV8 1 x S1"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM111-DIN AV8 1 x S1"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 104:
-		m.meterType = "EM112-DIN AV0 1 x S1"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM112-DIN AV0 1 x S1"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 110:
-		m.meterType = "EM110-DIN AV8 1 x S1"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM110-DIN AV8 1 x S1"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 114:
-		m.meterType = "EM111-DIN AV5 1 X S1 X"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "EM111-DIN AV5 1 X S1 X"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 120:
-		m.meterType = "ET112-DIN AV0 1 x S1 X"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "ET112-DIN AV0 1 x S1 X"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 121:
-		m.meterType = "ET112-DIN AV1 1 x S1 X"
-		m.phases = 1
-		m.protocol = &ex100SeriesProtocol{}
+		meter.meterType = "ET112-DIN AV1 1 x S1 X"
+		meter.phases = 1
+		meter.protocol = &ex100SeriesProtocol{}
 	case 331:
-		m.meterType = "EM330-DIN AV6 3"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "EM330-DIN AV6 3"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 332:
-		m.meterType = "EM330-DIN AV5 3"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "EM330-DIN AV5 3"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 335:
-		m.meterType = "ET330-DIN AV5 3"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "ET330-DIN AV5 3"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 336:
-		m.meterType = "ET330-DIN AV6 3"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "ET330-DIN AV6 3"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 340:
-		m.meterType = "EM340-DIN AV2 3 X S1 X"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "EM340-DIN AV2 3 X S1 X"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 341:
-		m.meterType = "EM340-DIN AV2 3 X S1"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "EM340-DIN AV2 3 X S1"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 345:
-		m.meterType = "ET340-DIN AV2 3 X S1 X"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "ET340-DIN AV2 3 X S1 X"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 346:
-		m.meterType = "EM341-DIN AV2 3 X OS X"
-		m.phases = 3
-		m.protocol = &ex300SeriesProtocol{}
+		meter.meterType = "EM341-DIN AV2 3 X OS X"
+		meter.phases = 3
+		meter.protocol = &ex300SeriesProtocol{}
 	case 1744:
-		m.meterType = "EM530-DIN AV5 3 X S1 X"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM530-DIN AV5 3 X S1 X"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1745:
-		m.meterType = "EM530-DIN AV5 3 X S1 PF A"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM530-DIN AV5 3 X S1 PF A"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1746:
-		m.meterType = "EM530-DIN AV5 3 X S1 PF B"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM530-DIN AV5 3 X S1 PF B"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1747:
-		m.meterType = "EM530-DIN AV5 3 X S1 PF C"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM530-DIN AV5 3 X S1 PF C"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1760:
-		m.meterType = "EM540-DIN AV2 3 X S1 X"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM540-DIN AV2 3 X S1 X"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1761:
-		m.meterType = "EM540-DIN AV2 3 X S1 PF A"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM540-DIN AV2 3 X S1 PF A"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1762:
-		m.meterType = "EM540-DIN AV2 3 X S1 PF B"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM540-DIN AV2 3 X S1 PF B"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	case 1763:
-		m.meterType = "EM540-DIN AV2 3 X S1 PF C"
-		m.phases = 3
-		m.protocol = &eM530and540Protocol{}
+		meter.meterType = "EM540-DIN AV2 3 X S1 PF C"
+		meter.phases = 3
+		meter.protocol = &eM530and540Protocol{}
 	default:
-		m.meterType = fmt.Sprintf("Carlo Gavazzi %d", meterType)
+		meter.meterType = fmt.Sprintf("Carlo Gavazzi %d", meterType)
 		log.Warningf("Detected an unsupported Carlo Gavazzi meter (%d). Meter will not be queried for values.", meterType)
 	}
-	if m.protocol != nil {
-		m.protocol.initialize(m, modbusClient)
+	if meter.protocol != nil {
+		meter.protocol.initialize(meter, modbusClient)
 	}
-	log.Infof("Detected a %d phase Carlo Gavazzi %s (identification code %d, serial %s) with unitId %d at %s.", m.phases, m.meterType, meterType, m.serialNumber, m.modbusUnitId, modbusClient.URL())
+	log.Infof("Detected a %d phase Carlo Gavazzi %s (identification code %d, serial %s) with unitId %d at %s.", meter.phases, meter.meterType, meterType, meter.serialNumber, meter.modbusUnitId, modbusClient.URL())
 	if meterType >= 71 && meterType <= 73 {
 		// type EM24 detected. Check if application is set to 'H'.
-		application, err := modbusClient.ReadRegister(em24ApplicationRegister, modbusProtocol.INPUT_REGISTER)
+		application, err := modbusClient.ReadRegister(meter.modbusUnitId, em24ApplicationRegister, modbusProtocol.INPUT_REGISTER)
 		if err != nil {
 			return err
 		}
 		if application != em24ApplicationH {
 			log.Infof("Detected a Carlo Gavazzi EM24 with unitId %d that is not configured as 'Application H'. "+
-				"Trying to set application mode to 'Application H'.", m.modbusUnitId)
+				"Trying to set application mode to 'Application H'.", meter.modbusUnitId)
 			// Application not set to 'H'. Check if we can update the value.
-			frontSelector, err := modbusClient.ReadRegister(em24FrontSelectorRegister, modbusProtocol.INPUT_REGISTER)
+			frontSelector, err := modbusClient.ReadRegister(meter.modbusUnitId, em24FrontSelectorRegister, modbusProtocol.INPUT_REGISTER)
 			if err != nil {
 				return err
 			}
@@ -182,7 +181,7 @@ func (m *Meter) Initialize(modbusClient *modbusProtocol.ModbusClient, modbusMete
 					"to manually update the EM24 to 'application H', or set the front selector in an unlocked position " +
 					"and reinitialize the system.")
 			} else {
-				err := modbusClient.WriteRegister(em24ApplicationRegister, em24ApplicationH)
+				err := modbusClient.WriteRegister(meter.modbusUnitId, em24ApplicationRegister, em24ApplicationH)
 				if err != nil {
 					return err
 				}
@@ -293,17 +292,15 @@ func (u *eM24Protocol) updateInstantValues(meter *Meter, modbusClient *modbusPro
 }
 
 func (u *eM24Protocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadUint32s(0x0046, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0046, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix] * 2
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 10, 0))
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 	}
-	values, err := modbusClient.ReadUint32s(0x005c, 1, modbusProtocol.INPUT_REGISTER)
+	values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 0x005c, 1, modbusProtocol.INPUT_REGISTER)
 	if values != nil && err == nil {
 		// No option to read provided energy per phase, so we split the energy equally over the given phases.
-		provided := modbusClient.ValueFromUint32ResultArray(values, 0, 10, 0)
-		providedPerPhase := provided / float32(len(meter.lineIndexes))
+		provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
+		providedPerPhase := provided / float64(len(meter.lineIndexes))
 		for ix := 0; ix < len(meter.lineIndexes); ix++ {
 			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
 		}
@@ -323,11 +320,10 @@ func (u *ex100SeriesProtocol) updateInstantValues(meter *Meter, modbusClient *mo
 }
 
 func (u *ex100SeriesProtocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadUint32s(0x0010, 1, modbusProtocol.INPUT_REGISTER)
-	_, _ = flow.SetEnergyConsumed(meter.lineIndexes[0], modbusClient.ValueFromUint32ResultArray(values, 0, 10, 0))
-	values, _ = modbusClient.ReadUint32s(0x0020, 1, modbusProtocol.INPUT_REGISTER)
-	_, _ = flow.SetEnergyProvided(meter.lineIndexes[0], modbusClient.ValueFromUint32ResultArray(values, 0, 10, 0))
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0010, 1, modbusProtocol.INPUT_REGISTER)
+	_, _ = flow.SetEnergyConsumed(meter.lineIndexes[0], float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x0020, 1, modbusProtocol.INPUT_REGISTER)
+	_, _ = flow.SetEnergyProvided(meter.lineIndexes[0], float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
 }
 
 type ex300SeriesProtocol struct {
@@ -343,24 +339,21 @@ func (u *ex300SeriesProtocol) updateInstantValues(meter *Meter, modbusClient *mo
 }
 
 func (u *ex300SeriesProtocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadUint32s(0x0040, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0040, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix]
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 10, 0))
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 	}
 	if strings.HasPrefix(meter.meterType, "ET") {
-		values, _ := modbusClient.ReadUint32s(0x0060, 3, modbusProtocol.INPUT_REGISTER)
+		values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0060, 3, modbusProtocol.INPUT_REGISTER)
 		for ix := 0; ix < len(meter.lineIndexes); ix++ {
-			offset := meter.lineIndexes[ix]
-			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 10, 0))
+			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 		}
 	} else {
-		values, err := modbusClient.ReadUint32s(0x004e, 1, modbusProtocol.INPUT_REGISTER)
+		values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 0x004e, 1, modbusProtocol.INPUT_REGISTER)
 		if values != nil && err == nil {
 			// No option to read provided energy per phase, so we split the energy equally over the given phases.
-			provided := modbusClient.ValueFromUint32ResultArray(values, 0, 10, 0)
-			providedPerPhase := provided / float32(len(meter.lineIndexes))
+			provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
+			providedPerPhase := provided / float64(len(meter.lineIndexes))
 			for ix := 0; ix < len(meter.lineIndexes); ix++ {
 				_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
 			}
@@ -381,17 +374,15 @@ func (u *eM530and540Protocol) updateInstantValues(meter *Meter, modbusClient *mo
 }
 
 func (u *eM530and540Protocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadUint32s(0x0040, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0040, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix]
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 10, 0))
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 	}
-	values, err := modbusClient.ReadUint32s(0x004e, 1, modbusProtocol.INPUT_REGISTER)
+	values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 0x004e, 1, modbusProtocol.INPUT_REGISTER)
 	if values != nil && err == nil {
 		// No option to read provided energy per phase, so we split the energy equally over the given phases.
-		provided := modbusClient.ValueFromUint32ResultArray(values, 0, 10, 0)
-		providedPerPhase := provided / float32(len(meter.lineIndexes))
+		provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
+		providedPerPhase := provided / float64(len(meter.lineIndexes))
 		for ix := 0; ix < len(meter.lineIndexes); ix++ {
 			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
 		}
@@ -399,25 +390,21 @@ func (u *eM530and540Protocol) updateKwhTotalValues(meter *Meter, modbusClient *m
 }
 
 func updateGenericCarloGavazziThreePhaseMeter(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) bool {
-	modbusClient.SetUnitId(meter.modbusUnitId)
 	changed := false
-	values, _ := modbusClient.ReadUint32s(0x0000, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0000, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix]
-		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint32ResultArray(values, offset, 10, 0))
+		valueChanged, _ := flow.SetVoltage(meter.lineIndexes[ix], modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0))
 		changed = changed || valueChanged
 	}
-	values, _ = modbusClient.ReadUint32s(0x0012, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x0012, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix]
 		// First set the power, because on some meters we need to flip the current sign based on power
-		valueChanged, _ := flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromInt32ResultArray(values, offset, 10, 0))
+		valueChanged, _ := flow.SetPower(meter.lineIndexes[ix], modbusClient.ValueFromInt32sResultArray(values, meter.lineIndexes[ix], 10, 0))
 		changed = changed || valueChanged
 	}
-	values, _ = modbusClient.ReadUint32s(0x000c, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x000c, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		offset := meter.lineIndexes[ix]
-		current := modbusClient.ValueFromInt32ResultArray(values, offset, 1000, 0)
+		current := modbusClient.ValueFromInt32sResultArray(values, meter.lineIndexes[ix], 1000, 0)
 		if flow.Power(meter.lineIndexes[ix]) < 0 && current > 0 {
 			current = current * -1
 		}
@@ -428,17 +415,16 @@ func updateGenericCarloGavazziThreePhaseMeter(meter *Meter, modbusClient *modbus
 }
 
 func updateGenericCarloGavazziSinglePhaseMeter(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) bool {
-	modbusClient.SetUnitId(meter.modbusUnitId)
 	changed := false
-	values, _ := modbusClient.ReadUint32s(0x0000, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0000, 3, modbusProtocol.INPUT_REGISTER)
 
-	valueChanged, _ := flow.SetVoltage(meter.lineIndexes[0], modbusClient.ValueFromUint32ResultArray(values, 0, 10, 0))
+	valueChanged, _ := flow.SetVoltage(meter.lineIndexes[0], modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
 	changed = changed || valueChanged
 	// First set the power, because on some meters we need to flip the current sign based on power
-	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromInt32ResultArray(values, 2, 10, 0))
+	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromInt32sResultArray(values, 2, 10, 0))
 	changed = changed || valueChanged
 
-	current := modbusClient.ValueFromInt32ResultArray(values, 1, 1000, 0)
+	current := modbusClient.ValueFromInt32sResultArray(values, 1, 1000, 0)
 	if flow.Power(meter.lineIndexes[0]) < 0 && current > 0 {
 		current = current * -1
 	}
@@ -448,8 +434,7 @@ func updateGenericCarloGavazziSinglePhaseMeter(meter *Meter, modbusClient *modbu
 }
 
 func readGenericCarloGavazziSerial(meter *Meter, modbusClient *modbusProtocol.ModbusClient) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(0x5000, 7, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadRegisters(meter.modbusUnitId, 0x5000, 7, modbusProtocol.INPUT_REGISTER)
 	var b bytes.Buffer
 	for _, value := range values {
 		bArray := []byte{byte(value >> 8), byte(value & 0xff)}
@@ -459,8 +444,7 @@ func readGenericCarloGavazziSerial(meter *Meter, modbusClient *modbusProtocol.Mo
 }
 
 func readEM24Serial(meter *Meter, modbusClient *modbusProtocol.ModbusClient) {
-	modbusClient.SetUnitId(meter.modbusUnitId)
-	values, _ := modbusClient.ReadRegisters(0x1300, 7, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadRegisters(meter.modbusUnitId, 0x1300, 7, modbusProtocol.INPUT_REGISTER)
 	var b bytes.Buffer
 	for _, value := range values {
 		bArray := []byte{byte(value >> 8), byte(value & 0xff)}

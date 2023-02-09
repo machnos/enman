@@ -11,16 +11,15 @@ import (
 )
 
 type DsmrConfig struct {
-	Name     string
 	Device   string
 	BaudRate uint32
 }
 
-func NewDsmrGrid(config *DsmrConfig, updateChannel chan energysource.Grid, gridConfig *energysource.GridConfig) (*energysource.GridBase, error) {
-	gb := energysource.NewGridBase(config.Name, gridConfig)
+func NewDsmrGrid(name string, config *DsmrConfig, updateChannel chan energysource.Grid, gridConfig *energysource.GridConfig) (*energysource.GridBase, error) {
+	gb := energysource.NewGridBase(name, gridConfig)
 	serialPort, err := serial.Open(&serial.Config{
 		Address:  config.Device,
-		BaudRate: 115200,
+		BaudRate: int(config.BaudRate),
 		Timeout:  time.Millisecond * 500,
 		DataBits: 8,
 		Parity:   "N",
@@ -55,19 +54,19 @@ func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updat
 			continue
 		}
 		changed := false
-		totalEnergyConsumed := float32(0)
-		totalEnergyProvided := float32(0)
+		totalEnergyConsumed := float64(0)
+		totalEnergyProvided := float64(0)
 		lines := strings.Split(message, "\n")
 		for ix := 0; ix < len(lines); ix++ {
 			trimmedLine := strings.TrimSpace(lines[ix])
 			if strings.HasPrefix(trimmedLine, "1-0:1.8.1.255") {
-				totalEnergyConsumed += ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyConsumed += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:1.8.2.255") {
-				totalEnergyConsumed += ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyConsumed += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.1.255") {
-				totalEnergyProvided += ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyProvided += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.2.255") {
-				totalEnergyProvided += ValueFromObisLine(trimmedLine) * 1000
+				totalEnergyProvided += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:32.7.0") {
 				valueChanged, _ := grid.SetVoltage(0, ValueFromObisLine(trimmedLine))
 				changed = changed || valueChanged
@@ -126,8 +125,8 @@ func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updat
 		}
 
 		// No option to read the totals per phase, so spread them over the phases evenly.
-		consumedPerPhase := totalEnergyConsumed / float32(grid.Phases())
-		providedPerPhase := totalEnergyConsumed / float32(grid.Phases())
+		consumedPerPhase := totalEnergyConsumed / float64(grid.Phases())
+		providedPerPhase := totalEnergyConsumed / float64(grid.Phases())
 		for ix := uint8(0); ix < grid.Phases(); ix++ {
 			_, _ = grid.SetEnergyConsumed(ix, consumedPerPhase)
 			_, _ = grid.SetEnergyProvided(ix, providedPerPhase)
