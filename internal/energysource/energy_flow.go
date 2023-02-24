@@ -34,12 +34,14 @@ type EnergyFlow interface {
 
 type EnergyFlowBase struct {
 	EnergyFlow
-	name           string
-	current        [MaxPhases]float32
-	power          [MaxPhases]float32
-	voltage        [MaxPhases]float32
-	energyConsumed [MaxPhases]float64
-	energyProvided [MaxPhases]float64
+	name                string
+	current             [MaxPhases]float32
+	power               [MaxPhases]float32
+	voltage             [MaxPhases]float32
+	energyConsumed      [MaxPhases]float64
+	totalEnergyConsumed float64
+	energyProvided      [MaxPhases]float64
+	totalEnergyProvided float64
 }
 
 func (efb *EnergyFlowBase) Name() string {
@@ -142,7 +144,16 @@ func (efb *EnergyFlowBase) SetEnergyConsumed(lineIx uint8, energyConsumed float6
 	return changed, nil
 }
 
+func (efb *EnergyFlowBase) SetTotalEnergyConsumed(totalEnergyConsumed float64) bool {
+	changed := efb.totalEnergyConsumed != totalEnergyConsumed
+	efb.totalEnergyConsumed = totalEnergyConsumed
+	return changed
+}
+
 func (efb *EnergyFlowBase) TotalEnergyConsumed() float64 {
+	if efb.totalEnergyConsumed != 0 {
+		return efb.totalEnergyConsumed
+	}
 	totalEnergyConsumed := float64(0)
 	for i := 0; i < len(efb.energyConsumed); i++ {
 		totalEnergyConsumed += efb.energyConsumed[i]
@@ -167,7 +178,16 @@ func (efb *EnergyFlowBase) SetEnergyProvided(lineIx uint8, energyProvided float6
 	return changed, nil
 }
 
+func (efb *EnergyFlowBase) SetTotalEnergyProvided(totalEnergyProvided float64) bool {
+	changed := efb.totalEnergyProvided != totalEnergyProvided
+	efb.totalEnergyProvided = totalEnergyProvided
+	return changed
+}
+
 func (efb *EnergyFlowBase) TotalEnergyProvided() float64 {
+	if efb.totalEnergyProvided != 0 {
+		return efb.totalEnergyProvided
+	}
 	totalEnergyProvided := float64(0)
 	for i := 0; i < len(efb.energyProvided); i++ {
 		totalEnergyProvided += efb.energyProvided[i]

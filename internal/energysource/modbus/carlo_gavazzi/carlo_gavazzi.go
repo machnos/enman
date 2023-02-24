@@ -292,19 +292,14 @@ func (u *eM24Protocol) updateInstantValues(meter *Meter, modbusClient *modbusPro
 }
 
 func (u *eM24Protocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0046, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x003e, 1, modbusProtocol.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x0046, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 	}
-	values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 0x005c, 1, modbusProtocol.INPUT_REGISTER)
-	if values != nil && err == nil {
-		// No option to read provided energy per phase, so we split the energy equally over the given phases.
-		provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
-		providedPerPhase := provided / float64(len(meter.lineIndexes))
-		for ix := 0; ix < len(meter.lineIndexes); ix++ {
-			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
-		}
-	}
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x005c, 1, modbusProtocol.INPUT_REGISTER)
+	flow.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
 }
 
 type ex100SeriesProtocol struct {
@@ -339,7 +334,9 @@ func (u *ex300SeriesProtocol) updateInstantValues(meter *Meter, modbusClient *mo
 }
 
 func (u *ex300SeriesProtocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0040, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0034, 1, modbusProtocol.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x0040, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 	}
@@ -349,15 +346,8 @@ func (u *ex300SeriesProtocol) updateKwhTotalValues(meter *Meter, modbusClient *m
 			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 		}
 	} else {
-		values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 0x004e, 1, modbusProtocol.INPUT_REGISTER)
-		if values != nil && err == nil {
-			// No option to read provided energy per phase, so we split the energy equally over the given phases.
-			provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
-			providedPerPhase := provided / float64(len(meter.lineIndexes))
-			for ix := 0; ix < len(meter.lineIndexes); ix++ {
-				_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
-			}
-		}
+		values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x004e, 1, modbusProtocol.INPUT_REGISTER)
+		flow.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
 	}
 }
 
@@ -374,19 +364,14 @@ func (u *eM530and540Protocol) updateInstantValues(meter *Meter, modbusClient *mo
 }
 
 func (u *eM530and540Protocol) updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0040, 3, modbusProtocol.INPUT_REGISTER)
+	values, _ := modbusClient.ReadUint32s(meter.modbusUnitId, 0x0034, 1, modbusProtocol.INPUT_REGISTER)
+	flow.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x0040, 3, modbusProtocol.INPUT_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
 		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], float64(modbusClient.ValueFromUint32sResultArray(values, meter.lineIndexes[ix], 10, 0)))
 	}
-	values, err := modbusClient.ReadUint32s(meter.modbusUnitId, 0x004e, 1, modbusProtocol.INPUT_REGISTER)
-	if values != nil && err == nil {
-		// No option to read provided energy per phase, so we split the energy equally over the given phases.
-		provided := float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0))
-		providedPerPhase := provided / float64(len(meter.lineIndexes))
-		for ix := 0; ix < len(meter.lineIndexes); ix++ {
-			_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], providedPerPhase)
-		}
-	}
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x004e, 1, modbusProtocol.INPUT_REGISTER)
+	flow.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
 }
 
 func updateGenericCarloGavazziThreePhaseMeter(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) bool {

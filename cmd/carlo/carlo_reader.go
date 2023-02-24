@@ -21,44 +21,43 @@ func main() {
 		println(err.Error())
 		syscall.Exit(-1)
 	}
-	client.SetUnitId(2)
-
+	unitId := uint8(2)
 	client.SetEncoding(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST)
-	readUint32, err := client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	readUint32, err := client.ReadUint32(unitId, 0x000c, modbus.INPUT_REGISTER)
 	if err != nil {
 		return
 	}
 	fmt.Printf("Big, LWF, %d, %d\n", readUint32, int32(readUint32))
 
 	client.SetEncoding(modbus.LITTLE_ENDIAN, modbus.LOW_WORD_FIRST)
-	readUint32, err = client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	readUint32, err = client.ReadUint32(unitId, 0x000c, modbus.INPUT_REGISTER)
 	if err != nil {
 		return
 	}
 	fmt.Printf("Little, LWF, %d, %d\n", readUint32, int32(readUint32))
 
 	client.SetEncoding(modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST)
-	readUint32, err = client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	readUint32, err = client.ReadUint32(unitId, 0x000c, modbus.INPUT_REGISTER)
 	if err != nil {
 		return
 	}
 	fmt.Printf("Big, HWF, %d, %d\n", readUint32, int32(readUint32))
 
 	client.SetEncoding(modbus.LITTLE_ENDIAN, modbus.HIGH_WORD_FIRST)
-	readUint32, err = client.ReadUint32(0x000c, modbus.INPUT_REGISTER)
+	readUint32, err = client.ReadUint32(unitId, 0x000c, modbus.INPUT_REGISTER)
 	if err != nil {
 		return
 	}
 	fmt.Printf("Little, HWF, %d, %d\n", readUint32, int32(readUint32))
 
-	values, err := client.ReadRegisters(0xb, 1, modbus.INPUT_REGISTER)
+	values, err := client.ReadRegisters(unitId, 0xb, 1, modbus.INPUT_REGISTER)
 	if err != nil {
 		println(err.Error())
 		syscall.Exit(-1)
 	}
 	println("EM24 model: ", values[0])
 
-	values, err = client.ReadRegisters(0x1101, 1, modbus.INPUT_REGISTER)
+	values, err = client.ReadRegisters(unitId, 0x1101, 1, modbus.INPUT_REGISTER)
 	if err != nil {
 		println(err.Error())
 		syscall.Exit(-1)
@@ -66,14 +65,13 @@ func main() {
 	println("Application type: ", values[0])
 
 	for ix := 0; ix < 10; ix++ {
-		client.SetUnitId(2)
-		values, err = client.ReadRegisters(0x003e, 1, modbus.INPUT_REGISTER)
+		values, err = client.ReadRegisters(unitId, 0x003e, 1, modbus.INPUT_REGISTER)
 		if err != nil {
 			println(err.Error())
 			syscall.Exit(-1)
 		}
 		kwhTotPlus := float32(values[0]) / 10
-		values, err = client.ReadRegisters(0x005c, 1, modbus.INPUT_REGISTER)
+		values, err = client.ReadRegisters(unitId, 0x005c, 1, modbus.INPUT_REGISTER)
 		if err != nil {
 			println(err.Error())
 			syscall.Exit(-1)

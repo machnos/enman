@@ -30,7 +30,6 @@ func (s *EM24MeterSimulator) HandleDiscreteInputs(req *modbus.DiscreteInputsRequ
 func (s *EM24MeterSimulator) HandleHoldingRegisters(req *modbus.HoldingRegistersRequest) ([]uint16, error) {
 	if req.IsWrite {
 		return nil, modbus.ErrIllegalFunction
-		//return nil, mapping.Client.WriteRegisters(mapping.UnitId, req.Addr, req.Args)
 	} else {
 		if req.Addr == 0x0000 && req.Quantity == 80 {
 			var result = make([]uint16, 80)
@@ -50,7 +49,7 @@ func (s *EM24MeterSimulator) HandleHoldingRegisters(req *modbus.HoldingRegisters
 			copy(result[0x0040:0x0042], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.EnergyConsumed(0)*10)))
 			copy(result[0x0042:0x0044], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.EnergyConsumed(1)*10)))
 			copy(result[0x0044:0x0046], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.EnergyConsumed(2)*10)))
-			copy(result[0x0034:0x0036], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32((s.energyFlow.TotalEnergyConsumed()-s.energyFlow.TotalEnergyProvided())*10)))
+			copy(result[0x0034:0x0036], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.TotalEnergyConsumed()*10)))
 			copy(result[0x004e:], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.TotalEnergyProvided()*10)))
 			return result, nil
 		} else if req.Addr == 0x000b {

@@ -123,14 +123,8 @@ func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updat
 				}
 			}
 		}
-
-		// No option to read the totals per phase, so spread them over the phases evenly.
-		consumedPerPhase := totalEnergyConsumed / float64(grid.Phases())
-		providedPerPhase := totalEnergyConsumed / float64(grid.Phases())
-		for ix := uint8(0); ix < grid.Phases(); ix++ {
-			_, _ = grid.SetEnergyConsumed(ix, consumedPerPhase)
-			_, _ = grid.SetEnergyProvided(ix, providedPerPhase)
-		}
+		grid.SetTotalEnergyConsumed(totalEnergyConsumed)
+		grid.SetTotalEnergyProvided(totalEnergyProvided)
 		if changed && updateChannel != nil {
 			updateChannel <- grid
 		}

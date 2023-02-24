@@ -151,7 +151,7 @@ func updateSinglePhaseMeterInstantValues(meter *Meter, modbusClient *modbusProto
 	valueChanged, _ = flow.SetCurrent(meter.lineIndexes[0], modbusClient.ValueFromUint32sResultArray(values, 0, 100, 0))
 	changed = changed || valueChanged
 
-	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x5b16, 1, modbusProtocol.HOLDING_REGISTER)
+	values, _ = modbusClient.ReadUint32s(meter.modbusUnitId, 0x5b14, 1, modbusProtocol.HOLDING_REGISTER)
 	valueChanged, _ = flow.SetPower(meter.lineIndexes[0], modbusClient.ValueFromInt32sResultArray(values, 0, 100, 0))
 	changed = changed || valueChanged
 	return changed
@@ -186,19 +186,22 @@ func updateKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClien
 }
 
 func updateSinglePhaseKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	values, _ := modbusClient.ReadUint64s(meter.modbusUnitId, 0x5000, 1, modbusProtocol.HOLDING_REGISTER)
+	values, _ := modbusClient.ReadUint64s(meter.modbusUnitId, 0x5000, 2, modbusProtocol.HOLDING_REGISTER)
 	_, _ = flow.SetEnergyConsumed(meter.lineIndexes[0], modbusClient.ValueFromUint64sResultArray(values, 0, 100, 0))
-	values, _ = modbusClient.ReadUint64s(meter.modbusUnitId, 0x5004, 1, modbusProtocol.HOLDING_REGISTER)
-	_, _ = flow.SetEnergyProvided(meter.lineIndexes[0], modbusClient.ValueFromUint64sResultArray(values, 0, 100, 0))
+	_, _ = flow.SetEnergyProvided(meter.lineIndexes[0], modbusClient.ValueFromUint64sResultArray(values, 1, 100, 0))
 }
 
 func updateThreePhaseKwhTotalValues(meter *Meter, modbusClient *modbusProtocol.ModbusClient, flow *energysource.EnergyFlowBase) {
-	values, _ := modbusClient.ReadUint64s(meter.modbusUnitId, 0x5460, 3, modbusProtocol.HOLDING_REGISTER)
+	values, _ := modbusClient.ReadUint64s(meter.modbusUnitId, 0x5000, 2, modbusProtocol.HOLDING_REGISTER)
+	flow.SetTotalEnergyConsumed(modbusClient.ValueFromUint64sResultArray(values, 0, 100, 0))
+	flow.SetTotalEnergyProvided(modbusClient.ValueFromUint64sResultArray(values, 1, 100, 0))
+
+	values, _ = modbusClient.ReadUint64s(meter.modbusUnitId, 0x5460, 3, modbusProtocol.HOLDING_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint64sResultArray(values, meter.lineIndexes[ix], 10, 0))
+		_, _ = flow.SetEnergyConsumed(meter.lineIndexes[ix], modbusClient.ValueFromUint64sResultArray(values, meter.lineIndexes[ix], 100, 0))
 	}
 	values, _ = modbusClient.ReadUint64s(meter.modbusUnitId, 0x546c, 3, modbusProtocol.HOLDING_REGISTER)
 	for ix := 0; ix < len(meter.lineIndexes); ix++ {
-		_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], modbusClient.ValueFromUint64sResultArray(values, meter.lineIndexes[ix], 10, 0))
+		_, _ = flow.SetEnergyProvided(meter.lineIndexes[ix], modbusClient.ValueFromUint64sResultArray(values, meter.lineIndexes[ix], 100, 0))
 	}
 }
