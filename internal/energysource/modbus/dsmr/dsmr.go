@@ -28,6 +28,7 @@ func NewDsmrGrid(name string, config *DsmrConfig, updateChannel chan energysourc
 	if err != nil {
 		return nil, err
 	}
+	// TODO log initialization of system. Print meter serial + port that is used.
 	go readSystemValues(serialPort, gb, updateChannel)
 	return gb, nil
 }
@@ -59,11 +60,13 @@ func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updat
 		lines := strings.Split(message, "\n")
 		for ix := 0; ix < len(lines); ix++ {
 			trimmedLine := strings.TrimSpace(lines[ix])
+			// TODO test for 1.8.0 -> should be total consumed
 			if strings.HasPrefix(trimmedLine, "1-0:1.8.1.255") {
 				totalEnergyConsumed += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:1.8.2.255") {
 				totalEnergyConsumed += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.1.255") {
+				// TODO test for 2.8.0 -> should be total provided
 				totalEnergyProvided += float64(ValueFromObisLine(trimmedLine) * 1000)
 			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.2.255") {
 				totalEnergyProvided += float64(ValueFromObisLine(trimmedLine) * 1000)
@@ -123,6 +126,7 @@ func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updat
 				}
 			}
 		}
+		// TODO add KWH per phase, see https://www.netbeheernederland.nl/_upload/Files/Slimme_meter_15_a727fce1f1.pdf
 		grid.SetTotalEnergyConsumed(totalEnergyConsumed)
 		grid.SetTotalEnergyProvided(totalEnergyProvided)
 		if changed && updateChannel != nil {
@@ -132,6 +136,7 @@ func readSystemValues(serialPort serial.Port, grid *energysource.GridBase, updat
 }
 
 func ValueFromObisLine(obisLine string) float32 {
+	// TODO waarde kan soms unparsable zijn, bijv 1-0:31.7.0(kW)
 	value := obisLine[strings.Index(obisLine, "(")+1 : strings.Index(obisLine, "*")]
 	float, err := strconv.ParseFloat(value, 32)
 	if err != nil {

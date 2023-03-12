@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"enman/internal"
 	"enman/internal/balance"
 	"enman/internal/config"
@@ -11,14 +10,12 @@ import (
 	"enman/internal/energysource/modbus/carlo_gavazzi"
 	"enman/internal/energysource/modbus/dsmr"
 	"enman/internal/energysource/modbus/victron"
+	"enman/internal/http"
 	"enman/internal/log"
 	modbusProtocol "enman/internal/modbus"
 	"enman/internal/modbus/proxy"
 	"enman/internal/persistency"
 	"flag"
-	"fmt"
-	"io"
-	"net/http"
 	"syscall"
 )
 
@@ -67,7 +64,7 @@ func main() {
 	}
 	defer h.Close()
 
-	// Load grid & pv's from config.
+	// Load grid & pvs from config.
 	updateChannels := internal.NewUpdateChannels()
 	addGrid(h, configuration.Grid, updateChannels)
 	addPvs(h, configuration.Pvs, updateChannels)
@@ -85,11 +82,7 @@ func main() {
 		}(server)
 	}
 
-	// Start the http server
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", h.printStatusAsHtml)
-	mux.HandleFunc("/api", h.dataAsJson)
-	err := http.ListenAndServe(fmt.Sprintf(":%d", configuration.Http.Port), mux)
+	err := http.StartServer(configuration.Http, h.system, repository)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -292,34 +285,4 @@ func startModbusServer(config *config.Configuration, home *home) []*modbusProtoc
 		log.Infof("Started modbus proxy on %s", modbusProxy.ServerUrl)
 	}
 	return servers
-}
-
-func (h *home) printStatusAsHtml(w http.ResponseWriter, r *http.Request) {
-	if h.system.Grid() == nil {
-		_, _ = io.WriteString(w, "Grid not found")
-		return
-	}
-	g := h.system.Grid()
-	_, _ = io.WriteString(w, fmt.Sprintf("Phases: %d, Power %4.2fW (L1: %4.2fW, L2: %4.2fW, L3: %4.2fW), Current %4.2fA (L1: %4.2fA, L2: %4.2fA, L3: %4.2fA), Voltage (L1: %4.2fV, L2: %4.2fV, L3: %4.2fV)",
-		g.Phases(),
-		g.TotalPower(), g.Power(0), g.Power(1), g.Power(2),
-		g.TotalCurrent(), g.Current(0), g.Current(1), g.Current(2),
-		g.Voltage(0), g.Voltage(1), g.Voltage(2)))
-}
-
-func (h *home) dataAsJson(w http.ResponseWriter, r *http.Request) {
-	data, err := json.Marshal(map[string]any{
-		"system": h.system.ToMap(),
-	})
-	if err != nil {
-		return
-	}
-	w.Header().Set("Content-Type", "application/json;charset=utf-8")
-	_, _ = w.Write(data)
-	//g := *h.system.Grid()
-	//_, _ = io.WriteString(w, fmt.Sprintf("Phases: %d, Power %4.2fW (L1: %4.2fW, L2: %4.2fW, L3: %4.2fW), Current %4.2fA (L1: %4.2fA, L2: %4.2fA, L3: %4.2fA), Voltage (L1: %4.2fV, L2: %4.2fV, L3: %4.2fV)",
-	//	g.Phases(),
-	//	g.TotalPower(), g.Power(0), g.Power(1), g.Power(2),
-	//	g.TotalCurrent(), g.Current(0), g.Current(1), g.Current(2),
-	//	g.Voltage(0), g.Voltage(1), g.Voltage(2)))
 }

@@ -1,0 +1,12 @@
+{{define "header"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>EnMan - Energy Management</title>
+    {{if .Scripts}} {{range .Scripts}}
+    <script type="text/javascript" src="{{$.ContextRoot}}static/scripts/{{.}}"></script>
+    {{end}} {{end}}
+</head>
+<body>
+{{end}}

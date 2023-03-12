@@ -1,7 +1,7 @@
 package persistency
 
 import (
-	energysource2 "enman/internal/energysource"
+	"enman/internal/energysource"
 	"fmt"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -24,7 +24,7 @@ func NewInfluxRepository(serverUrl string, token string) Repository {
 	return repo
 }
 
-func (i *influxRepository) StoreGridValues(grid energysource2.Grid) {
+func (i *influxRepository) StoreGridValues(grid energysource.Grid) {
 	fields := map[string]interface{}{
 		"total_current":         grid.TotalCurrent(),
 		"total_power":           grid.TotalPower(),
@@ -57,7 +57,7 @@ func (i *influxRepository) StoreGridValues(grid energysource2.Grid) {
 	i.writeApis["grid"].WritePoint(point)
 }
 
-func (i *influxRepository) StorePvValues(pv energysource2.Pv) {
+func (i *influxRepository) StorePvValues(pv energysource.Pv) {
 	fields := map[string]interface{}{
 		"total_current":         pv.TotalCurrent(),
 		"total_power":           pv.TotalPower(),
