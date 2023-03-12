@@ -17,7 +17,10 @@ import (
 )
 
 const (
-	highcharts = "highcharts-10.3.3.js"
+	highcharts              = "highcharts-10.3.3/highcharts.js"
+	highchartsAccessibility = "highcharts-10.3.3/accessibility.js"
+	highchartsMore          = "highcharts-10.3.3/highcharts-more.js"
+	highchartsSolidGauge    = "highcharts-10.3.3/solid-gauge.js"
 )
 
 var templates *template.Template
@@ -63,11 +66,14 @@ func (s *systemWrapper) staticResource(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if strings.HasSuffix(resource, ".js") {
+		w.Header().Set("Content-Type", "text/javascript;charset=utf-8")
+	}
 	w.Write(file)
 }
 
 func (s *systemWrapper) dashboard(w http.ResponseWriter, r *http.Request) {
-	data := newAppData([]string{highcharts})
+	data := newAppData([]string{highcharts, highchartsMore, highchartsSolidGauge, highchartsAccessibility})
 	t := templates.Lookup("header.tmpl")
 	t.ExecuteTemplate(w, "header", data)
 
