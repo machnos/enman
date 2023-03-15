@@ -21,6 +21,7 @@ type Configuration struct {
 	Pvs           []*Pv            `json:"pvs"`
 	Persistency   *Persistency     `json:"persistency"`
 	ModbusServers []*ModbusServers `json:"modbus_servers"`
+	Prices        *Prices          `json:"prices"`
 }
 
 type Grid struct {
@@ -69,6 +70,16 @@ type ModbusServers struct {
 	StopBits   uint8  `json:"stop_bits"`
 	Timeout    uint16 `json:"timeout"`
 	MaxClients uint8  `json:"max_clients"`
+}
+
+type Prices struct {
+	Country string  `json:"country"`
+	Vat     float32 `json:"vat"`
+}
+
+type Entsoe struct {
+	SecurityToken        string `json:"security_token"`
+	AdditionalCostPerKwh string `json:"additional_cost_per_kwh"`
 }
 
 type Http struct {
