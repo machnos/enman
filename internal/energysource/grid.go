@@ -21,12 +21,6 @@ type GridBase struct {
 	gridConfig *GridConfig
 }
 
-func (gb *GridBase) ToMap() map[string]any {
-	data := gb.EnergyFlowBase.ToMap()
-	data["config"] = gb.gridConfig.ToMap()
-	return data
-}
-
 // MaxCurrentPerPhase Gives the maximum current per phase the grid can provide.
 func (gc *GridConfig) MaxCurrentPerPhase() float32 {
 	return gc.maxCurrentPerPhase
@@ -83,23 +77,11 @@ func (gc *GridConfig) MaxTotalPower() uint32 {
 	return gc.MaxPowerPerPhase() * uint32(gc.Phases())
 }
 
-func (gc *GridConfig) ToMap() map[string]any {
-	data := map[string]any{
-		"phases":                gc.phases,
-		"voltage":               gc.Voltage(),
-		"max_current_per_phase": gc.MaxCurrentPerPhase(),
-		"max_total_power":       gc.MaxTotalPower(),
-	}
-	return data
-}
-
 // NewGridBase Constructs a new GridBase instance with the given voltage, phases and max current
 func NewGridBase(name string, gridConfig *GridConfig) *GridBase {
 	return &GridBase{
-		EnergyFlowBase: &EnergyFlowBase{
-			name: name,
-		},
-		gridConfig: gridConfig,
+		EnergyFlowBase: NewEnergyFlowBase(name, "grid"),
+		gridConfig:     gridConfig,
 	}
 }
 

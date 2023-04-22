@@ -15,8 +15,11 @@ import (
 	modbusProtocol "enman/internal/modbus"
 	"enman/internal/modbus/proxy"
 	"enman/internal/persistency"
+	"enman/internal/persistency/influx"
+	"enman/internal/prices/entsoe"
 	"flag"
 	"syscall"
+	"time"
 )
 
 type home struct {
@@ -56,10 +59,56 @@ func main() {
 
 	// Setup repository
 	repository := loadRepository(configuration)
+	err := repository.Initialize()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 	defer repository.Close()
 
+	if configuration.Prices != nil {
+		importer, err := entsoe.NewEntsoeImporter(
+			configuration.Prices.Country,
+			configuration.Prices.Area,
+			configuration.Prices.Entsoe.SecurityToken,
+			configuration.Prices.Providers,
+			repository,
+		)
+		if err != nil {
+			log.Error(err.Error())
+			return
+		}
+		t := time.Now()
+		year, month, day := t.Date()
+		start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+		go func() {
+			err = importer.ImportPrices(start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
+			if err != nil {
+				log.Error(err.Error())
+			}
+		}()
+		done := make(chan bool)
+		ticker := time.NewTicker(1 * time.Hour)
+		go func() {
+			for {
+				select {
+				case <-done:
+					ticker.Stop()
+					return
+				case <-ticker.C:
+					t = time.Now()
+					year, month, day = t.Date()
+					start = time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+					err = importer.ImportPrices(start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
+					if err != nil {
+						log.Error(err.Error())
+					}
+				}
+			}
+		}()
+	}
+
 	h := &home{
-		system:            &internal.System{},
+		system:            internal.NewSystem(time.Now().Location()),
 		modbusUpdateLoops: make(map[string]*modbus.UpdateLoop),
 	}
 	defer h.Close()
@@ -82,7 +131,7 @@ func main() {
 		}(server)
 	}
 
-	err := http.StartServer(configuration.Http, h.system, repository)
+	err = http.StartServer(configuration.Http, h.system, repository)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -92,8 +141,8 @@ func loadRepository(configuration *config.Configuration) persistency.Repository 
 	var repository persistency.Repository
 	if configuration.Persistency != nil {
 		if configuration.Persistency.Influx != nil {
-			influx := configuration.Persistency.Influx
-			repository = persistency.NewInfluxRepository(influx.ServerUrl, influx.Token)
+			influxConfig := configuration.Persistency.Influx
+			repository = influx.NewInfluxRepository(influxConfig.ServerUrl, influxConfig.Token)
 		}
 	}
 	if repository == nil {

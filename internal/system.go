@@ -2,11 +2,23 @@ package internal
 
 import (
 	"enman/internal/energysource"
+	"time"
 )
 
 type System struct {
-	grid energysource.Grid
-	pvs  []energysource.Pv
+	location *time.Location
+	grid     energysource.Grid
+	pvs      []energysource.Pv
+}
+
+func NewSystem(location *time.Location) *System {
+	return &System{
+		location: location,
+	}
+}
+
+func (s *System) Location() *time.Location {
+	return s.location
 }
 
 func (s *System) Grid() energysource.Grid {
@@ -23,21 +35,6 @@ func (s *System) Pvs() []energysource.Pv {
 
 func (s *System) AddPv(p energysource.Pv) {
 	s.pvs = append(s.pvs, p)
-}
-
-func (s *System) ToMap() map[string]any {
-	data := map[string]any{}
-	if s.Grid() != nil {
-		data["grid"] = s.Grid().ToMap()
-	}
-	if s.Pvs() != nil {
-		var pvData []map[string]any
-		for ix := 0; ix < len(s.Pvs()); ix++ {
-			pvData = append(pvData, s.Pvs()[ix].ToMap())
-		}
-		data["pvs"] = pvData
-	}
-	return data
 }
 
 type UpdateChannels struct {

@@ -1,6 +1,8 @@
 package energysource
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const (
 	// MinVoltage The minimum voltage a grid must have.
@@ -19,6 +21,7 @@ const (
 
 type EnergyFlow interface {
 	Name() string
+	Role() string
 	Phases() uint8
 	Power(lineIx uint8) float32
 	TotalPower() float32
@@ -29,23 +32,189 @@ type EnergyFlow interface {
 	TotalEnergyConsumed() float64
 	EnergyProvided(lineIx uint8) float64
 	TotalEnergyProvided() float64
-	ToMap() map[string]any
 }
 
-type EnergyFlowBase struct {
-	EnergyFlow
-	name                string
-	current             [MaxPhases]float32
-	power               [MaxPhases]float32
-	voltage             [MaxPhases]float32
+type EnergyFlowUsage struct {
 	energyConsumed      [MaxPhases]float64
 	totalEnergyConsumed float64
 	energyProvided      [MaxPhases]float64
 	totalEnergyProvided float64
 }
 
+func NewEnergyFlowUsage() *EnergyFlowUsage {
+	return &EnergyFlowUsage{}
+}
+
+func (efu *EnergyFlowUsage) EnergyConsumed(lineIx uint8) float64 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efu.energyConsumed[lineIx]
+}
+
+func (efu *EnergyFlowUsage) SetEnergyConsumed(lineIx uint8, energyConsumed float64) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efu.energyConsumed[lineIx] != energyConsumed
+	efu.energyConsumed[lineIx] = energyConsumed
+	return changed, nil
+}
+
+func (efu *EnergyFlowUsage) SetTotalEnergyConsumed(totalEnergyConsumed float64) bool {
+	changed := efu.totalEnergyConsumed != totalEnergyConsumed
+	efu.totalEnergyConsumed = totalEnergyConsumed
+	return changed
+}
+
+func (efu *EnergyFlowUsage) TotalEnergyConsumed() float64 {
+	if efu.totalEnergyConsumed != 0 {
+		return efu.totalEnergyConsumed
+	}
+	totalEnergyConsumed := float64(0)
+	for i := 0; i < len(efu.energyConsumed); i++ {
+		totalEnergyConsumed += efu.energyConsumed[i]
+	}
+	return totalEnergyConsumed
+}
+
+func (efu *EnergyFlowUsage) EnergyProvided(lineIx uint8) float64 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efu.energyProvided[lineIx]
+}
+
+func (efu *EnergyFlowUsage) SetEnergyProvided(lineIx uint8, energyProvided float64) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efu.energyProvided[lineIx] != energyProvided
+	efu.energyProvided[lineIx] = energyProvided
+	return changed, nil
+}
+
+func (efu *EnergyFlowUsage) SetTotalEnergyProvided(totalEnergyProvided float64) bool {
+	changed := efu.totalEnergyProvided != totalEnergyProvided
+	efu.totalEnergyProvided = totalEnergyProvided
+	return changed
+}
+
+func (efu *EnergyFlowUsage) TotalEnergyProvided() float64 {
+	if efu.totalEnergyProvided != 0 {
+		return efu.totalEnergyProvided
+	}
+	totalEnergyProvided := float64(0)
+	for i := 0; i < len(efu.energyProvided); i++ {
+		totalEnergyProvided += efu.energyProvided[i]
+	}
+	return totalEnergyProvided
+}
+
+type EnergyFlowState struct {
+	current [MaxPhases]float32
+	power   [MaxPhases]float32
+	voltage [MaxPhases]float32
+}
+
+func NewEnergyFlowState() *EnergyFlowState {
+	return &EnergyFlowState{}
+}
+
+func (efs *EnergyFlowState) Power(lineIx uint8) float32 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efs.power[lineIx]
+}
+
+// SetPower Sets the power of the grid at a given line index.
+func (efs *EnergyFlowState) SetPower(lineIx uint8, power float32) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efs.power[lineIx] != power
+	efs.power[lineIx] = power
+	return changed, nil
+}
+
+func (efs *EnergyFlowState) TotalPower() float32 {
+	totalPower := float32(0)
+	for i := 0; i < len(efs.power); i++ {
+		totalPower += efs.power[i]
+	}
+	return totalPower
+}
+
+func (efs *EnergyFlowState) Voltage(lineIx uint8) float32 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efs.voltage[lineIx]
+}
+
+// SetVoltage Sets the voltage of the grid at a given line index.
+func (efs *EnergyFlowState) SetVoltage(lineIx uint8, voltage float32) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efs.voltage[lineIx] != voltage
+	efs.voltage[lineIx] = voltage
+	return changed, nil
+}
+
+func (efs *EnergyFlowState) Current(lineIx uint8) float32 {
+	if !validLineIx(lineIx) {
+		return 0
+	}
+	return efs.current[lineIx]
+}
+
+// SetCurrent Sets the current of the grid at a given line index.
+func (efs *EnergyFlowState) SetCurrent(lineIx uint8, current float32) (bool, error) {
+	if !validLineIx(lineIx) {
+		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
+			MinPhases-1, MaxPhases-1, lineIx)
+	}
+	changed := efs.current[lineIx] != current
+	efs.current[lineIx] = current
+	return changed, nil
+}
+
+func (efs *EnergyFlowState) TotalCurrent() float32 {
+	totalCurrent := float32(0)
+	for i := 0; i < len(efs.current); i++ {
+		totalCurrent += efs.current[i]
+	}
+	return totalCurrent
+}
+
+type EnergyFlowBase struct {
+	*EnergyFlowUsage
+	*EnergyFlowState
+	name string
+	role string
+}
+
+func NewEnergyFlowBase(name string, role string) *EnergyFlowBase {
+	return &EnergyFlowBase{
+		EnergyFlowUsage: NewEnergyFlowUsage(),
+		EnergyFlowState: NewEnergyFlowState(),
+		name:            name,
+		role:            role,
+	}
+}
+
 func (efb *EnergyFlowBase) Name() string {
 	return efb.name
+}
+
+func (efb *EnergyFlowBase) Role() string {
+	return efb.role
 }
 
 func (efb *EnergyFlowBase) Phases() uint8 {
@@ -55,166 +224,6 @@ func (efb *EnergyFlowBase) Phases() uint8 {
 		}
 	}
 	return 0
-}
-
-func (efb *EnergyFlowBase) Power(lineIx uint8) float32 {
-	if !validLineIx(lineIx) {
-		return 0
-	}
-	return efb.power[lineIx]
-}
-
-// SetPower Sets the power of the grid at a given line index.
-func (efb *EnergyFlowBase) SetPower(lineIx uint8, power float32) (bool, error) {
-	if !validLineIx(lineIx) {
-		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
-			MinPhases-1, MaxPhases-1, lineIx)
-	}
-	changed := efb.power[lineIx] != power
-	efb.power[lineIx] = power
-	return changed, nil
-}
-
-func (efb *EnergyFlowBase) TotalPower() float32 {
-	totalPower := float32(0)
-	for i := 0; i < len(efb.power); i++ {
-		totalPower += efb.power[i]
-	}
-	return totalPower
-}
-
-func (efb *EnergyFlowBase) Voltage(lineIx uint8) float32 {
-	if !validLineIx(lineIx) {
-		return 0
-	}
-	return efb.voltage[lineIx]
-}
-
-// SetVoltage Sets the voltage of the grid at a given line index.
-func (efb *EnergyFlowBase) SetVoltage(lineIx uint8, voltage float32) (bool, error) {
-	if !validLineIx(lineIx) {
-		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
-			MinPhases-1, MaxPhases-1, lineIx)
-	}
-	changed := efb.voltage[lineIx] != voltage
-	efb.voltage[lineIx] = voltage
-	return changed, nil
-}
-
-func (efb *EnergyFlowBase) Current(lineIx uint8) float32 {
-	if !validLineIx(lineIx) {
-		return 0
-	}
-	return efb.current[lineIx]
-}
-
-// SetCurrent Sets the current of the grid at a given line index.
-func (efb *EnergyFlowBase) SetCurrent(lineIx uint8, current float32) (bool, error) {
-	if !validLineIx(lineIx) {
-		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
-			MinPhases-1, MaxPhases-1, lineIx)
-	}
-	changed := efb.current[lineIx] != current
-	efb.current[lineIx] = current
-	return changed, nil
-}
-
-func (efb *EnergyFlowBase) TotalCurrent() float32 {
-	totalCurrent := float32(0)
-	for i := 0; i < len(efb.current); i++ {
-		totalCurrent += efb.current[i]
-	}
-	return totalCurrent
-}
-
-func (efb *EnergyFlowBase) EnergyConsumed(lineIx uint8) float64 {
-	if !validLineIx(lineIx) {
-		return 0
-	}
-	return efb.energyConsumed[lineIx]
-}
-
-func (efb *EnergyFlowBase) SetEnergyConsumed(lineIx uint8, energyConsumed float64) (bool, error) {
-	if !validLineIx(lineIx) {
-		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
-			MinPhases-1, MaxPhases-1, lineIx)
-	}
-	changed := efb.energyConsumed[lineIx] != energyConsumed
-	efb.energyConsumed[lineIx] = energyConsumed
-	return changed, nil
-}
-
-func (efb *EnergyFlowBase) SetTotalEnergyConsumed(totalEnergyConsumed float64) bool {
-	changed := efb.totalEnergyConsumed != totalEnergyConsumed
-	efb.totalEnergyConsumed = totalEnergyConsumed
-	return changed
-}
-
-func (efb *EnergyFlowBase) TotalEnergyConsumed() float64 {
-	if efb.totalEnergyConsumed != 0 {
-		return efb.totalEnergyConsumed
-	}
-	totalEnergyConsumed := float64(0)
-	for i := 0; i < len(efb.energyConsumed); i++ {
-		totalEnergyConsumed += efb.energyConsumed[i]
-	}
-	return totalEnergyConsumed
-}
-
-func (efb *EnergyFlowBase) EnergyProvided(lineIx uint8) float64 {
-	if !validLineIx(lineIx) {
-		return 0
-	}
-	return efb.energyProvided[lineIx]
-}
-
-func (efb *EnergyFlowBase) SetEnergyProvided(lineIx uint8, energyProvided float64) (bool, error) {
-	if !validLineIx(lineIx) {
-		return false, fmt.Errorf("lineIx must be between %d and %d (inclusive), provided %d",
-			MinPhases-1, MaxPhases-1, lineIx)
-	}
-	changed := efb.energyProvided[lineIx] != energyProvided
-	efb.energyProvided[lineIx] = energyProvided
-	return changed, nil
-}
-
-func (efb *EnergyFlowBase) SetTotalEnergyProvided(totalEnergyProvided float64) bool {
-	changed := efb.totalEnergyProvided != totalEnergyProvided
-	efb.totalEnergyProvided = totalEnergyProvided
-	return changed
-}
-
-func (efb *EnergyFlowBase) TotalEnergyProvided() float64 {
-	if efb.totalEnergyProvided != 0 {
-		return efb.totalEnergyProvided
-	}
-	totalEnergyProvided := float64(0)
-	for i := 0; i < len(efb.energyProvided); i++ {
-		totalEnergyProvided += efb.energyProvided[i]
-	}
-	return totalEnergyProvided
-}
-
-func (efb *EnergyFlowBase) ToMap() map[string]any {
-	phases := efb.Phases()
-	data := map[string]any{
-		"name":                  efb.Name(),
-		"phases":                phases,
-		"total_current":         efb.TotalCurrent(),
-		"total_power":           efb.TotalPower(),
-		"total_energy_consumed": efb.TotalEnergyConsumed(),
-		"total_energy_provided": efb.TotalEnergyProvided(),
-	}
-	for ix := uint8(0); ix < phases; ix++ {
-		data[fmt.Sprintf("l%d", ix)] = map[string]any{
-			"voltage":         efb.Voltage(ix),
-			"current":         efb.Current(ix),
-			"power":           efb.Power(ix),
-			"energy_consumed": efb.EnergyConsumed(ix),
-			"energy_provided": efb.EnergyProvided(ix),
-		}
-	}
-	return data
 }
 
 func validLineIx(lineIx uint8) bool {

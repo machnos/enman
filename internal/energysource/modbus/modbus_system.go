@@ -69,7 +69,7 @@ func NewUpdateLoop(config *modbus.ClientConfiguration, updateChannels *internal.
 
 func (u *UpdateLoop) startUpdate() {
 	pollInterval := uint16(250)
-	log.Infof("Start polling modbus devices at %s every %d milliseconds.", u.Client.URL(), pollInterval)
+	log.Infof("Start polling modbus devices at %s every %d milliseconds", u.Client.URL(), pollInterval)
 	ticker := time.NewTicker(time.Millisecond * time.Duration(pollInterval))
 	u.stopChannel = make(chan bool)
 	var runMinute = -1

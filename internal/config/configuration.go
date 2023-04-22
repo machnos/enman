@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"enman/internal/log"
 	"os"
+	"strings"
+	"time"
 )
 
 type Brand string
@@ -73,13 +75,49 @@ type ModbusServers struct {
 }
 
 type Prices struct {
-	Country string  `json:"country"`
-	Vat     float32 `json:"vat"`
+	Country   string           `json:"country"`
+	Area      string           `json:"area"`
+	Providers []EnergyProvider `json:"providers"`
+	Entsoe    Entsoe           `json:"entsoe"`
 }
 
 type Entsoe struct {
-	SecurityToken        string `json:"security_token"`
-	AdditionalCostPerKwh string `json:"additional_cost_per_kwh"`
+	SecurityToken string `json:"security_token"`
+}
+
+type EnergyProvider struct {
+	Name        string       `json:"name"`
+	PriceModels []PriceModel `json:"price_models"`
+}
+
+type PriceModel struct {
+	Start                YearMonthDay `json:"start"`
+	Vat                  float32      `json:"vat"`
+	AdditionalCostPerKwh float32      `json:"additional_cost_per_kwh"`
+}
+type YearMonthDay time.Time
+
+func (j *YearMonthDay) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), "\"")
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return err
+	}
+	*j = YearMonthDay(t)
+	return nil
+}
+
+func (j *YearMonthDay) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Time(*j))
+}
+
+func (j *YearMonthDay) Format(s string) string {
+	t := time.Time(*j)
+	return t.Format(s)
+}
+
+func (j *YearMonthDay) Time() time.Time {
+	return time.Time(*j)
 }
 
 type Http struct {

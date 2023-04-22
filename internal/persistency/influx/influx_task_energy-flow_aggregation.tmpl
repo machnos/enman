@@ -1,0 +1,24 @@
+gridData =
+    from(bucket: "{{.SourceBucket}}")
+        |> range(start: -5m)
+        |> filter(fn: (r) => r["_measurement"] == "{{.Measurement}}")
+        |> filter(fn: (r) => r["role"] == "grid")
+        |> filter(
+            fn: (r) =>
+                r["_field"] == "total_energy_consumed" or r["_field"] == "total_energy_provided",
+        )
+        |> last()
+        |> truncateTimeColumn(unit: 1m)
+
+pvData =
+    from(bucket: "{{.SourceBucket}}")
+        |> range(start: -5m)
+        |> filter(fn: (r) => r["_measurement"] == "{{.Measurement}}")
+        |> filter(fn: (r) => r["role"] == "pv")
+        |> filter(fn: (r) => r["_field"] == "total_energy_consumed")
+        |> last()
+        |> truncateTimeColumn(unit: 1m)
+
+union(tables: [gridData, pvData])
+    |> set(key: "_measurement", value: "{{.Measurement}}")
+    |> to(bucket: "{{.TargetBucket}}")
