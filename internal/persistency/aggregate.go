@@ -8,40 +8,40 @@ import (
 type WindowUnit uint8
 
 const (
-	Nanosecond WindowUnit = iota
-	Microsecond
-	Millisecond
-	Second
-	Minute
-	Hour
-	Day
-	Week
-	Month
-	Year
+	WindowUnitNanosecond WindowUnit = iota
+	WindowUnitMicrosecond
+	WindowUnitMillisecond
+	WindowUnitSecond
+	WindowUnitMinute
+	WindowUnitHour
+	WindowUnitDay
+	WindowUnitWeek
+	WindowUnitMonth
+	WindowUnitYear
 )
 
 func WindowUnitOf(unit string) (WindowUnit, error) {
 	switch strings.ToLower(unit) {
 	case "nanosecond":
-		return Nanosecond, nil
+		return WindowUnitNanosecond, nil
 	case "microsecond":
-		return Microsecond, nil
+		return WindowUnitMicrosecond, nil
 	case "millisecond":
-		return Millisecond, nil
+		return WindowUnitMillisecond, nil
 	case "second":
-		return Second, nil
+		return WindowUnitSecond, nil
 	case "minute":
-		return Minute, nil
+		return WindowUnitMinute, nil
 	case "hour":
-		return Hour, nil
+		return WindowUnitHour, nil
 	case "day":
-		return Day, nil
+		return WindowUnitDay, nil
 	case "week":
-		return Week, nil
+		return WindowUnitWeek, nil
 	case "month":
-		return Month, nil
+		return WindowUnitMonth, nil
 	case "Year":
-		return Year, nil
+		return WindowUnitYear, nil
 	}
 	return 0, fmt.Errorf("invalid WindowUnit type %s", unit)
 }

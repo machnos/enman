@@ -92,7 +92,7 @@ func (e *EnergyFlowApi) usage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	aggregate := &persistency.AggregateConfiguration{
-		WindowUnit:   persistency.Hour,
+		WindowUnit:   persistency.WindowUnitHour,
 		WindowAmount: 1,
 		Function:     persistency.Mean{},
 		CreateEmpty:  false,
@@ -150,7 +150,7 @@ func (e *EnergyFlowApi) states(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	aggregate := &persistency.AggregateConfiguration{
-		WindowUnit:   persistency.Minute,
+		WindowUnit:   persistency.WindowUnitMinute,
 		WindowAmount: 1,
 		Function:     persistency.Mean{},
 		CreateEmpty:  false,

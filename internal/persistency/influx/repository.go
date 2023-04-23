@@ -193,25 +193,25 @@ func (i *influxRepository) Close() {
 
 func (i *influxRepository) toInfluxDuration(unit persistency.WindowUnit, amount uint64) string {
 	switch unit {
-	case persistency.Nanosecond:
+	case persistency.WindowUnitNanosecond:
 		return fmt.Sprintf("%dns", amount)
-	case persistency.Microsecond:
+	case persistency.WindowUnitMicrosecond:
 		return fmt.Sprintf("%dus", amount)
-	case persistency.Millisecond:
+	case persistency.WindowUnitMillisecond:
 		return fmt.Sprintf("%dms", amount)
-	case persistency.Second:
+	case persistency.WindowUnitSecond:
 		return fmt.Sprintf("%ds", amount)
-	case persistency.Minute:
+	case persistency.WindowUnitMinute:
 		return fmt.Sprintf("%dm", amount)
-	case persistency.Hour:
+	case persistency.WindowUnitHour:
 		return fmt.Sprintf("%dh", amount)
-	case persistency.Day:
+	case persistency.WindowUnitDay:
 		return fmt.Sprintf("%dd", amount)
-	case persistency.Week:
+	case persistency.WindowUnitWeek:
 		return fmt.Sprintf("%dw", amount)
-	case persistency.Month:
+	case persistency.WindowUnitMonth:
 		return fmt.Sprintf("%dmo", amount)
-	case persistency.Year:
+	case persistency.WindowUnitYear:
 		return fmt.Sprintf("%dy", amount)
 	}
 	return ""
@@ -247,5 +247,9 @@ func (i *influxRepository) toAggregateWindow(aggregateConfiguration *persistency
 		i.toInfluxFunction(aggregateConfiguration.Function),
 		aggregateConfiguration.CreateEmpty,
 	)
+	if persistency.WindowUnitWeek == aggregateConfiguration.WindowUnit {
+		// In InlfuxDB the week starts at wednesday. See https://docs.influxdata.com/flux/v0.x/stdlib/universe/aggregatewindow/#downsample-by-calendar-week-starting-on-monday
+		aggregateWindow += ", offset: -3d"
+	}
 	return aggregateWindow
 }
