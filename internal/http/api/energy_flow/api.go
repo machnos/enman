@@ -91,7 +91,13 @@ func (e *EnergyFlowApi) usage(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	usages, err := e.Repository.EnergyFlowUsages(startTime, endTime, chi.URLParam(r, "name"))
+	aggregate := &persistency.AggregateConfiguration{
+		WindowUnit:   persistency.Hour,
+		WindowAmount: 1,
+		Function:     persistency.Mean{},
+		CreateEmpty:  false,
+	}
+	usages, err := e.Repository.EnergyFlowUsages(startTime, endTime, chi.URLParam(r, "name"), aggregate)
 	if err != nil {
 		log.Error(err.Error())
 		e.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadTotals, err.Error())
@@ -138,7 +144,13 @@ func (e *EnergyFlowApi) states(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	states, err := e.Repository.EnergyFlowStates(startTime, endTime, chi.URLParam(r, "name"))
+	aggregate := &persistency.AggregateConfiguration{
+		WindowUnit:   persistency.Minute,
+		WindowAmount: 1,
+		Function:     persistency.Mean{},
+		CreateEmpty:  false,
+	}
+	states, err := e.Repository.EnergyFlowStates(startTime, endTime, chi.URLParam(r, "name"), aggregate)
 	if err != nil {
 		log.Error(err.Error())
 		e.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadTotals, err.Error())

@@ -6,6 +6,7 @@ import (
 	"embed"
 	"enman/internal/log"
 	"enman/internal/persistency"
+	"fmt"
 	"github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/influxdata/influxdb-client-go/v2/domain"
@@ -188,4 +189,63 @@ func (i *influxRepository) Close() {
 		value.Flush()
 	}
 	i.client.Close()
+}
+
+func (i *influxRepository) toInfluxDuration(unit persistency.WindowUnit, amount uint16) string {
+	switch unit {
+	case persistency.Nanosecond:
+		return fmt.Sprintf("%dns", amount)
+	case persistency.Microsecond:
+		return fmt.Sprintf("%dus", amount)
+	case persistency.Millisecond:
+		return fmt.Sprintf("%dms", amount)
+	case persistency.Second:
+		return fmt.Sprintf("%ds", amount)
+	case persistency.Minute:
+		return fmt.Sprintf("%dm", amount)
+	case persistency.Hour:
+		return fmt.Sprintf("%dh", amount)
+	case persistency.Day:
+		return fmt.Sprintf("%dd", amount)
+	case persistency.Week:
+		return fmt.Sprintf("%dw", amount)
+	case persistency.Month:
+		return fmt.Sprintf("%dmo", amount)
+	case persistency.Year:
+		return fmt.Sprintf("%dy", amount)
+	}
+	return ""
+}
+
+func (i *influxRepository) toInfluxFunction(function persistency.AggregateFunction) string {
+	_, ok := function.(persistency.Count)
+	if ok {
+		return "count"
+	}
+	_, ok = function.(persistency.Max)
+	if ok {
+		return "max"
+	}
+	_, ok = function.(persistency.Mean)
+	if ok {
+		return "mean"
+	}
+	_, ok = function.(persistency.Median)
+	if ok {
+		return "median"
+	}
+	_, ok = function.(persistency.Min)
+	if ok {
+		return "min"
+	}
+	return ""
+}
+
+func (i *influxRepository) toAggregateWindow(aggregateConfiguration *persistency.AggregateConfiguration) string {
+	aggregateWindow := fmt.Sprintf("every: %s, fn: %s, createEmpty: %t",
+		i.toInfluxDuration(aggregateConfiguration.WindowUnit, aggregateConfiguration.WindowAmount),
+		i.toInfluxFunction(aggregateConfiguration.Function),
+		aggregateConfiguration.CreateEmpty,
+	)
+	return aggregateWindow
 }

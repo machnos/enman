@@ -45,7 +45,12 @@ func (i *influxRepository) EnergyFlowNames() ([]string, error) {
 	return roles, nil
 }
 
-func (i *influxRepository) EnergyFlowUsages(from *time.Time, till *time.Time, name string) ([]*persistency.EnergyFlowUsage, error) {
+func (i *influxRepository) EnergyFlowUsages(
+	from *time.Time,
+	till *time.Time,
+	name string,
+	aggregate *persistency.AggregateConfiguration,
+) ([]*persistency.EnergyFlowUsage, error) {
 	queryRange := ""
 	if till != nil {
 		queryRange = fmt.Sprintf("start: %d, stop: %d", from.Unix(), till.Unix())
@@ -61,9 +66,9 @@ func (i *influxRepository) EnergyFlowUsages(from *time.Time, till *time.Time, na
 				|> filter(fn: (r) => r._measurement == "%s")
                 %s
                 |> filter(fn: (r) => r["_field"] =~ /energy_consumed|energy_provided/)
-                |> aggregateWindow(every: 1h, fn: max, createEmpty: false)
+                |> aggregateWindow(%s)
                 |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")`,
-		bucketEnergyFlow, queryRange, measurementEnergyUsage, nameFilter)
+		bucketEnergyFlow, queryRange, measurementEnergyUsage, nameFilter, i.toAggregateWindow(aggregate))
 	result, err := i.queryApi.Query(context.Background(), query)
 	if err != nil {
 		return nil, err
@@ -86,7 +91,12 @@ func (i *influxRepository) EnergyFlowUsages(from *time.Time, till *time.Time, na
 	return energyFlows, nil
 }
 
-func (i *influxRepository) EnergyFlowStates(from *time.Time, till *time.Time, name string) ([]*persistency.EnergyFlowState, error) {
+func (i *influxRepository) EnergyFlowStates(
+	from *time.Time,
+	till *time.Time,
+	name string,
+	aggregate *persistency.AggregateConfiguration,
+) ([]*persistency.EnergyFlowState, error) {
 	queryRange := ""
 	if till != nil {
 		queryRange = fmt.Sprintf("start: %d, stop: %d", from.Unix(), till.Unix())
@@ -101,9 +111,9 @@ func (i *influxRepository) EnergyFlowStates(from *time.Time, till *time.Time, na
 				|> range(%s)
 				|> filter(fn: (r) => r._measurement == "%s")
                 %s
-               |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+               |> aggregateWindow(%s)
                 |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")`,
-		bucketEnergyFlow, queryRange, measurementEnergyUsage, nameFilter)
+		bucketEnergyFlow, queryRange, measurementEnergyUsage, nameFilter, i.toAggregateWindow(aggregate))
 	result, err := i.queryApi.Query(context.Background(), query)
 	if err != nil {
 		return nil, err

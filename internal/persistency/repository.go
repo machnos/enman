@@ -8,8 +8,8 @@ import (
 
 type Repository interface {
 	EnergyFlowNames() ([]string, error)
-	EnergyFlowUsages(from *time.Time, till *time.Time, name string) ([]*EnergyFlowUsage, error)
-	EnergyFlowStates(from *time.Time, till *time.Time, name string) ([]*EnergyFlowState, error)
+	EnergyFlowUsages(from *time.Time, till *time.Time, name string, aggregate *AggregateConfiguration) ([]*EnergyFlowUsage, error)
+	EnergyFlowStates(from *time.Time, till *time.Time, name string, aggregate *AggregateConfiguration) ([]*EnergyFlowState, error)
 	StoreEnergyFlow(flow energysource.EnergyFlow)
 
 	EnergyPriceProviders() ([]string, error)
@@ -41,10 +41,10 @@ type NoopRepository struct {
 func (n *NoopRepository) EnergyFlowNames() ([]string, error) {
 	return nil, nil
 }
-func (n *NoopRepository) EnergyFlowUsages(*time.Time, *time.Time, string) ([]*EnergyFlowUsage, error) {
+func (n *NoopRepository) EnergyFlowUsages(*time.Time, *time.Time, string, *AggregateConfiguration) ([]*EnergyFlowUsage, error) {
 	return nil, nil
 }
-func (n *NoopRepository) EnergyFlowsStates(*time.Time, *time.Time, string) ([]*EnergyFlowState, error) {
+func (n *NoopRepository) EnergyFlowStates(*time.Time, *time.Time, string, *AggregateConfiguration) ([]*EnergyFlowState, error) {
 	return nil, nil
 }
 func (n *NoopRepository) StoreEnergyFlow(energysource.EnergyFlow) {
