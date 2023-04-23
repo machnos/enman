@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/render"
 	"net/http"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -68,22 +69,22 @@ func (b *BaseApi) ParseTimeFromRequestURL(r *http.Request, urlParamName string, 
 	if param == "" {
 		return time.Time{}, 0, fmt.Errorf("param %s not found in request url", urlParamName)
 	}
-	match, _ := regexp.MatchString("^\\d{4}\\-(0[1-9]|1[012])\\-(0[1-9]|[12][0-9]|3[01])$", param)
+	match, _ := regexp.MatchString("^\\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])$", param)
 	if match {
 		parsedTime, err := time.ParseInLocation(time.DateOnly, param, location)
 		return parsedTime, time.Hour, err
 	}
-	match, _ = regexp.MatchString("^\\d{4}\\-(0[1-9]|1[012])\\-(0[1-9]|[12][0-9]|3[01])T(0[0-9]|1[0-9]|2[0-3])$", param)
+	match, _ = regexp.MatchString("^\\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])T(0[0-9]|1[0-9]|2[0-3])$", param)
 	if match {
 		parsedTime, err := time.ParseInLocation(time.DateOnly+"T15", param, location)
 		return parsedTime, time.Minute, err
 	}
-	match, _ = regexp.MatchString("^\\d{4}\\-(0[1-9]|1[012])\\-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$", param)
+	match, _ = regexp.MatchString("^\\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]$", param)
 	if match {
 		parsedTime, err := time.ParseInLocation(time.DateOnly+"T15:04", param, location)
 		return parsedTime, time.Second, err
 	}
-	match, _ = regexp.MatchString("^\\d{4}\\-(0[1-9]|1[012])\\-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$", param)
+	match, _ = regexp.MatchString("^\\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$", param)
 	if match {
 		parsedTime, err := time.ParseInLocation(time.DateOnly+"T"+time.TimeOnly, param, location)
 		return parsedTime, time.Millisecond, err
@@ -113,4 +114,33 @@ func (b *BaseApi) TruncateToEnd(moment time.Time, duration time.Duration) time.T
 		return time.Date(moment.Year(), moment.Month(), moment.Day(), 23, 59, 59, 999999999, moment.Location())
 	}
 	return time.Time{}
+}
+
+func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, aggregate *persistency.AggregateConfiguration) *persistency.AggregateConfiguration {
+	q := r.URL.Query()
+	if q.Has("aggregate_window_unit") {
+		unit, err := persistency.WindowUnitOf(q.Get("aggregate_window_unit"))
+		if err == nil {
+			aggregate.WindowUnit = unit
+		}
+	}
+	if q.Has("aggregate_window_amount") {
+		value, err := strconv.Atoi(q.Get("aggregate_window_amount"))
+		if err == nil {
+			aggregate.WindowAmount = uint64(value)
+		}
+	}
+	if q.Has("aggregate_create_empty") {
+		value, err := strconv.ParseBool(q.Get("aggregate_create_empty"))
+		if err == nil {
+			aggregate.CreateEmpty = value
+		}
+	}
+	if q.Has("aggregate_function") {
+		function, _ := persistency.AggregateFunctionOf("aggregate_function")
+		if function != nil {
+			aggregate.Function = function
+		}
+	}
+	return aggregate
 }

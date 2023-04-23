@@ -191,7 +191,7 @@ func (i *influxRepository) Close() {
 	i.client.Close()
 }
 
-func (i *influxRepository) toInfluxDuration(unit persistency.WindowUnit, amount uint16) string {
+func (i *influxRepository) toInfluxDuration(unit persistency.WindowUnit, amount uint64) string {
 	switch unit {
 	case persistency.Nanosecond:
 		return fmt.Sprintf("%dns", amount)
