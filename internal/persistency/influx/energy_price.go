@@ -2,28 +2,25 @@ package influx
 
 import (
 	"context"
-	"enman/internal/prices"
+	"enman/internal/domain"
 	"fmt"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api/query"
 	"math"
 	"time"
 )
 
 const (
-	bucketPrices             = "prices"
-	bucketPricesFieldPrice   = "price"
-	bucketPricesTagsProvider = "provider"
-	measurementEnergyPrice   = "energy_price"
+	bucketPrices                      = "prices"
+	bucketPricesFieldConsumptionPrice = "consumption_price"
+	bucketPricesFieldFeedbackPrice    = "feedback_price"
+	bucketPricesTagsProvider          = "provider"
+	measurementEnergyPrice            = "energy_price"
 )
 
-func (i *influxRepository) EnergyPriceProviders() ([]string, error) {
-	query := fmt.Sprintf(`from(bucket: "%s")
-				|> range(start: %s)
-				|> group(columns: ["%s"])
-				|> distinct(column: "%s")
-                |> keep(columns: ["_value"])
-                |> filter(fn: (r) => r._value != "")`, bucketPrices, "-1y", bucketPricesTagsProvider, bucketPricesTagsProvider)
-	result, err := i.queryApi.Query(context.Background(), query)
+func (i *influxRepository) EnergyPriceProviderNames(from time.Time, till time.Time) ([]string, error) {
+	builder := NewQueryBuilder(NewSchemaTagValuesQuery(bucketPrices, bucketPricesTagsProvider).SetFrom(from).SetTill(till))
+	result, err := i.queryApi.Query(context.Background(), builder.Build())
 	if err != nil {
 		return nil, err
 	}
@@ -34,33 +31,21 @@ func (i *influxRepository) EnergyPriceProviders() ([]string, error) {
 	return providers, nil
 }
 
-func (i *influxRepository) EnergyPrices(from *time.Time, till *time.Time, provider string) ([]*prices.EnergyPrice, error) {
-	queryRange := ""
-	if till != nil {
-		queryRange = fmt.Sprintf("start: %d, stop: %d", from.Unix(), till.Unix())
-	} else {
-		queryRange = fmt.Sprintf("start: %d", from.Unix())
-	}
-	providerFilter := ""
+func (i *influxRepository) EnergyPrices(from time.Time, till time.Time, provider string) ([]*domain.EnergyPrice, error) {
+	builder := NewQueryBuilder(NewBucketQuerySource(bucketPrices)).
+		Append(NewRangeStatement(from, till))
 	if provider != "" {
-		providerFilter = fmt.Sprintf("|> filter(fn: (r) => r[\"%s\"] == \"%s\")", bucketPricesTagsProvider, provider)
+		builder.Append(NewFilterStatement(NewFilterFunction(bucketPricesTagsProvider, Equals, provider)))
 	}
-	query := fmt.Sprintf(`from(bucket: "%s")
-				|> range(%s)
-				|> filter(fn: (r) => r._measurement == "%s")
-                |> filter(fn: (r) => r._field == "%s")
-				%s`, bucketPrices, queryRange, measurementEnergyPrice, bucketPricesFieldPrice, providerFilter)
-	result, err := i.queryApi.Query(context.Background(), query)
+	builder.Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementEnergyPrice))).
+		Append(NewPivotStatement("_field", "_time", "_value"))
+	result, err := i.queryApi.Query(context.Background(), builder.Build())
 	if err != nil {
 		return nil, err
 	}
-	energyPrices := make([]*prices.EnergyPrice, 0)
+	energyPrices := make([]*domain.EnergyPrice, 0)
 	for result.Next() {
-		price := &prices.EnergyPrice{
-			Time:     result.Record().Time(),
-			Price:    float32(result.Record().Value().(float64)),
-			Provider: result.Record().ValueByKey(bucketPricesTagsProvider).(string),
-		}
+		price := i.NewEnergyPriceFromRecord(result.Record())
 		energyPrices = append(energyPrices, price)
 	}
 	if result.Err() != nil {
@@ -69,9 +54,46 @@ func (i *influxRepository) EnergyPrices(from *time.Time, till *time.Time, provid
 	return energyPrices, nil
 }
 
-func (i *influxRepository) StoreEnergyPrice(price *prices.EnergyPrice) {
+func (i *influxRepository) EnergyPriceAtTime(moment time.Time, providerName string, timeMatchType domain.MatchType) (*domain.EnergyPrice, error) {
+	builder := NewQueryBuilder(NewBucketQuerySource(bucketPrices))
+	if domain.LessOrEqual == timeMatchType {
+		// Stop time is excluded, so we need to add the minimum amount of time.
+		builder.Append(NewRangeStatement(moment.Add(time.Hour*-2), moment.Add(time.Nanosecond)))
+	} else if domain.EqualOrGreater == timeMatchType {
+		builder.Append(NewRangeStatement(moment, time.Time{}))
+	} else {
+		builder.Append(NewRangeStatement(moment, moment.Add(time.Nanosecond)))
+	}
+	builder.Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementEnergyPrice)))
+	if providerName != "" {
+		builder.Append(NewFilterStatement(NewFilterFunction(bucketPricesTagsProvider, Equals, providerName)))
+	}
+	if domain.LessOrEqual == timeMatchType {
+		builder.Append(NewSortStatement("_time").SetDescending())
+	} else if domain.EqualOrGreater == timeMatchType {
+		builder.Append(NewSortStatement("_time").SetAscending())
+	}
+	builder.Append(NewPivotStatement("_field", "_time", "_value")).
+		Append(NewLimitStatement(1))
+
+	result, err := i.queryApi.Query(context.Background(), builder.Build())
+	if err != nil {
+		return nil, err
+	}
+	hasNext := result.Next()
+	if result.Err() != nil {
+		return nil, result.Err()
+	}
+	if !hasNext {
+		return nil, nil
+	}
+	return i.NewEnergyPriceFromRecord(result.Record()), nil
+}
+
+func (i *influxRepository) StoreEnergyPrice(price *domain.EnergyPrice) {
 	fields := map[string]interface{}{
-		bucketPricesFieldPrice: math.Ceil(float64(price.Price)*100000) / 100000,
+		bucketPricesFieldConsumptionPrice: math.Ceil(float64(price.ConsumptionPrice)*100000) / 100000,
+		bucketPricesFieldFeedbackPrice:    math.Ceil(float64(price.FeedbackPrice)*100000) / 100000,
 	}
 	tags := map[string]string{
 		bucketPricesTagsProvider: price.Provider,
@@ -82,4 +104,13 @@ func (i *influxRepository) StoreEnergyPrice(price *prices.EnergyPrice) {
 		fields,
 		price.Time)
 	i.writeApis[bucketPrices].WritePoint(point)
+}
+
+func (i *influxRepository) NewEnergyPriceFromRecord(record *query.FluxRecord) *domain.EnergyPrice {
+	return &domain.EnergyPrice{
+		Time:             record.Time(),
+		ConsumptionPrice: float32(record.ValueByKey(bucketPricesFieldConsumptionPrice).(float64)),
+		FeedbackPrice:    float32(record.ValueByKey(bucketPricesFieldFeedbackPrice).(float64)),
+		Provider:         record.ValueByKey(bucketPricesTagsProvider).(string),
+	}
 }

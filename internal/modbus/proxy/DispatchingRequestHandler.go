@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"enman/internal/energysource"
+	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/modbus"
 )
@@ -17,10 +17,10 @@ func NewDispatchingRequestHandler() *DispatchingRequestHandler {
 	}
 }
 
-func NewMeterSimulator(meterType string, unitId uint8, energyFlow energysource.EnergyFlow) modbus.RequestHandler {
+func NewMeterSimulator(meterType string, unitId uint8, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) modbus.RequestHandler {
 	switch meterType {
 	case "EM24":
-		return newEM24MeterSimulator(unitId, energyFlow)
+		return newEM24MeterSimulator(unitId, electricityState, electricityUsage)
 	default:
 		log.Warningf("Unknown meter simulator type '%s'", meterType)
 	}

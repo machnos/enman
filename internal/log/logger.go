@@ -15,6 +15,7 @@ const (
 type Level uint8
 
 const (
+	LvlTrace   Level = 1
 	LvlDebug   Level = 2
 	LvlInfo    Level = 4
 	LvlWarning Level = 6
@@ -25,6 +26,8 @@ const (
 
 func (l Level) String() string {
 	switch l {
+	case LvlTrace:
+		return "TRACE"
 	case LvlDebug:
 		return "DEBUG"
 	case LvlInfo:
@@ -43,6 +46,24 @@ func (l Level) String() string {
 
 var ActiveLevel = LvlInfo
 var Writer io.Writer = os.Stdout
+
+func TraceEnabled() bool {
+	return ActiveLevel <= LvlTrace
+}
+
+func Trace(message string) {
+	if !TraceEnabled() {
+		return
+	}
+	log(LvlTrace, message)
+}
+
+func Tracef(format string, a ...any) {
+	if !TraceEnabled() {
+		return
+	}
+	log(LvlTrace, fmt.Sprintf(format, a...))
+}
 
 func DebugEnabled() bool {
 	return ActiveLevel <= LvlDebug

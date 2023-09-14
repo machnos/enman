@@ -1,29 +1,31 @@
 package proxy
 
 import (
-	"enman/internal/energysource"
+	"enman/internal/domain"
 	"enman/internal/modbus"
 	"strconv"
 )
 
 type EM24MeterSimulator struct {
 	modbus.RequestHandler
-	energyFlow energysource.EnergyFlow
-	unitId     uint8
+	unitId           uint8
+	electricityState *domain.ElectricityState
+	electricityUsage *domain.ElectricityUsage
 }
 
-func newEM24MeterSimulator(unitId uint8, energyFlow energysource.EnergyFlow) *EM24MeterSimulator {
+func newEM24MeterSimulator(unitId uint8, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) *EM24MeterSimulator {
 	return &EM24MeterSimulator{
-		energyFlow: energyFlow,
-		unitId:     unitId,
+		unitId:           unitId,
+		electricityState: electricityState,
+		electricityUsage: electricityUsage,
 	}
 }
 
-func (s *EM24MeterSimulator) HandleCoils(req *modbus.CoilsRequest) ([]bool, error) {
+func (s *EM24MeterSimulator) HandleCoils(*modbus.CoilsRequest) ([]bool, error) {
 	return nil, modbus.ErrIllegalFunction
 }
 
-func (s *EM24MeterSimulator) HandleDiscreteInputs(req *modbus.DiscreteInputsRequest) ([]bool, error) {
+func (s *EM24MeterSimulator) HandleDiscreteInputs(*modbus.DiscreteInputsRequest) ([]bool, error) {
 	return nil, modbus.ErrIllegalFunction
 }
 
@@ -31,63 +33,100 @@ func (s *EM24MeterSimulator) HandleHoldingRegisters(req *modbus.HoldingRegisters
 	if req.IsWrite {
 		return nil, modbus.ErrIllegalFunction
 	} else {
-		if req.Addr == 0x0000 && req.Quantity == 80 {
-			var result = make([]uint16, 80)
-			copy(result[0x0000:0x0002], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Voltage(0)*10)))
-			copy(result[0x0002:0x0004], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Voltage(1)*10)))
-			copy(result[0x0004:0x0006], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Voltage(2)*10)))
 
-			copy(result[0x000c:0x000e], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Current(0)*1000)))
-			copy(result[0x000e:0x0010], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Current(1)*1000)))
-			copy(result[0x0010:0x0012], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Current(2)*1000)))
-
-			copy(result[0x0012:0x0024], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Power(0)*10)))
-			copy(result[0x0014:0x0016], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Power(1)*10)))
-			copy(result[0x0016:0x0018], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.Power(2)*10)))
-			copy(result[0x0028:0x002a], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.TotalPower()*10)))
-
-			copy(result[0x0040:0x0042], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.EnergyConsumed(0)*10)))
-			copy(result[0x0042:0x0044], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.EnergyConsumed(1)*10)))
-			copy(result[0x0044:0x0046], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.EnergyConsumed(2)*10)))
-			copy(result[0x0034:0x0036], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.TotalEnergyConsumed()*10)))
-			copy(result[0x004e:], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.energyFlow.TotalEnergyProvided()*10)))
-			return result, nil
-		} else if req.Addr == 0x000b {
-			return []uint16{0x0671}, nil
-		} else if req.Addr == 0xa000 {
-			return []uint16{0x0007}, nil
-		} else if req.Addr == 0xa100 {
-			return []uint16{0x0003}, nil
-		} else if req.Addr == 0x0302 || req.Addr == 0x0304 {
-			return []uint16{0x1000}, nil
-		} else if req.Addr == 0x1002 {
-			if s.energyFlow.Phases() == 3 {
-				return []uint16{0x0000}, nil
-			} else if s.energyFlow.Phases() == 2 {
-				return []uint16{0x0002}, nil
-			}
-			return []uint16{0x0003}, nil
-		} else if req.Addr == 0x5000 && req.Quantity == 7 {
-			var result = make([]uint16, 7)
-			serial := []byte{'E', 'n', 'M', 'a', 'n'}
-			if s.unitId < 10 {
-				serial = append(serial, '0')
-			}
-			serial = append(serial, []byte(strconv.Itoa(int(s.unitId)))...)
-			for ix, b := range serial {
-				if ix%2 == 0 {
-					result[ix/2] = uint16(b) << 8
+		var result = make([]uint16, req.Quantity)
+		requestAddr := req.Addr
+		resultAddr := uint16(0)
+		for resultAddr < req.Quantity {
+			length := uint16(1)
+			switch requestAddr {
+			case 0x0000:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(0)*10)))
+			case 0x0002:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(1)*10)))
+			case 0x0004:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(2)*10)))
+			case 0x000b:
+				copy(result[resultAddr:resultAddr+length], []uint16{0x0671})
+			case 0x000c:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(0)*1000)))
+			case 0x000e:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(1)*1000)))
+			case 0x0010:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(2)*1000)))
+			case 0x0012:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(0)*10)))
+			case 0x0014:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(1)*10)))
+			case 0x0016:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(2)*10)))
+			case 0x0028:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.TotalPower()*10)))
+			case 0x0034:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.TotalEnergyConsumed()*10)))
+			case 0x0040:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(0)*10)))
+			case 0x0042:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(1)*10)))
+			case 0x0044:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(2)*10)))
+			case 0x004e:
+				length = 2
+				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.TotalEnergyProvided()*10)))
+			case 0x0302, 0x0304:
+				copy(result[resultAddr:resultAddr+length], []uint16{0x1000})
+			case 0x1002:
+				if s.electricityState.Phases() == 3 {
+					copy(result[resultAddr:resultAddr+length], []uint16{0x0000})
+				} else if s.electricityState.Phases() == 2 {
+					copy(result[resultAddr:resultAddr+length], []uint16{0x0002})
 				} else {
-					result[ix/2] += uint16(b)
+					copy(result[resultAddr:resultAddr+length], []uint16{0x0003})
 				}
+			case 0x5000:
+				length = 7
+				var serialResult = make([]uint16, length)
+				serial := []byte{'E', 'n', 'M', 'a', 'n'}
+				if s.unitId < 10 {
+					serial = append(serial, '0')
+				}
+				serial = append(serial, []byte(strconv.Itoa(int(s.unitId)))...)
+				for ix, b := range serial {
+					if ix%2 == 0 {
+						serialResult[ix/2] = uint16(b) << 8
+					} else {
+						serialResult[ix/2] += uint16(b)
+					}
+				}
+				copy(result[resultAddr:resultAddr+length], serialResult)
+			case 0xa000:
+				copy(result[resultAddr:resultAddr+length], []uint16{0x0007})
+			case 0xa100:
+				copy(result[resultAddr:resultAddr+length], []uint16{0x0003})
+			default:
 			}
-			return result, nil
+			requestAddr += length
+			resultAddr += length
 		}
-		return nil, modbus.ErrIllegalDataAddress
+		return result, nil
 	}
 }
 
-func (s *EM24MeterSimulator) HandleInputRegisters(req *modbus.InputRegistersRequest) ([]uint16, error) {
+func (s *EM24MeterSimulator) HandleInputRegisters(*modbus.InputRegistersRequest) ([]uint16, error) {
 	return nil, modbus.ErrIllegalFunction
 }
 

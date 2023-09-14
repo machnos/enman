@@ -203,7 +203,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	defer client.Close()
 
 	// all 10 input registers should be 0x0000
-	regs, err = client.ReadRegisters(9, 0x0000, 10, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, UNDEFINED_ENDIAN, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	for i := range th.input {
 		th.input[i] = 0xa710 + uint16(i)
 	}
-	regs, err = client.ReadRegisters(9, 0x0000, 10, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, UNDEFINED_ENDIAN, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading addr 0x0009 (the very last register) should succeed
-	regs, err = client.ReadRegisters(9, 0x0009, 1, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0009, 1, UNDEFINED_ENDIAN, INPUT_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -238,17 +238,17 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading past address 0x000a should fail
-	regs, err = client.ReadRegisters(9, 0x0001, 10, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0001, 10, UNDEFINED_ENDIAN, INPUT_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(9, 0x0000, 11, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 11, UNDEFINED_ENDIAN, INPUT_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
 
 	// all 10 holding registers should still be 0x0000
-	regs, err = client.ReadRegisters(9, 0x0000, 10, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// make sure it has been written to
-	regs, err = client.ReadRegisters(9, 0x0005, 5, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0005, 5, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// make sure they have all been written to
-	regs, err = client.ReadRegisters(9, 0x0000, 10, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 10, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading addr 0x0009 (the very last register) should succeed
-	regs, err = client.ReadRegisters(9, 0x0009, 1, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0009, 1, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("client.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -333,11 +333,11 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// reading past address 0x000a should fail
-	regs, err = client.ReadRegisters(9, 0x0001, 10, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0001, 10, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(9, 0x0000, 11, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(9, 0x0000, 11, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != ErrIllegalDataAddress {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalDataAddress, got: %v", err)
 	}
@@ -354,11 +354,11 @@ func TestRTUServerHoldingAndInputRegisters(t *testing.T) {
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteRegister() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(2, 0x0005, 1, HOLDING_REGISTER)
+	regs, err = client.ReadRegisters(2, 0x0005, 1, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	regs, err = client.ReadRegisters(2, 0x0005, 1, INPUT_REGISTER)
+	regs, err = client.ReadRegisters(2, 0x0005, 1, UNDEFINED_ENDIAN, INPUT_REGISTER)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.ReadRegisters() should have returned ErrIllegalFunction, got: %v", err)
 	}

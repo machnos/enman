@@ -124,7 +124,7 @@ SkipFrameError:
 
 		byteCount, err := wrapper.port.Read(rxbuf)
 		if err != nil {
-			println(err.Error())
+			log.Error(err.Error())
 		}
 
 		if err != nil {

@@ -1,8 +1,8 @@
 package api
 
 import (
-	"enman/internal"
-	"enman/internal/persistency"
+	"enman/internal/domain"
+	"enman/internal/log"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -27,12 +27,12 @@ type Api interface {
 }
 
 type BaseApi struct {
-	System      *internal.System
-	Repository  persistency.Repository
+	System      *domain.System
+	Repository  domain.Repository
 	TimePattern string
 }
 
-func NewBaseApi(system *internal.System, repository persistency.Repository) *BaseApi {
+func NewBaseApi(system *domain.System, repository domain.Repository) *BaseApi {
 	return &BaseApi{
 		System:      system,
 		Repository:  repository,
@@ -116,10 +116,37 @@ func (b *BaseApi) TruncateToEnd(moment time.Time, duration time.Duration) time.T
 	return time.Time{}
 }
 
-func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, aggregate *persistency.AggregateConfiguration) *persistency.AggregateConfiguration {
+func (b *BaseApi) ValidateStartAndEndParams(w http.ResponseWriter, r *http.Request, errorCodeStartDateParseError string, errorCodeEndDateParseError string, errorCodeEndDateBeforeStartDate string) (time.Time, time.Time, bool) {
+	var truncatedTo time.Duration
+	startTime, _, err := b.ParseTimeFromRequestURL(r, "start", b.System.Location())
+	if err != nil {
+		log.Error(err.Error())
+		b.ApiError(w, r, http.StatusBadRequest, errorCodeStartDateParseError, "Unable to parse start date")
+		return time.Time{}, time.Time{}, false
+	}
+	endTime := time.Time{}
+	if chi.URLParam(r, "end") != "" {
+		endTime, truncatedTo, err = b.ParseTimeFromRequestURL(r, "end", b.System.Location())
+		if err != nil {
+			log.Error(err.Error())
+			b.ApiError(w, r, http.StatusBadRequest, errorCodeEndDateParseError, "Unable to parse end date")
+			return time.Time{}, time.Time{}, false
+		}
+	}
+	if !endTime.IsZero() {
+		endTime = b.TruncateToEnd(endTime, truncatedTo)
+		if endTime.Before(startTime) {
+			b.ApiError(w, r, http.StatusBadRequest, errorCodeEndDateBeforeStartDate, "End date is before start date")
+			return time.Time{}, time.Time{}, false
+		}
+	}
+	return startTime, endTime, true
+}
+
+func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, aggregate *domain.AggregateConfiguration) *domain.AggregateConfiguration {
 	q := r.URL.Query()
 	if q.Has("aggregate_window_unit") {
-		unit, err := persistency.WindowUnitOf(q.Get("aggregate_window_unit"))
+		unit, err := domain.WindowUnitOf(q.Get("aggregate_window_unit"))
 		if err == nil {
 			aggregate.WindowUnit = unit
 		}
@@ -137,7 +164,7 @@ func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, agg
 		}
 	}
 	if q.Has("aggregate_function") {
-		function, _ := persistency.AggregateFunctionOf("aggregate_function")
+		function, _ := domain.AggregateFunctionOf("aggregate_function")
 		if function != nil {
 			aggregate.Function = function
 		}

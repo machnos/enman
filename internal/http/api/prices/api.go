@@ -1,10 +1,9 @@
 package prices
 
 import (
-	"enman/internal"
+	"enman/internal/domain"
 	"enman/internal/http/api"
 	"enman/internal/log"
-	"enman/internal/persistency"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -26,49 +25,27 @@ type PricesApi struct {
 	*api.BaseApi
 }
 
-func NewPricesApi(system *internal.System, repository persistency.Repository) *PricesApi {
+func NewPricesApi(system *domain.System, repository domain.Repository) *PricesApi {
 	return &PricesApi{
 		api.NewBaseApi(system, repository),
 	}
 }
 func (p *PricesApi) prices(w http.ResponseWriter, r *http.Request) {
 	type pricesResponsePrice struct {
-		Time  time.Time `json:"time"`
-		Price float32   `json:"price"`
+		Time             time.Time `json:"time"`
+		ConsumptionPrice float32   `json:"consumption_price"`
+		FeedbackPrice    float32   `json:"feedback_price"`
 	}
 	type pricesResponse struct {
 		Prices map[string][]pricesResponsePrice `json:"prices"`
 	}
 	rsp := pricesResponse{}
-	var truncatedTo time.Duration
-	startTime, _, err := p.ParseTimeFromRequestURL(r, "start", p.System.Location())
-	if err != nil {
-		log.Error(err.Error())
-		p.ApiError(w, r, http.StatusBadRequest, errorCodeStartDateParseError, "Unable to parse start date")
+
+	startTime, endTime, success := p.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	if !success {
 		return
 	}
-	var endTime = time.Time{}
-	if chi.URLParam(r, "end") != "" {
-		var parsedTime time.Time
-		parsedTime, truncatedTo, err = p.ParseTimeFromRequestURL(r, "end", p.System.Location())
-		if err != nil {
-			log.Error(err.Error())
-			p.ApiError(w, r, http.StatusBadRequest, errorCodeEndDateParseError, "Unable to parse end date")
-			return
-		}
-		endTime = parsedTime
-		if parsedTime.Before(startTime) {
-			p.ApiError(w, r, http.StatusBadRequest, errorCodeEndDateBeforeStartDate, "End date is before start date")
-			return
-		}
-	}
-	if endTime.Equal(time.Time{}) {
-		now := time.Now()
-		endTime = time.Date(now.Year(), now.Month(), now.Day()+1, 23, 59, 59, 999999999, p.System.Location())
-		truncatedTo = time.Hour
-	}
-	endTime = p.TruncateToEnd(endTime, truncatedTo)
-	energyPrices, err := p.Repository.EnergyPrices(&startTime, &endTime, chi.URLParam(r, "provider"))
+	energyPrices, err := p.Repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"))
 	if err != nil {
 		log.Error(err.Error())
 		p.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadPrices, err.Error())
@@ -76,7 +53,7 @@ func (p *PricesApi) prices(w http.ResponseWriter, r *http.Request) {
 	}
 	rsp.Prices = make(map[string][]pricesResponsePrice)
 	for _, energyPrice := range energyPrices {
-		rsp.Prices[energyPrice.Provider] = append(rsp.Prices[energyPrice.Provider], pricesResponsePrice{Time: energyPrice.Time, Price: energyPrice.Price})
+		rsp.Prices[energyPrice.Provider] = append(rsp.Prices[energyPrice.Provider], pricesResponsePrice{Time: energyPrice.Time, ConsumptionPrice: energyPrice.ConsumptionPrice, FeedbackPrice: energyPrice.FeedbackPrice})
 	}
 	render.JSON(w, r, rsp)
 }
@@ -85,7 +62,11 @@ func (p *PricesApi) providers(w http.ResponseWriter, r *http.Request) {
 	rsp := struct {
 		Providers []string `json:"providers"`
 	}{}
-	providers, err := p.Repository.EnergyPriceProviders()
+	startTime, endTime, success := p.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	if !success {
+		return
+	}
+	providers, err := p.Repository.EnergyPriceProviderNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		p.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadProviders, err.Error())
@@ -100,9 +81,10 @@ func (p *PricesApi) Router(subRoutes map[string]func(r chi.Router)) func(r chi.R
 		r.Use(middleware.AllowContentType("application/json"))
 		r.Get(fmt.Sprintf("/{start:%s}", p.TimePattern), p.prices)
 		r.Get(fmt.Sprintf("/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.prices)
-		r.Get("/providers", p.providers)
-		r.Get(fmt.Sprintf("/{provider}/{start:%s}", p.TimePattern), p.prices)
-		r.Get(fmt.Sprintf("/{provider}/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.prices)
+		r.Get(fmt.Sprintf("/providers/{start:%s}", p.TimePattern), p.providers)
+		r.Get(fmt.Sprintf("/providers/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.providers)
+		r.Get(fmt.Sprintf("/{providerName}/{start:%s}", p.TimePattern), p.prices)
+		r.Get(fmt.Sprintf("/{providerName}/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.prices)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

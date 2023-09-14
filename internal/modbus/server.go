@@ -338,6 +338,10 @@ func (ms *ModbusServer) Stop() (err error) {
 	return
 }
 
+func (ms *ModbusServer) ServerUrl() string {
+	return ms.conf.URL
+}
+
 func (ms *ModbusServer) acceptRTUServer() {
 	ms.handleTransport(
 		newRTUTransport(ms.serialPortWrapper, ms.conf.URL, ms.conf.Speed, ms.conf.Timeout),
@@ -387,9 +391,6 @@ func (ms *ModbusServer) acceptTCPClients() {
 			sock.Close()
 		}
 	}
-
-	// never reached
-	return
 }
 
 // Handles a TCP client connection.
@@ -871,9 +872,6 @@ func (ms *ModbusServer) handleTransport(t transport, clientAddr string, clientRo
 		req = nil
 		res = nil
 	}
-
-	// never reached
-	return
 }
 
 // startTLS performs a full TLS handshake (with client authentication) on tcpSock

@@ -272,7 +272,7 @@ func TestTLSServer(t *testing.T) {
 			ErrIllegalFunction, err)
 	}
 
-	regs, err = c2.ReadRegisters(1, 1, 2, HOLDING_REGISTER)
+	regs, err = c2.ReadRegisters(1, 1, 2, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("c2.ReadRegisters() should have succeeded, got: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestTLSServer(t *testing.T) {
 		t.Errorf("c2.WriteRegister() should have succeeded, got: %v", err)
 	}
 
-	regs, err = c2.ReadRegisters(4, 1, 2, HOLDING_REGISTER)
+	regs, err = c2.ReadRegisters(4, 1, 2, UNDEFINED_ENDIAN, HOLDING_REGISTER)
 	if err != nil {
 		t.Errorf("c2.ReadRegisters() should have succeeded, got: %v", err)
 	}

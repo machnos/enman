@@ -6,21 +6,38 @@ import (
 	"testing"
 )
 
-func TestDebug(t *testing.T) {
+func TestTrace(t *testing.T) {
+	ActiveLevel = LvlTrace
 	Writer = &bytes.Buffer{}
-	Debug("LvlDebug test")
-	Debugf("%s", "LvlDebug format test")
+	Trace("Trace test")
+	Tracef("%s", "Trace format test")
+	buffer, _ := Writer.(*bytes.Buffer)
+	data := buffer.String()
+	if !strings.Contains(data, " - TRACE - (enman/internal/log.TestTrace): Trace test") {
+		t.Error("Trace logging failed")
+	}
+	if !strings.Contains(data, " - TRACE - (enman/internal/log.TestTrace): Trace format test") {
+		t.Error("Trace format logging failed")
+	}
+}
+
+func TestDebug(t *testing.T) {
+	ActiveLevel = LvlDebug
+	Writer = &bytes.Buffer{}
+	Debug("Debug test")
+	Debugf("%s", "Debug format test")
 	buffer, _ := Writer.(*bytes.Buffer)
 	data := buffer.String()
 	if !strings.Contains(data, " - DEBUG - (enman/internal/log.TestDebug): Debug test") {
 		t.Error("Debug logging failed")
 	}
 	if !strings.Contains(data, " - DEBUG - (enman/internal/log.TestDebug): Debug format test") {
-		t.Error("exDebug format logging failed")
+		t.Error("Debug format logging failed")
 	}
 }
 
 func TestInfo(t *testing.T) {
+	ActiveLevel = LvlInfo
 	Writer = &bytes.Buffer{}
 	Info("Info test")
 	Infof("%s", "Info format test")
@@ -35,6 +52,7 @@ func TestInfo(t *testing.T) {
 }
 
 func TestWarning(t *testing.T) {
+	ActiveLevel = LvlWarning
 	Writer = &bytes.Buffer{}
 	Warning("Warning test")
 	Warningf("%s", "Warning format test")
@@ -49,6 +67,7 @@ func TestWarning(t *testing.T) {
 }
 
 func TestError(t *testing.T) {
+	ActiveLevel = LvlError
 	Writer = &bytes.Buffer{}
 	Error("Error test")
 	Errorf("%s", "Error format test")
@@ -63,6 +82,7 @@ func TestError(t *testing.T) {
 }
 
 func TestFatal(t *testing.T) {
+	ActiveLevel = LvlFatal
 	Writer = &bytes.Buffer{}
 	Fatal("Fatal test")
 	Fatalf("%s", "Fatal format test")

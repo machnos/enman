@@ -1,14 +1,14 @@
 package http
 
 import (
+	"context"
 	"embed"
-	"enman/internal"
 	"enman/internal/config"
+	"enman/internal/domain"
 	"enman/internal/http/api"
-	"enman/internal/http/api/energy_flow"
+	"enman/internal/http/api/electricity"
 	"enman/internal/http/api/prices"
 	"enman/internal/log"
-	"enman/internal/persistency"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,16 +19,9 @@ import (
 )
 
 const (
-	d3                      = "d3/d3-7.8.4.min.js"
-	highcharts              = "highcharts-10.3.3/highcharts.js"
-	highchartsAccessibility = "highcharts-10.3.3/accessibility.js"
-	highchartsMore          = "highcharts-10.3.3/highcharts-more.js"
-	highchartsSolidGauge    = "highcharts-10.3.3/solid-gauge.js"
-	htl                     = "htl/htl-0.3.1.min.js"
-	jquery                  = "jquery/jquery-3.6.4.min.js"
-	moment                  = "moment-with-locales.min.js"
-	momentWithData          = "moment-timezone-with-data.min.js"
-	plot                    = "plot/plot-0.6.5.min.js"
+	d3     = "d3/d3-7.8.5.min.js"
+	jquery = "jquery/jquery-3.6.4.min.js"
+	plot   = "plot/plot-0.6.10.min.js"
 )
 
 //go:embed template/*
@@ -36,27 +29,42 @@ const (
 var staticContent embed.FS
 var templates *template.Template
 
-type systemWrapper struct {
-	system     *internal.System
-	repository persistency.Repository
+type Server struct {
+	system     *domain.System
+	repository domain.Repository
+	server     *http.Server
 }
 
-func StartServer(config *config.Http, system *internal.System, repository persistency.Repository) error {
+func NewServer(config *config.Http, system *domain.System, repository domain.Repository) (*Server, error) {
+	s := &Server{
+		system:     system,
+		repository: repository,
+	}
+
+	contextRoot := config.ContextRoot
+	if contextRoot == "" {
+		contextRoot = "/"
+	} else {
+		if !strings.HasPrefix(contextRoot, "/") {
+			contextRoot = "/" + contextRoot
+		}
+		if strings.HasSuffix(contextRoot, "/") {
+			contextRoot = contextRoot[0 : len(contextRoot)-1]
+		}
+
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.CleanPath)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
-	s := &systemWrapper{
-		system:     system,
-		repository: repository,
-	}
 
 	var allFiles []string
 	files, err := staticContent.ReadDir("template")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, file := range files {
 		filename := file.Name()
@@ -64,26 +72,36 @@ func StartServer(config *config.Http, system *internal.System, repository persis
 	}
 	templates, err = template.ParseFS(staticContent, allFiles...)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	r.Get("/static/*", s.staticResource)
-	r.Get("/", s.dashboard)
 
-	// Setup api endpoints
-	rootApiRouter := api.NewBaseApi(system, repository).Router(map[string]func(r chi.Router){
-		"/energy_flow": energy_flow.NewEnergyFlowApi(system, repository).Router(nil),
-		"/prices":      prices.NewPricesApi(system, repository).Router(nil),
+	r.Route(contextRoot, func(r chi.Router) {
+		r.Get("/", s.dashboard)
+		r.Get("/static/*", s.staticResource)
+		r.Route("/api", api.NewBaseApi(system, repository).Router(map[string]func(r chi.Router){
+			"/electricity": electricity.NewElectricityApi(system, repository).Router(nil),
+			"/prices":      prices.NewPricesApi(system, repository).Router(nil),
+		}))
 	})
-	r.Route("/api", rootApiRouter)
-	log.Infof("Starting http server at port %d", config.Port)
-	err = http.ListenAndServe(fmt.Sprintf(":%d", config.Port), r)
-	if err != nil {
-		return err
+
+	s.server = &http.Server{
+		Addr:    fmt.Sprintf(":%d", config.Port),
+		Handler: r,
 	}
-	return nil
+	return s, nil
 }
 
-func (s *systemWrapper) staticResource(w http.ResponseWriter, r *http.Request) {
+func (s *Server) Start() error {
+	log.Infof("Starting http server at %v", s.server.Addr)
+	return s.server.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	log.Info("Shutting down http server")
+	return s.server.Shutdown(ctx)
+}
+
+func (s *Server) staticResource(w http.ResponseWriter, r *http.Request) {
 	resource := chi.URLParam(r, "*")
 	file, err := staticContent.ReadFile("static/" + resource)
 	if err != nil {
@@ -92,24 +110,25 @@ func (s *systemWrapper) staticResource(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(resource, ".js") {
 		w.Header().Set("Content-Type", "text/javascript;charset=utf-8")
 	}
-	w.Write(file)
+	_, _ = w.Write(file)
 }
 
-func (s *systemWrapper) dashboard(w http.ResponseWriter, r *http.Request) {
-	data := newAppData([]string{jquery, d3, plot, htl})
+func (s *Server) dashboard(w http.ResponseWriter, req *http.Request) {
+	data := newAppData(req.URL.Path, []string{jquery, d3, plot})
+
 	t := templates.Lookup("header.tmpl.html")
-	t.ExecuteTemplate(w, "header", data)
+	_ = t.ExecuteTemplate(w, "header", data)
 
 	t = templates.Lookup("dashboard.tmpl.html")
-	t.ExecuteTemplate(w, "dashboard", nil)
+	_ = t.ExecuteTemplate(w, "dashboard", data)
 
 	t = templates.Lookup("footer.tmpl.html")
-	t.ExecuteTemplate(w, "footer", nil)
+	_ = t.ExecuteTemplate(w, "footer", nil)
 }
 
-func newAppData(scripts []string) map[string]any {
+func newAppData(contextRoot string, scripts []string) map[string]any {
 	return map[string]any{
-		"ContextRoot": "/",
+		"ContextRoot": contextRoot,
 		"Scripts":     scripts,
 	}
 }

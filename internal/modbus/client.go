@@ -25,8 +25,9 @@ const (
 	INPUT_REGISTER   RegType = 1
 
 	// endianness of 16-bit registers
-	BIG_ENDIAN    Endianness = 1
-	LITTLE_ENDIAN Endianness = 2
+	UNDEFINED_ENDIAN Endianness = 0
+	BIG_ENDIAN       Endianness = 1
+	LITTLE_ENDIAN    Endianness = 2
 
 	// word order of 32-bit registers
 	HIGH_WORD_FIRST WordOrder = 1
@@ -69,7 +70,7 @@ type ClientConfiguration struct {
 // Modbus client object.
 type ModbusClient struct {
 	conf          ClientConfiguration
-	lock          sync.Mutex
+	lock          *sync.Mutex
 	endianness    Endianness
 	wordOrder     WordOrder
 	transport     transport
@@ -83,6 +84,7 @@ func NewClient(conf *ClientConfiguration) (mc *ModbusClient, err error) {
 
 	mc = &ModbusClient{
 		conf: *conf,
+		lock: &sync.Mutex{},
 	}
 
 	splitURL = strings.SplitN(mc.conf.URL, "://", 2)
@@ -119,7 +121,6 @@ func NewClient(conf *ClientConfiguration) (mc *ModbusClient, err error) {
 		if mc.conf.Timeout == 0 {
 			mc.conf.Timeout = 300 * time.Millisecond
 		}
-
 		mc.transportType = modbusRTU
 
 	case "rtuovertcp":
@@ -320,9 +321,12 @@ func (mc *ModbusClient) Open() (err error) {
 	return
 }
 
-// Closes the underlying transport.
 func (mc *ModbusClient) URL() string {
 	return mc.conf.URL
+}
+
+func (mc *ModbusClient) Speed() uint {
+	return mc.conf.Speed
 }
 
 // Closes the underlying transport.
@@ -404,9 +408,9 @@ func (mc *ModbusClient) ReadDiscreteInput(unitId uint8, addr uint16) (value bool
 }
 
 // Reads multiple 16-bit registers (function code 03 or 04).
-func (mc *ModbusClient) ReadRegisters(unitId uint8, addr uint16, quantity uint16, regType RegType) (values []uint16, err error) {
-	if log.DebugEnabled() {
-		log.Debugf("Start reading %d %ss of unitId %d at %s, starting at address %d", quantity, regType, unitId, mc.conf.URL, addr)
+func (mc *ModbusClient) ReadRegisters(unitId uint8, addr uint16, quantity uint16, endianness Endianness, regType RegType) (values []uint16, err error) {
+	if log.TraceEnabled() {
+		log.Tracef("Start reading %d %ss of unitId %d at %s, starting at address %d", quantity, regType, unitId, mc.conf.URL, addr)
 	}
 	var mbPayload []byte
 
@@ -414,29 +418,33 @@ func (mc *ModbusClient) ReadRegisters(unitId uint8, addr uint16, quantity uint16
 	mbPayload, err = mc.readRegisters(unitId, addr, quantity, regType)
 	if err != nil {
 		if log.DebugEnabled() {
-			log.Debugf("Failed to read registers: %s", err.Error())
+			log.Debugf("Failed to read registers at unitId %d at %s: %s", unitId, mc.conf.URL, err.Error())
 		}
 		return
 	}
 
 	// decode payload bytes as uint16s
-	values = BytesToUint16s(mc.endianness, mbPayload)
-	if log.DebugEnabled() {
+	e := endianness
+	if e == 0 {
+		e = mc.endianness
+	}
+	values = BytesToUint16s(e, mbPayload)
+	if log.TraceEnabled() {
 		var stringValues []string
 		for _, v := range values {
 			stringValues = append(stringValues, strconv.Itoa(int(v)))
 		}
-		log.Debugf("Retrieved values %s", strings.Join(stringValues, ", "))
+		log.Tracef("Retrieved values %s", strings.Join(stringValues, ", "))
 	}
 	return
 }
 
 // Reads a single 16-bit register (function code 03 or 04).
-func (mc *ModbusClient) ReadRegister(unitId uint8, addr uint16, regType RegType) (value uint16, err error) {
+func (mc *ModbusClient) ReadRegister(unitId uint8, addr uint16, endianness Endianness, regType RegType) (value uint16, err error) {
 	var values []uint16
 
 	// read 1 uint16 register, as bytes
-	values, err = mc.ReadRegisters(unitId, addr, 1, regType)
+	values, err = mc.ReadRegisters(unitId, addr, 1, endianness, regType)
 	if err == nil {
 		value = values[0]
 	}
@@ -444,7 +452,7 @@ func (mc *ModbusClient) ReadRegister(unitId uint8, addr uint16, regType RegType)
 }
 
 // Reads multiple 32-bit registers.
-func (mc *ModbusClient) ReadUint32s(unitId uint8, addr uint16, quantity uint16, regType RegType) (values []uint32, err error) {
+func (mc *ModbusClient) ReadUint32s(unitId uint8, addr uint16, quantity uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (values []uint32, err error) {
 	var mbPayload []byte
 
 	// read 2 * quantity uint16 registers, as bytes
@@ -454,16 +462,24 @@ func (mc *ModbusClient) ReadUint32s(unitId uint8, addr uint16, quantity uint16, 
 	}
 
 	// decode payload bytes as uint32s
-	values = bytesToUint32s(mc.endianness, mc.wordOrder, mbPayload)
+	e := endianness
+	if e == 0 {
+		e = mc.endianness
+	}
+	w := wordOrder
+	if wordOrder == 0 {
+		w = mc.wordOrder
+	}
+	values = bytesToUint32s(e, w, mbPayload)
 
 	return
 }
 
 // Reads a single 32-bit register.
-func (mc *ModbusClient) ReadUint32(unitId uint8, addr uint16, regType RegType) (value uint32, err error) {
+func (mc *ModbusClient) ReadUint32(unitId uint8, addr uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (value uint32, err error) {
 	var values []uint32
 
-	values, err = mc.ReadUint32s(unitId, addr, 1, regType)
+	values, err = mc.ReadUint32s(unitId, addr, 1, endianness, wordOrder, regType)
 	if err == nil {
 		value = values[0]
 	}
@@ -472,7 +488,7 @@ func (mc *ModbusClient) ReadUint32(unitId uint8, addr uint16, regType RegType) (
 }
 
 // Reads multiple 32-bit float registers.
-func (mc *ModbusClient) ReadFloat32s(unitId uint8, addr uint16, quantity uint16, regType RegType) (values []float32, err error) {
+func (mc *ModbusClient) ReadFloat32s(unitId uint8, addr uint16, quantity uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (values []float32, err error) {
 	var mbPayload []byte
 
 	// read 2 * quantity uint16 registers, as bytes
@@ -482,16 +498,24 @@ func (mc *ModbusClient) ReadFloat32s(unitId uint8, addr uint16, quantity uint16,
 	}
 
 	// decode payload bytes as float32s
-	values = bytesToFloat32s(mc.endianness, mc.wordOrder, mbPayload)
+	e := endianness
+	if e == 0 {
+		e = mc.endianness
+	}
+	w := wordOrder
+	if wordOrder == 0 {
+		w = mc.wordOrder
+	}
+	values = bytesToFloat32s(e, w, mbPayload)
 
 	return
 }
 
 // Reads a single 32-bit float register.
-func (mc *ModbusClient) ReadFloat32(unitId uint8, addr uint16, regType RegType) (value float32, err error) {
+func (mc *ModbusClient) ReadFloat32(unitId uint8, addr uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (value float32, err error) {
 	var values []float32
 
-	values, err = mc.ReadFloat32s(unitId, addr, 1, regType)
+	values, err = mc.ReadFloat32s(unitId, addr, 1, endianness, wordOrder, regType)
 	if err == nil {
 		value = values[0]
 	}
@@ -500,7 +524,7 @@ func (mc *ModbusClient) ReadFloat32(unitId uint8, addr uint16, regType RegType) 
 }
 
 // Reads multiple 64-bit registers.
-func (mc *ModbusClient) ReadUint64s(unitId uint8, addr uint16, quantity uint16, regType RegType) (values []uint64, err error) {
+func (mc *ModbusClient) ReadUint64s(unitId uint8, addr uint16, quantity uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (values []uint64, err error) {
 	var mbPayload []byte
 
 	// read 4 * quantity uint16 registers, as bytes
@@ -510,16 +534,24 @@ func (mc *ModbusClient) ReadUint64s(unitId uint8, addr uint16, quantity uint16, 
 	}
 
 	// decode payload bytes as uint64s
-	values = bytesToUint64s(mc.endianness, mc.wordOrder, mbPayload)
+	e := endianness
+	if e == 0 {
+		e = mc.endianness
+	}
+	w := wordOrder
+	if wordOrder == 0 {
+		w = mc.wordOrder
+	}
+	values = bytesToUint64s(e, w, mbPayload)
 
 	return
 }
 
 // Reads a single 64-bit register.
-func (mc *ModbusClient) ReadUint64(unitId uint8, addr uint16, regType RegType) (value uint64, err error) {
+func (mc *ModbusClient) ReadUint64(unitId uint8, addr uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (value uint64, err error) {
 	var values []uint64
 
-	values, err = mc.ReadUint64s(unitId, addr, 1, regType)
+	values, err = mc.ReadUint64s(unitId, addr, 1, endianness, wordOrder, regType)
 	if err == nil {
 		value = values[0]
 	}
@@ -528,7 +560,7 @@ func (mc *ModbusClient) ReadUint64(unitId uint8, addr uint16, regType RegType) (
 }
 
 // Reads multiple 64-bit float registers.
-func (mc *ModbusClient) ReadFloat64s(unitId uint8, addr uint16, quantity uint16, regType RegType) (values []float64, err error) {
+func (mc *ModbusClient) ReadFloat64s(unitId uint8, addr uint16, quantity uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (values []float64, err error) {
 	var mbPayload []byte
 
 	// read 4 * quantity uint16 registers, as bytes
@@ -538,16 +570,24 @@ func (mc *ModbusClient) ReadFloat64s(unitId uint8, addr uint16, quantity uint16,
 	}
 
 	// decode payload bytes as float64s
-	values = bytesToFloat64s(mc.endianness, mc.wordOrder, mbPayload)
+	e := endianness
+	if e == 0 {
+		e = mc.endianness
+	}
+	w := wordOrder
+	if wordOrder == 0 {
+		w = mc.wordOrder
+	}
+	values = bytesToFloat64s(e, w, mbPayload)
 
 	return
 }
 
 // Reads a single 64-bit float register.
-func (mc *ModbusClient) ReadFloat64(unitId uint8, addr uint16, regType RegType) (value float64, err error) {
+func (mc *ModbusClient) ReadFloat64(unitId uint8, addr uint16, endianness Endianness, wordOrder WordOrder, regType RegType) (value float64, err error) {
 	var values []float64
 
-	values, err = mc.ReadFloat64s(unitId, addr, 1, regType)
+	values, err = mc.ReadFloat64s(unitId, addr, 1, endianness, wordOrder, regType)
 	if err == nil {
 		value = values[0]
 	}

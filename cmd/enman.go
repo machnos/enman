@@ -1,70 +1,82 @@
 package main
 
 import (
-	"enman/internal"
-	"enman/internal/balance"
+	"context"
 	"enman/internal/config"
-	"enman/internal/energysource"
-	"enman/internal/energysource/modbus"
-	"enman/internal/energysource/modbus/abb"
-	"enman/internal/energysource/modbus/carlo_gavazzi"
-	"enman/internal/energysource/modbus/dsmr"
-	"enman/internal/energysource/modbus/victron"
+	"enman/internal/domain"
 	"enman/internal/http"
 	"enman/internal/log"
-	modbusProtocol "enman/internal/modbus"
+	"enman/internal/meters"
+	"enman/internal/modbus"
 	"enman/internal/modbus/proxy"
-	"enman/internal/persistency"
 	"enman/internal/persistency/influx"
+	"enman/internal/persistency/noop"
 	"enman/internal/prices/entsoe"
 	"flag"
+	"fmt"
+	"golang.org/x/sync/errgroup"
+	"os"
+	"os/signal"
 	"syscall"
 	"time"
 )
 
-type home struct {
-	system            *internal.System
-	modbusUpdateLoops map[string]*modbus.UpdateLoop
-}
-
-func (h *home) Close() {
-	for _, value := range h.modbusUpdateLoops {
-		value.Close()
-	}
-}
-
-func (h *home) addModbusUpdateLoop(connectUrl string, updateChannels *internal.UpdateChannels, newModbusConfiguration func(string) *modbusProtocol.ClientConfiguration) {
-	if h.modbusUpdateLoops[connectUrl] == nil {
-		updateLoop, err := modbus.NewUpdateLoop(newModbusConfiguration(connectUrl), updateChannels)
-		if err != nil {
-			log.Fatalf("Unable to setup modbus connection to %s: %s", connectUrl, err.Error())
-			panic(err)
-		}
-		h.modbusUpdateLoops[connectUrl] = updateLoop
-	}
-}
-
 func main() {
 	log.ActiveLevel = log.LvlInfo
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	syncGroup, syncGroupContext := errgroup.WithContext(ctx)
 
 	// Parse command line parameters.
 	configFile := *flag.String("config-file", "config.json", "Full path to the configuration file")
 	flag.Parse()
 
 	// Load configuration
-	configuration := config.LoadConfiguration(configFile)
-	if configuration == nil {
+	configuration, err := config.LoadConfiguration(configFile)
+	if err != nil {
+		log.Fatalf("Unable to load configuration file: %s", err.Error())
 		syscall.Exit(-1)
+	}
+	if configuration.LogLevel != 0 {
+		log.ActiveLevel = log.Level(configuration.LogLevel)
+	}
+
+	// Setup system
+	system := domain.NewSystem(time.Now().Location())
+	system.SetGrid(configuration.Grid.Name, configuration.Grid.Voltage, configuration.Grid.MaxCurrent, configuration.Grid.Phases)
+	for _, pv := range configuration.Pvs {
+		system.AddPv(pv.Name)
 	}
 
 	// Setup repository
 	repository := loadRepository(configuration)
-	err := repository.Initialize()
+	err = repository.Initialize()
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Warningf("Unable to initialize database: %s", err.Error())
+		//syscall.Exit(-1)
 	}
-	defer repository.Close()
+	syncGroup.Go(func() error {
+		<-syncGroupContext.Done()
+		repository.Close()
+		return nil
+	})
 
+	// Setup domain event listeners
+	costCalculator := domain.NewElectricityUsageCostCalculator(repository)
+	domain.ElectricityPrices.Register(costCalculator, nil)
+	syncGroup.Go(func() error {
+		<-syncGroupContext.Done()
+		domain.ElectricityPrices.Deregister(costCalculator)
+		return nil
+	})
+
+	// Setup modbus/serial electricity meters
+	createElectricityMeter(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters).StartReading(syncGroupContext)
+	for _, pv := range configuration.Pvs {
+		createElectricityMeter(pv.Name, domain.RolePv, pv.Meters).StartReading(syncGroupContext)
+	}
+
+	// Set price importers
 	if configuration.Prices != nil {
 		importer, err := entsoe.NewEntsoeImporter(
 			configuration.Prices.Country,
@@ -81,24 +93,23 @@ func main() {
 		year, month, day := t.Date()
 		start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
 		go func() {
-			err = importer.ImportPrices(start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
+			err = importer.ImportPrices(ctx, start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
 			if err != nil {
 				log.Error(err.Error())
 			}
 		}()
-		done := make(chan bool)
 		ticker := time.NewTicker(1 * time.Hour)
 		go func() {
 			for {
 				select {
-				case <-done:
+				case <-syncGroupContext.Done():
 					ticker.Stop()
 					return
 				case <-ticker.C:
 					t = time.Now()
 					year, month, day = t.Date()
 					start = time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-					err = importer.ImportPrices(start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
+					err = importer.ImportPrices(ctx, start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
 					if err != nil {
 						log.Error(err.Error())
 					}
@@ -107,38 +118,90 @@ func main() {
 		}()
 	}
 
-	h := &home{
-		system:            internal.NewSystem(time.Now().Location()),
-		modbusUpdateLoops: make(map[string]*modbus.UpdateLoop),
-	}
-	defer h.Close()
-
-	// Load grid & pvs from config.
-	updateChannels := internal.NewUpdateChannels()
-	addGrid(h, configuration.Grid, updateChannels)
-	addPvs(h, configuration.Pvs, updateChannels)
-
-	// Start the balancer update loop
-	balance.StartUpdateLoop(updateChannels, repository)
-
-	modbusServers := startModbusServer(configuration, h)
+	modbusServers := createModbusServers(configuration, system)
 	for _, server := range modbusServers {
-		defer func(server *modbusProtocol.ModbusServer) {
+		syncGroup.Go(func() error {
+			log.Infof("Starting modbus proxy on %s", server.ServerUrl())
+			err = server.Start()
+			if err != nil {
+				log.Errorf("Failed to start modbus proxy server: %s", err.Error())
+				return err
+			}
+			log.Infof("Modbus proxy on %s started", server.ServerUrl())
+			return nil
+		})
+		syncGroup.Go(func() error {
+			<-syncGroupContext.Done()
+			log.Infof("Shutting down modbus proxy on %s", server.ServerUrl())
 			err := server.Stop()
 			if err != nil {
-				log.Warningf("Failed to stop modbus server: %s", err.Error())
+				log.Warningf("Failed to stop modbus proxy on: %s", err.Error())
+				return err
 			}
-		}(server)
+			log.Infof("Modbus proxy on %s shutdown", server.ServerUrl())
+			return nil
+		})
 	}
 
-	err = http.StartServer(configuration.Http, h.system, repository)
+	httpServer, err := http.NewServer(configuration.Http, system, repository)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Warningf("Failed to create http server: %s", err.Error())
+	}
+	syncGroup.Go(func() error {
+		return httpServer.Start()
+	})
+	syncGroup.Go(func() error {
+		<-syncGroupContext.Done()
+		return httpServer.Shutdown(context.Background())
+	})
+	if err := syncGroup.Wait(); err != nil {
+		log.Errorf("%v", err)
 	}
 }
 
-func loadRepository(configuration *config.Configuration) persistency.Repository {
-	var repository persistency.Repository
+func createElectricityMeter(name string, role domain.ElectricitySourceRole, meterConfigs []*config.ElectricityMeter) domain.ElectricityMeter {
+	if meterConfigs == nil || len(meterConfigs) < 1 {
+		return nil
+	}
+	if domain.RoleGrid == role && len(meterConfigs) == 1 && meterConfigs[0].Type == "serial" {
+		return meters.NewElectricitySerialMeter(
+			name,
+			role,
+			meterConfigs[0].Brand,
+			meterConfigs[0].Speed,
+			meterConfigs[0].ConnectURL,
+			meterConfigs[0].LineIndices,
+			meterConfigs[0].Attributes)
+	}
+	if len(meterConfigs) > 1 {
+		singleMeters := make([]domain.ElectricityMeter, 0)
+		for ix, meterConfig := range meterConfigs {
+			singleMeters = append(singleMeters, meters.NewElectricityModbusMeter(
+				fmt.Sprintf("%s-%d", name, ix+1),
+				role,
+				meterConfig.Brand,
+				meterConfig.Speed,
+				meterConfig.ConnectURL,
+				meterConfig.ModbusUnitId,
+				meterConfig.LineIndices,
+				meterConfig.Attributes))
+		}
+		return meters.NewCompoundElectricityMeter(name, role, singleMeters)
+	} else {
+		return meters.NewElectricityModbusMeter(
+			name,
+			role,
+			meterConfigs[0].Brand,
+			meterConfigs[0].Speed,
+			meterConfigs[0].ConnectURL,
+			meterConfigs[0].ModbusUnitId,
+			meterConfigs[0].LineIndices,
+			meterConfigs[0].Attributes)
+	}
+}
+
+func loadRepository(configuration *config.Configuration) domain.Repository {
+	var repository domain.Repository
 	if configuration.Persistency != nil {
 		if configuration.Persistency.Influx != nil {
 			influxConfig := configuration.Persistency.Influx
@@ -147,147 +210,23 @@ func loadRepository(configuration *config.Configuration) persistency.Repository 
 	}
 	if repository == nil {
 		log.Warning("Persistency not configured. Energy measurements will not be stored.")
-		repository = persistency.NewNoopRepository()
+		repository = noop.NewNoopRepository()
 	}
 	return repository
 }
 
-func addGrid(h *home, grid *config.Grid, updateChannels *internal.UpdateChannels) {
-	gridConfig, err := energysource.NewGridConfig(
-		grid.Voltage,
-		grid.MaxCurrent,
-		grid.Phases,
-	)
-	if err != nil {
-		log.Fatalf("Unable to create grid configuration: %s", err.Error())
-		panic(err)
-	}
-	var g energysource.Grid
-	switch grid.Brand {
-	case config.ABB:
-		g, err = createModbusGrid(h, grid, gridConfig, updateChannels, abb.NewModbusConfiguration, abb.NewGrid)
-		if err != nil {
-			log.Fatalf("Unable to create ABB grid: %s", err.Error())
-			panic(err)
-		}
-	case config.CarloGavazzi:
-		g, err = createModbusGrid(h, grid, gridConfig, updateChannels, carlo_gavazzi.NewModbusConfiguration, carlo_gavazzi.NewGrid)
-		if err != nil {
-			log.Fatalf("Unable to create Carlo Gavazzi grid: %s", err.Error())
-			panic(err)
-		}
-	case config.DSMR:
-		g, err = dsmr.NewDsmrGrid(grid.Name, &dsmr.DsmrConfig{
-			BaudRate: 115200,
-			Device:   grid.ConnectURL,
-		}, updateChannels.GridUpdated(), gridConfig)
-	case config.Victron:
-		g, err = createModbusGrid(h, grid, gridConfig, updateChannels, victron.NewModbusConfiguration, victron.NewGrid)
-		if err != nil {
-			log.Fatalf("Unable to create Carlo Gavazzi grid: %s", err.Error())
-			panic(err)
-		}
-	}
-	if g != nil {
-		h.system.SetGrid(g)
-	}
-}
-
-func createModbusGrid(h *home,
-	grid *config.Grid,
-	gridConfig *energysource.GridConfig,
-	updateChannels *internal.UpdateChannels,
-	newModbusConfiguration func(string) *modbusProtocol.ClientConfiguration,
-	newGrid func(name string, config *modbus.GridConfig, updateLoop *modbus.UpdateLoop) (*modbus.Grid, error),
-) (*modbus.Grid, error) {
-	h.addModbusUpdateLoop(grid.ConnectURL, updateChannels, newModbusConfiguration)
-	mbConfig := &modbus.GridConfig{
-		GridConfig: gridConfig,
-	}
-	if len(grid.Meters) > 0 {
-		mbConfig.ModbusMeters = make([]*modbus.MeterConfig, len(grid.Meters))
-		for ix, meter := range grid.Meters {
-			mbConfig.ModbusMeters[ix] = &modbus.MeterConfig{
-				ModbusUnitId: meter.ModbusUnitId,
-				LineIndices:  meter.LineIndices,
-			}
-
-		}
-	}
-	g, err := newGrid(grid.Name, mbConfig, h.modbusUpdateLoops[grid.ConnectURL])
-	if err != nil {
-		return nil, err
-	}
-	return g, nil
-}
-
-func addPvs(h *home, pvs []*config.Pv, updateChannels *internal.UpdateChannels) {
-	if pvs == nil || len(pvs) == 0 {
-		return
-	}
-	pvConfig := energysource.NewPvConfig()
-	for _, pv := range pvs {
-		switch pv.Brand {
-		case config.ABB:
-			p, err := createModbusPv(h, pv, pvConfig, updateChannels, abb.NewModbusConfiguration, abb.NewPv)
-			if err != nil {
-				log.Fatalf("Unable to create ABB pv: %s", err.Error())
-				panic(err)
-			}
-			h.system.AddPv(p)
-		case config.CarloGavazzi:
-			p, err := createModbusPv(h, pv, pvConfig, updateChannels, carlo_gavazzi.NewModbusConfiguration, carlo_gavazzi.NewPv)
-			if err != nil {
-				log.Fatalf("Unable to create Carlo Gavazzi pv: %s", err.Error())
-				panic(err)
-			}
-			h.system.AddPv(p)
-		case config.Victron:
-			p, err := createModbusPv(h, pv, pvConfig, updateChannels, victron.NewModbusConfiguration, victron.NewPv)
-			if err != nil {
-				log.Fatalf("Unable to create Victron pv: %s", err.Error())
-				panic(err)
-			}
-			h.system.AddPv(p)
-		}
-	}
-}
-
-func createModbusPv(h *home,
-	pv *config.Pv,
-	pvConfig *energysource.PvConfig,
-	updateChannels *internal.UpdateChannels,
-	newModbusConfiguration func(string) *modbusProtocol.ClientConfiguration,
-	newPv func(name string, config *modbus.PvConfig, updateLoop *modbus.UpdateLoop) (*modbus.Pv, error),
-) (*modbus.Pv, error) {
-	h.addModbusUpdateLoop(pv.ConnectURL, updateChannels, newModbusConfiguration)
-	mbConfig := &modbus.PvConfig{
-		PvConfig: pvConfig,
-	}
-	if len(pv.Meters) > 0 {
-		mbConfig.ModbusMeters = make([]*modbus.MeterConfig, len(pv.Meters))
-		for ix, meter := range pv.Meters {
-			mbConfig.ModbusMeters[ix] = &modbus.MeterConfig{
-				ModbusUnitId: meter.ModbusUnitId,
-				LineIndices:  meter.LineIndices,
-			}
-		}
-	}
-	p, err := newPv(pv.Name, mbConfig, h.modbusUpdateLoops[pv.ConnectURL])
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
-func startModbusServer(config *config.Configuration, home *home) []*modbusProtocol.ModbusServer {
+func createModbusServers(config *config.Configuration, system *domain.System) []*modbus.ModbusServer {
 	if config.ModbusServers == nil {
 		return nil
 	}
-	var servers []*modbusProtocol.ModbusServer
+	var servers []*modbus.ModbusServer
 	requestHandler := proxy.NewDispatchingRequestHandler()
-	if home.system.Grid() != nil && config.Grid.ModbusMeterSimulator != nil {
-		simulator := proxy.NewMeterSimulator(config.Grid.ModbusMeterSimulator.MeterType, config.Grid.ModbusMeterSimulator.ModbusUnitId, home.system.Grid())
+	if system.Grid() != nil && config.Grid.ModbusMeterSimulator != nil {
+		simulator := proxy.NewMeterSimulator(
+			config.Grid.ModbusMeterSimulator.MeterType,
+			config.Grid.ModbusMeterSimulator.ModbusUnitId,
+			system.Grid().ElectricityState(),
+			system.Grid().ElectricityUsage())
 		if simulator != nil {
 			log.Infof("Adding %s energy meter simulator for Grid %s at unit id %d", config.Grid.ModbusMeterSimulator.MeterType, config.Grid.Name, config.Grid.ModbusMeterSimulator.ModbusUnitId)
 			requestHandler.AddHandler(config.Grid.ModbusMeterSimulator.ModbusUnitId, simulator)
@@ -299,10 +238,14 @@ func startModbusServer(config *config.Configuration, home *home) []*modbusProtoc
 				log.Warningf("PV with modbus simulator id %d has no name. The name is required for the meter simulator to work. ", pv.ModbusMeterSimulator.ModbusUnitId)
 				continue
 			}
-			for _, p := range home.system.Pvs() {
+			for _, p := range system.Pvs() {
 				if p.Name() == pv.Name {
 					log.Infof("Adding %s energy meter simulator for Pv %s at unit id %d", pv.ModbusMeterSimulator.MeterType, pv.Name, pv.ModbusMeterSimulator.ModbusUnitId)
-					simulator := proxy.NewMeterSimulator(pv.ModbusMeterSimulator.MeterType, pv.ModbusMeterSimulator.ModbusUnitId, p)
+					simulator := proxy.NewMeterSimulator(
+						pv.ModbusMeterSimulator.MeterType,
+						pv.ModbusMeterSimulator.ModbusUnitId,
+						p.ElectricityState(),
+						p.ElectricityUsage())
 					if simulator != nil {
 						requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
 					}
@@ -313,7 +256,7 @@ func startModbusServer(config *config.Configuration, home *home) []*modbusProtoc
 	}
 
 	for _, modbusProxy := range config.ModbusServers {
-		server, err := modbusProtocol.NewServer(&modbusProtocol.ServerConfiguration{
+		server, err := modbus.NewServer(&modbus.ServerConfiguration{
 			URL:        modbusProxy.ServerUrl,
 			Speed:      uint(modbusProxy.Speed),
 			DataBits:   uint(modbusProxy.DataBits),
@@ -325,13 +268,7 @@ func startModbusServer(config *config.Configuration, home *home) []*modbusProtoc
 			log.Errorf("Failed to create modbus proxy server: %s", err.Error())
 			continue
 		}
-		err = server.Start()
-		if err != nil {
-			log.Errorf("Failed to start modbus proxy server: %s", err.Error())
-			continue
-		}
 		servers = append(servers, server)
-		log.Infof("Started modbus proxy on %s", modbusProxy.ServerUrl)
 	}
 	return servers
 }

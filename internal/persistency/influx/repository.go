@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"embed"
+	enmandomain "enman/internal/domain"
 	"enman/internal/log"
-	"enman/internal/persistency"
 	"fmt"
 	"github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -18,24 +18,25 @@ import (
 )
 
 const (
-	organization          = "machnos-enman"
-	bucketEnergyFlowHour  = bucketEnergyFlow + "_hour"
-	bucketEnergyFlowDay   = bucketEnergyFlow + "_day"
-	bucketEnergyFlowMonth = bucketEnergyFlow + "_month"
-	queryTimeout          = 30
+	organization                   = "machnos-enman"
+	bucketElectricityHour          = bucketElectricity + "_hour"
+	bucketElectricityDay           = bucketElectricity + "_day"
+	bucketElectricityMonth         = bucketElectricity + "_month"
+	queryTimeout                   = 30
+	electricityAggregationTemplate = "influx_task_electricity_aggregation.tmpl"
 )
 
-//go:embed influx_task_energy-flow_aggregation.tmpl
+//go:embed influx_task_electricity_aggregation.tmpl
 var templateContent embed.FS
 
 type influxRepository struct {
-	persistency.Repository
+	enmandomain.Repository
 	client    influxdb2.Client
 	writeApis map[string]api.WriteAPI
 	queryApi  api.QueryAPI
 }
 
-func NewInfluxRepository(serverUrl string, token string) persistency.Repository {
+func NewInfluxRepository(serverUrl string, token string) enmandomain.Repository {
 	httpClient := &http.Client{
 		Timeout: time.Second * time.Duration(queryTimeout),
 		Transport: &http.Transport{
@@ -55,7 +56,7 @@ func NewInfluxRepository(serverUrl string, token string) persistency.Repository 
 		client:    influxdb2.NewClientWithOptions(serverUrl, token, influxdb2.DefaultOptions().SetHTTPClient(httpClient)),
 		writeApis: make(map[string]api.WriteAPI),
 	}
-	repo.writeApis[bucketEnergyFlow] = repo.client.WriteAPI(organization, bucketEnergyFlow)
+	repo.writeApis[bucketElectricity] = repo.client.WriteAPI(organization, bucketElectricity)
 	repo.writeApis[bucketPrices] = repo.client.WriteAPI(organization, bucketPrices)
 	repo.queryApi = repo.client.QueryAPI(organization)
 	return repo
@@ -76,19 +77,19 @@ func (i *influxRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
-	err = i.createBucketWhenNotPresent(org, bucketEnergyFlow, int64((time.Hour * 24 * 90).Seconds()))
+	err = i.createBucketWhenNotPresent(org, bucketElectricity, int64((time.Hour * 24 * 90).Seconds()))
 	if err != nil {
 		return err
 	}
-	err = i.createBucketWhenNotPresent(org, bucketEnergyFlowHour, 0)
+	err = i.createBucketWhenNotPresent(org, bucketElectricityHour, 0)
 	if err != nil {
 		return err
 	}
-	err = i.createBucketWhenNotPresent(org, bucketEnergyFlowDay, 0)
+	err = i.createBucketWhenNotPresent(org, bucketElectricityDay, 0)
 	if err != nil {
 		return err
 	}
-	err = i.createBucketWhenNotPresent(org, bucketEnergyFlowMonth, 0)
+	err = i.createBucketWhenNotPresent(org, bucketElectricityMonth, 0)
 	if err != nil {
 		return err
 	}
@@ -97,44 +98,46 @@ func (i *influxRepository) Initialize() error {
 		return err
 	}
 	err = i.createTaskWhenNotPresent(org,
-		"Energy flow per hour",
+		"Electricity per hour",
 		"1h",
-		"influx_task_energy-flow_aggregation.tmpl",
+		electricityAggregationTemplate,
 		map[string]string{
-			"SourceBucket": bucketEnergyFlow,
-			"TargetBucket": bucketEnergyFlowHour,
-			"Measurement":  measurementEnergyUsage,
+			"SourceBucket": bucketElectricity,
+			"TargetBucket": bucketElectricityHour,
+			"Measurement":  measurementUsage,
 		},
 	)
 	if err != nil {
 		return err
 	}
 	err = i.createTaskWhenNotPresent(org,
-		"Energy flow per day",
+		"Electricity per day",
 		"1d",
-		"influx_task_energy-flow_aggregation.tmpl",
+		electricityAggregationTemplate,
 		map[string]string{
-			"SourceBucket": bucketEnergyFlow,
-			"TargetBucket": bucketEnergyFlowDay,
-			"Measurement":  measurementEnergyUsage,
+			"SourceBucket": bucketElectricity,
+			"TargetBucket": bucketElectricityDay,
+			"Measurement":  measurementUsage,
 		},
 	)
 	if err != nil {
 		return err
 	}
 	err = i.createTaskWhenNotPresent(org,
-		"Energy flow per month",
+		"Electricity per month",
 		"1mo",
-		"influx_task_energy-flow_aggregation.tmpl",
+		electricityAggregationTemplate,
 		map[string]string{
-			"SourceBucket": bucketEnergyFlow,
-			"TargetBucket": bucketEnergyFlowMonth,
-			"Measurement":  measurementEnergyUsage,
+			"SourceBucket": bucketElectricity,
+			"TargetBucket": bucketElectricityMonth,
+			"Measurement":  measurementUsage,
 		},
 	)
 	if err != nil {
 		return err
 	}
+	enmandomain.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: i}, nil)
+	enmandomain.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: i}, nil)
 	return nil
 }
 
@@ -185,71 +188,97 @@ func (i *influxRepository) createTaskWhenNotPresent(organization *domain.Organiz
 }
 
 func (i *influxRepository) Close() {
+	enmandomain.ElectricityMeterReadings.Deregister(&ElectricityMeterValueChangeListener{repo: i})
+	enmandomain.ElectricityCosts.Deregister(&ElectricityCostsValueChangeListener{repo: i})
 	for _, value := range i.writeApis {
 		value.Flush()
 	}
 	i.client.Close()
 }
 
-func (i *influxRepository) toInfluxDuration(unit persistency.WindowUnit, amount uint64) string {
+func (i *influxRepository) toInfluxDuration(unit enmandomain.WindowUnit, amount uint64) string {
 	switch unit {
-	case persistency.WindowUnitNanosecond:
+	case enmandomain.WindowUnitNanosecond:
 		return fmt.Sprintf("%dns", amount)
-	case persistency.WindowUnitMicrosecond:
+	case enmandomain.WindowUnitMicrosecond:
 		return fmt.Sprintf("%dus", amount)
-	case persistency.WindowUnitMillisecond:
+	case enmandomain.WindowUnitMillisecond:
 		return fmt.Sprintf("%dms", amount)
-	case persistency.WindowUnitSecond:
+	case enmandomain.WindowUnitSecond:
 		return fmt.Sprintf("%ds", amount)
-	case persistency.WindowUnitMinute:
+	case enmandomain.WindowUnitMinute:
 		return fmt.Sprintf("%dm", amount)
-	case persistency.WindowUnitHour:
+	case enmandomain.WindowUnitHour:
 		return fmt.Sprintf("%dh", amount)
-	case persistency.WindowUnitDay:
+	case enmandomain.WindowUnitDay:
 		return fmt.Sprintf("%dd", amount)
-	case persistency.WindowUnitWeek:
+	case enmandomain.WindowUnitWeek:
 		return fmt.Sprintf("%dw", amount)
-	case persistency.WindowUnitMonth:
+	case enmandomain.WindowUnitMonth:
 		return fmt.Sprintf("%dmo", amount)
-	case persistency.WindowUnitYear:
+	case enmandomain.WindowUnitYear:
 		return fmt.Sprintf("%dy", amount)
 	}
 	return ""
 }
 
-func (i *influxRepository) toInfluxFunction(function persistency.AggregateFunction) string {
-	_, ok := function.(persistency.Count)
-	if ok {
+func (i *influxRepository) toInfluxFunction(function enmandomain.AggregateFunction) string {
+	switch function.(type) {
+	case enmandomain.Count:
 		return "count"
-	}
-	_, ok = function.(persistency.Max)
-	if ok {
+	case enmandomain.Max:
 		return "max"
-	}
-	_, ok = function.(persistency.Mean)
-	if ok {
+	case enmandomain.Mean:
 		return "mean"
-	}
-	_, ok = function.(persistency.Median)
-	if ok {
+	case enmandomain.Median:
 		return "median"
-	}
-	_, ok = function.(persistency.Min)
-	if ok {
+	case enmandomain.Min:
 		return "min"
+	default:
+		return ""
 	}
-	return ""
 }
 
-func (i *influxRepository) toAggregateWindow(aggregateConfiguration *persistency.AggregateConfiguration) string {
+func (i *influxRepository) toInfluxAggregateFunction(function enmandomain.AggregateFunction) AggregateFunction {
+	switch function.(type) {
+	case enmandomain.Count:
+		return Count
+	case enmandomain.Max:
+		return Max
+	case enmandomain.Mean:
+		return Mean
+	case enmandomain.Median:
+		return Median
+	case enmandomain.Min:
+		return Min
+	case enmandomain.Sum:
+		return Sum
+	default:
+		return ""
+	}
+}
+
+func (i *influxRepository) toAggregateWindow(aggregateConfiguration *enmandomain.AggregateConfiguration) string {
 	aggregateWindow := fmt.Sprintf("every: %s, fn: %s, createEmpty: %t",
 		i.toInfluxDuration(aggregateConfiguration.WindowUnit, aggregateConfiguration.WindowAmount),
 		i.toInfluxFunction(aggregateConfiguration.Function),
 		aggregateConfiguration.CreateEmpty,
 	)
-	if persistency.WindowUnitWeek == aggregateConfiguration.WindowUnit {
+	if enmandomain.WindowUnitWeek == aggregateConfiguration.WindowUnit {
 		// In InlfuxDB the week starts at wednesday. See https://docs.influxdata.com/flux/v0.x/stdlib/universe/aggregatewindow/#downsample-by-calendar-week-starting-on-monday
 		aggregateWindow += ", offset: -3d"
 	}
 	return aggregateWindow
+}
+
+func (i *influxRepository) toAggregateWindowStatement(aggregateConfiguration *enmandomain.AggregateConfiguration) *AggregateWindowStatement {
+	statement := NewAggregateWindowStatement(i.toInfluxDuration(aggregateConfiguration.WindowUnit,
+		aggregateConfiguration.WindowAmount),
+		i.toInfluxAggregateFunction(aggregateConfiguration.Function),
+		aggregateConfiguration.CreateEmpty)
+	if enmandomain.WindowUnitWeek == aggregateConfiguration.WindowUnit {
+		// In InlfuxDB the week starts at wednesday. See https://docs.influxdata.com/flux/v0.x/stdlib/universe/aggregatewindow/#downsample-by-calendar-week-starting-on-monday
+		statement.SetOffset("-3d")
+	}
+	return statement
 }

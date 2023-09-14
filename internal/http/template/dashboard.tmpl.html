@@ -1,218 +1,183 @@
 {{define "dashboard"}}
+<h5>Price per provider: <select id="sel-price-providers" autofocus="autofocus"></select></h5>
 <div id="container1" style="width:100%; height:400px;"></div>
 <br />
+<br />
+<h5>Costs per provider: <select id="sel-costs-providers" autofocus="autofocus"></select></h5>
 <div id="container2" style="width:100%; height:400px;"></div>
 <br />
+<br />
+<h5>Electricity usage per provider</h5>
 <div id="container3" style="width:100%; height:400px;"></div>
 <br />
+<br />
+<h5>Watts per provider</h5>
 <div id="container4" style="width:100%; height:400px;"></div>
+<br />
+<br />
+<h5>Amps per provider</h5>
+<div id="container5" style="width:100%; height:400px;"></div>
+<br />
+<br />
 <script>
-const html = htl.html
-function addTooltips(chart, styles) {
-  const stroke_styles = { stroke: "blue", "stroke-width": 3 };
-  const fill_styles = { fill: "blue", opacity: 0.5 };
-
-  // Workaround if it's in a figure
-  const type = d3.select(chart).node().tagName;
-  let wrapper =
-    type === "FIGURE" ? d3.select(chart).select("svg") : d3.select(chart);
-
-  // Workaround if there's a legend....
-  const svgs = d3.select(chart).selectAll("svg");
-  if (svgs.size() > 1) wrapper = d3.select([...svgs].pop());
-  wrapper.style("overflow", "visible"); // to avoid clipping at the edges
-
-  // Set pointer events to visibleStroke if the fill is none (e.g., if its a line)
-  wrapper.selectAll("path").each(function (data, index, nodes) {
-    // For line charts, set the pointer events to be visible stroke
-    if (
-      d3.select(this).attr("fill") === null ||
-      d3.select(this).attr("fill") === "none"
-    ) {
-      d3.select(this).style("pointer-events", "visibleStroke");
-      if (styles === undefined) styles = stroke_styles;
-    }
-  });
-
-  if (styles === undefined) styles = fill_styles;
-
-  const tip = wrapper
-    .selectAll(".hover")
-    .data([1])
-    .join("g")
-    .attr("class", "hover")
-    .style("pointer-events", "none")
-    .style("text-anchor", "middle");
-
-  // Add a unique id to the chart for styling
-  const id = id_generator();
-
-  // Add the event listeners
-  d3.select(chart).classed(id, true); // using a class selector so that it doesn't overwrite the ID
-  wrapper.selectAll("title").each(function () {
-    // Get the text out of the title, set it as an attribute on the parent, and remove it
-    const title = d3.select(this); // title element that we want to remove
-    const parent = d3.select(this.parentNode); // visual mark on the screen
-    const t = title.text();
-    if (t) {
-      parent.attr("__title", t).classed("has-title", true);
-      title.remove();
-    }
-    // Mouse events
-    parent
-      .on("pointerenter pointermove", function (event) {
-        const text = d3.select(this).attr("__title");
-        const pointer = d3.pointer(event, wrapper.node());
-        if (text) tip.call(hover, pointer, text.split("\n"));
-        else tip.selectAll("*").remove();
-
-        // Raise it
-        d3.select(this).raise();
-        // Keep within the parent horizontally
-        const tipSize = tip.node().getBBox();
-        if (pointer[0] + tipSize.x < 0)
-          tip.attr(
-            "transform",
-            `translate(${tipSize.width / 2}, ${pointer[1] + 7})`
-          );
-        else if (pointer[0] + tipSize.width / 2 > wrapper.attr("width"))
-          tip.attr(
-            "transform",
-            `translate(${wrapper.attr("width") - tipSize.width / 2}, ${
-              pointer[1] + 7
-            })`
-          );
-      })
-      .on("pointerout", function (event) {
-        tip.selectAll("*").remove();
-        // Lower it!
-        d3.select(this).lower();
-      });
-  });
-
-  // Remove the tip if you tap on the wrapper (for mobile)
-  wrapper.on("touchstart", () => tip.selectAll("*").remove());
-
-  // Define the styles
-  chart.appendChild(html`<style>
-  .${id} .has-title { cursor: pointer;  pointer-events: all; }
-  .${id} .has-title:hover { ${Object.entries(styles).map(([key, value]) => `${key}: ${value};`).join(" ")} }`);
-
-  return chart;
-}
-
-function hover(tip, pos, text) {
-  const side_padding = 10;
-  const vertical_padding = 5;
-  const vertical_offset = 15;
-
-  // Empty it out
-  tip.selectAll("*").remove();
-
-  // Append the text
-  tip
-    .style("text-anchor", "middle")
-    .style("pointer-events", "none")
-    .attr("transform", `translate(${pos[0]}, ${pos[1] + 7})`)
-    .selectAll("text")
-    .data(text)
-    .join("text")
-    .style("dominant-baseline", "ideographic")
-    .text((d) => d)
-    .attr("y", (d, i) => (i - (text.length - 1)) * 15 - vertical_offset)
-    .style("font-weight", (d, i) => (i === 0 ? "bold" : "normal"));
-
-  const bbox = tip.node().getBBox();
-
-  // Add a rectangle (as background)
-  tip
-    .append("rect")
-    .attr("y", bbox.y - vertical_padding)
-    .attr("x", bbox.x - side_padding)
-    .attr("width", bbox.width + side_padding * 2)
-    .attr("height", bbox.height + vertical_padding * 2)
-    .style("fill", "white")
-    .style("stroke", "#d3d3d3")
-    .lower();
-}
-
-function id_generator() {
-  const S4 = function () {
-    return (((1 + Math.random()) * 0x10000) | 0).toString(16).substring(1);
-  };
-  return "a" + S4() + S4();
-}
-
 $(document).ready(function(){
+    'use strict';
 
     const today = new Date();
     let tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    $.ajax({
-      url: "/api/prices/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0],
-    }).done(function(data) {
-        if (data && data.prices) {
-            let markers = [];
-            $.each(data.prices, function(series, prices) {
-                $.each(prices, function(i, price) {
-                    markers.push({
-                        time: Date.parse(price.time),
-                        value: price.price,
-                        provider: series
-                    });
-                });
-            });
-            let graph = Plot.plot({
-                x: {
-                    type: "time"
-                },
-                y: {
-                    label: "Price in €"
-                },
-                grid: true,
-                width: "1200",
-                color: {
-                    scheme: "blues",
-                    legend: true
-                },
-                marks: [
-                    Plot.line(markers, {
-                        x: "time",
-                        y: "value",
-                        stroke: "provider",
-                        strokeWidth: 2,
-                        curve: "natural",
-                        marker: "circle",
-                        title: function(d) {
-                            function formatDate(date) {
-                                let hour = date.getHours();
-                                let endHour = hour + 1
-                                hour = hour < 10 ? ('0' + hour) : hour;
-                                let minutes = date.getMinutes()
-                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                                if (endHour >= 24) {
-                                    endHour = 0
-                                }
-                                endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                                return hour + ':' + minutes + '-' + endHour + ':' + minutes;
-                            }
-                            return d.provider + '\n Time: ' + formatDate(new Date(d.time))  + '\n Usage: €' + d.value;
-                        }
-                    }),
-                    Plot.ruleY([0]),
-                ]
-            });
-            // let color = graph.scale("color");
-            // const domain = color.domain;
-            // const range = color.range;
+    let yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
 
-            $('#container1').append(addTooltips(graph));
+    $.ajax({
+        url: "{{$.ContextRoot}}api/prices/providers/" + yesterday.toISOString().split('T')[0],
+    }).done(function(data) {
+        if (!data || !data.providers) {
+            return;
         }
+        const $priceProviders = $('#sel-price-providers');
+        const $costsProviders = $('#sel-costs-providers');
+        $(data.providers).each(function (index, provider) {
+            $priceProviders.append($('<option>').attr('value', provider).text(provider));
+            $costsProviders.append($('<option>').attr('value', provider).text(provider));
+        });
+        $priceProviders.trigger("change");
+        $costsProviders.trigger("change");
     });
 
+    $('#sel-price-providers').on('change', function (event) {
+        event.preventDefault();
+        const selectedProvider = $(this).val();
+        $.ajax({
+            url: "{{$.ContextRoot}}api/prices/" + selectedProvider + "/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0],
+        }).done(function(data) {
+            if (data && data.prices) {
+                let markers = [];
+                $.each(data.prices, function (series, prices) {
+                    $.each(prices, function (i, price) {
+                        markers.push({
+                            time: Date.parse(price.time),
+                            value: price.consumption_price,
+                            provider: series
+                        });
+                    });
+                });
+                const graph = Plot.plot({
+                    x: {
+                        type: "time",
+                        interval: "hour",
+                    },
+                    y: {
+                        label: "Price in €"
+                    },
+                    grid: true,
+                    width: "1200",
+                    color: {
+                        legend: true,
+                        scheme: "gnbu",
+                    },
+                    marks: [
+                        Plot.ruleY([0]),
+                        Plot.axisX({ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start"}),
+                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
+                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.tip(markers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                                return 'Time: ' + formatDate(new Date(d.time))  + '\n Price: €' + d.value;
+                            }
+                        })),
+                    ]
+                })
+
+                function formatDate(date) {
+                    let hour = date.getHours();
+                    let endHour = hour + 1
+                    hour = hour < 10 ? ('0' + hour) : hour;
+                    let minutes = date.getMinutes()
+                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                    if (endHour >= 24) {
+                        endHour = 0
+                    }
+                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
+                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                }
+
+                $('#container1').empty().append(graph);
+            }
+        });
+    });
+
+    $('#sel-costs-providers').on('change', function (event) {
+        event.preventDefault();
+        const selectedProvider = $(this).val();
+
+        $.ajax({
+            url: "{{$.ContextRoot}}api/electricity/" + selectedProvider + "/costs/" + yesterday.toISOString().split('T')[0],
+        }).done(function (data) {
+            if (data && data.costs) {
+                let markers = [];
+                $.each(data.costs, function (series, costs) {
+                    $.each(costs, function (i, cost) {
+                        markers.push({
+                            // cost.time is the endtime of the calculation. So shift the marker 1 hour to the left.
+                            time: Date.parse(cost.time) - 3600000,
+                            value: cost.net_costs,
+                            provider: series
+                        });
+                    });
+                });
+                const graph = Plot.plot({
+                    x: {
+                        type: "time",
+                        interval: "hour",
+                    },
+                    y: {
+                        label: "Costs in €"
+                    },
+                    grid: true,
+                    width: "1200",
+                    color: {
+                        legend: true,
+                        scheme: "gnbu",
+                    },
+                    marks: [
+                        Plot.ruleY([0]),
+                        Plot.axisX({
+                            ticks: "day",
+                            tickSize: 28,
+                            tickPadding: -9,
+                            tickFormat: " %A",
+                            textAnchor: "start"
+                        }),
+                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
+                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.tip(markers, Plot.pointerX({
+                            x: "time", y: "value", title: function (d) {
+                                return 'Time: ' + formatDate(new Date(d.time)) + '\n Costs: €' + d.value;
+                            }
+                        })),
+                    ]
+                })
+
+                function formatDate(date) {
+                    let hour = date.getHours();
+                    let endHour = hour + 1
+                    hour = hour < 10 ? ('0' + hour) : hour;
+                    let minutes = date.getMinutes()
+                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                    if (endHour >= 24) {
+                        endHour = 0
+                    }
+                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
+                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                }
+
+                $('#container2').empty().append(graph);
+            }
+        });
+    });
 
     $.ajax({
-        url: "/api/energy_flow/usages/" + today.toISOString().split('T')[0],
+        url: "{{$.ContextRoot}}api/electricity/usages/" + today.toISOString().split('T')[0],
     }).done(function(data) {
         if (data && data.usages) {
             let markers = [];
@@ -240,9 +205,10 @@ $(document).ready(function(){
                     lastDate = Date.parse(usage.time);
                 });
             });
-            let graph = Plot.plot({
+            const graph = Plot.plot({
                 x: {
-                    type: "time"
+                    type: "time",
+                    label: "Time"
                 },
                 y: {
                     label: "kWh"
@@ -261,7 +227,9 @@ $(document).ready(function(){
                         strokeWidth: 2,
                         curve: "natural",
                         marker: "circle",
-                        title: function(d) {
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(markers, Plot.pointerX({x: "time", y: "value", title: function(d) {
                             function formatDate(date) {
                                 let hour = date.getHours();
                                 let endHour = hour + 1
@@ -274,22 +242,20 @@ $(document).ready(function(){
                                 endHour = endHour < 10 ? ('0' + endHour) : endHour;
                                 return hour + ':' + minutes + '-' + endHour + ':' + minutes;
                             }
-                            return d.provider + '\n Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'kWh';
-                        }
-                    }),
-                    Plot.ruleY([0]),
+                            return 'Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'kWh';
+                        }})),
                 ]
             });
             // let color = graph.scale("color");
             // const domain = color.domain;
             // const range = color.range;
 
-            $('#container2').append(addTooltips(graph));
+            $('#container3').append(graph);
         }
     });
 
     $.ajax({
-        url: "/api/energy_flow/states/" + today.toISOString().split('T')[0],
+        url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0],
     }).done(function(data) {
         if (data && data.states) {
             let currentMarkers = [];
@@ -310,7 +276,8 @@ $(document).ready(function(){
             });
             let graph = Plot.plot({
                 x: {
-                    type: "time"
+                    type: "time",
+                    label: "Time"
                 },
                 y: {
                     label: "Watt"
@@ -329,7 +296,9 @@ $(document).ready(function(){
                         strokeWidth: 2,
                         // curve: "natural",
                         // marker: "circle",
-                        title: function(d) {
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(powerMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
                             function formatDate(date) {
                                 let hour = date.getHours();
                                 hour = hour < 10 ? ('0' + hour) : hour;
@@ -339,17 +308,16 @@ $(document).ready(function(){
                                 seconds = seconds < 10 ? ('0' + seconds) : seconds;
                                 return hour + ':' + minutes + ':' + seconds;
                             }
-                            return d.provider + '\n Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'W';
-                        }
-                    }),
-                    Plot.ruleY([0]),
+                            return 'Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'W';
+                        }})),
                 ]
             });
-            $('#container3').append(addTooltips(graph));
+            $('#container4').append(graph);
 
             graph = Plot.plot({
                 x: {
-                    type: "time"
+                    type: "time",
+                    label: "Time"
                 },
                 y: {
                     label: "Ampere"
@@ -368,7 +336,9 @@ $(document).ready(function(){
                         strokeWidth: 2,
                         // curve: "natural",
                         // marker: "circle",
-                        title: function(d) {
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(currentMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
                             function formatDate(date) {
                                 let hour = date.getHours();
                                 hour = hour < 10 ? ('0' + hour) : hour;
@@ -378,16 +348,13 @@ $(document).ready(function(){
                                 seconds = seconds < 10 ? ('0' + seconds) : seconds;
                                 return hour + ':' + minutes + ':' + seconds;
                             }
-                            return d.provider + '\n Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'A';
-                        }
-                    }),
-                    Plot.ruleY([0]),
+                            return 'Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'A';
+                        }})),
                 ]
             });
-            $('#container4').append(addTooltips(graph));
+            $('#container5').append(graph);
         }
     });
-
 });
 </script>
 {{end}}
