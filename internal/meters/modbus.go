@@ -1,13 +1,12 @@
 package meters
 
 import (
-	"context"
+	"enman/internal/config"
 	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/modbus"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -17,63 +16,71 @@ const (
 
 var modbusClientCache = make(map[string]*modbus.ModbusClient)
 
-type electricityModbusMeter struct {
-	genericElectricityMeter
-	updateInterval time.Duration
-	updateTicker   *time.Ticker
-	usageLastRead  time.Time
-	url            string
-	modbusUnitId   uint8
-	modbusClient   *modbus.ModbusClient
-	meterBrand     string
-	meterType      string
-	meterSerial    string
-	probeWaitGroup sync.WaitGroup
-	readValues     func(*electricityModbusMeter, *domain.ElectricityState, *domain.ElectricityUsage)
+type modbusMeter struct {
+	modbusClient  *modbus.ModbusClient
+	modbusUnitId  uint8
+	meter         implementingEnergyMeter
+	usageLastRead time.Time
+	updInterval   time.Duration
 }
 
-func NewElectricityModbusMeter(name string, role domain.ElectricitySourceRole, brand string, speed uint16, url string, modbusUnitId uint8, lineIndices []uint8, attributes string) domain.ElectricityMeter {
-	em := &electricityModbusMeter{
-		genericElectricityMeter: genericElectricityMeter{
-			name:        name,
-			role:        role,
-			lineIndices: lineIndices,
-			attributes:  attributes,
-		},
-		updateInterval: time.Millisecond * 500,
-		url:            url,
-		modbusUnitId:   modbusUnitId,
-	}
-	probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
-	if speed != 0 {
-		probeBaudRates = []uint{uint(speed)}
-	}
-
-	em.probeWaitGroup.Add(1)
-	go em.probeMeter(probeBaudRates, brand)
-	return em
+func (mm *modbusMeter) updateInterval() time.Duration {
+	return mm.updInterval
 }
 
-func (emm *electricityModbusMeter) shouldUpdateUsage() bool {
-	if emm.usageLastRead.IsZero() || (time.Now().Sub(emm.usageLastRead) > meterUsageUpdateInterval) {
-		emm.usageLastRead = time.Now()
+func newModbusMeter(modbusClient *modbus.ModbusClient, modbusUnitId uint8) *modbusMeter {
+	return &modbusMeter{
+		modbusClient: modbusClient,
+		modbusUnitId: modbusUnitId,
+		updInterval:  500 * time.Millisecond,
+	}
+}
+
+func (mm *modbusMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, waterUsage *domain.WaterUsage) {
+	mm.meter.readValues(electricityState, electricityUsage, gasUsage, waterUsage)
+}
+
+func (mm *modbusMeter) shutdown() {
+	mm.meter.shutdown()
+	if mm.modbusClient != nil {
+		// TODO a modbus client is cached (see probeModbusMeter() method), so we should only close the client if no other meter is reading from it as well.
+		err := mm.modbusClient.Close()
+		if err != nil && log.DebugEnabled() {
+			log.Debugf("Unable to close modbus client: %v", err)
+		}
+		delete(modbusClientCache, mm.modbusClient.URL())
+		mm.modbusClient = nil
+	}
+}
+
+func (mm *modbusMeter) enrichEvents(electricityMeterValues *domain.ElectricityMeterValues, gasMeterValues *domain.GasMeterValues, waterMeterValues *domain.WaterMeterValues) {
+	mm.meter.enrichEvents(electricityMeterValues, gasMeterValues, waterMeterValues)
+}
+
+func (mm *modbusMeter) shouldUpdateUsage() bool {
+	if mm.usageLastRead.IsZero() || (time.Now().Sub(mm.usageLastRead) > meterUsageUpdateInterval) {
+		mm.usageLastRead = time.Now()
 		return true
 	}
 	return false
 }
 
-func (emm *electricityModbusMeter) probeMeter(baudRates []uint, brand string) {
-	defer emm.probeWaitGroup.Done()
-	if strings.HasPrefix(emm.url, "rtu") {
-		for _, rate := range baudRates {
-			config := &modbus.ClientConfiguration{
-				URL:     emm.url,
+func probeModbusMeter(name string, role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+	var meter domain.EnergyMeter
+	if strings.HasPrefix(meterConfig.ConnectURL, "rtu") {
+		probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
+		if meterConfig.Speed != 0 {
+			probeBaudRates = []uint{uint(meterConfig.Speed)}
+		}
+		for _, rate := range probeBaudRates {
+			clientConfig := &modbus.ClientConfiguration{
+				URL:     meterConfig.ConnectURL,
 				Timeout: time.Millisecond * 500,
 				Speed:   rate,
 			}
-			modbusClient, clientCached := modbusClientCache[emm.url]
+			modbusClient, clientCached := modbusClientCache[meterConfig.ConnectURL]
 			if !clientCached {
-				client, err := emm.newModbusClient(config)
+				client, err := newModbusClient(clientConfig)
 				if err != nil {
 					if log.DebugEnabled() {
 						log.Debugf("Unable to create modbus client: %v", err)
@@ -82,9 +89,9 @@ func (emm *electricityModbusMeter) probeMeter(baudRates []uint, brand string) {
 				}
 				modbusClient = client
 			}
-
-			if emm.probeMeterWithClient(modbusClient, brand) {
-				modbusClientCache[emm.url] = modbusClient
+			meter = probeMeterWithClient(name, role, meterConfig, modbusClient)
+			if meter != nil {
+				modbusClientCache[meterConfig.ConnectURL] = modbusClient
 				break
 			} else if !clientCached {
 				err := modbusClient.Close()
@@ -94,16 +101,17 @@ func (emm *electricityModbusMeter) probeMeter(baudRates []uint, brand string) {
 			}
 		}
 	} else {
-		config := &modbus.ClientConfiguration{
-			URL: emm.url,
+		clientConfig := &modbus.ClientConfiguration{
+			URL: meterConfig.ConnectURL,
 		}
-		modbusClient, err := emm.newModbusClient(config)
+		modbusClient, err := newModbusClient(clientConfig)
 		if err != nil {
 			if log.DebugEnabled() {
 				log.Debugf("Unable to create modbus client: %v", err)
 			}
 		} else {
-			if !emm.probeMeterWithClient(modbusClient, brand) {
+			meter = probeMeterWithClient(name, role, meterConfig, modbusClient)
+			if meter == nil {
 				err := modbusClient.Close()
 				if err != nil && log.DebugEnabled() {
 					log.Debugf("Unable to close modbus client: %v", err)
@@ -111,81 +119,14 @@ func (emm *electricityModbusMeter) probeMeter(baudRates []uint, brand string) {
 			}
 		}
 	}
-	if emm.modbusClient == nil {
-		log.Warningf("Unable to detect modbus electricity meter in role %s with name %s at url '%s'", emm.role, emm.name, emm.url)
+	if meter == nil {
+		log.Warningf("Unable to detect modbus energy meter in role %s with name %s at url '%s'", role, name, meterConfig.ConnectURL)
 	}
+	return meter
 }
 
-func (emm *electricityModbusMeter) probeMeterWithClient(modbusClient *modbus.ModbusClient, brand string) bool {
-	if brand == "Carlo Gavazzi" || brand == "" {
-		// Carlo Gavazzi meter type
-		if log.InfoEnabled() {
-			baudRateLogging := ""
-			if modbusClient.Speed() > 0 {
-				baudRateLogging = fmt.Sprintf("baud rate %d and ", modbusClient.Speed())
-			}
-			log.Infof("Probing for Carlo Gavazzi meter with %sunit id %d at %s", baudRateLogging, emm.modbusUnitId, modbusClient.URL())
-		}
-		cgMeterType, err := modbusClient.ReadRegister(emm.modbusUnitId, 0x000b, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
-		if err == nil {
-			cg := carlo_gavazzi{}
-			if cg.probe(emm, modbusClient, cgMeterType) {
-				return true
-			}
-		}
-	}
-	if brand == "ABB" || brand == "" {
-		// Abb meter
-		if log.InfoEnabled() {
-			baudRateLogging := ""
-			if modbusClient.Speed() > 0 {
-				baudRateLogging = fmt.Sprintf("baud rate %d and ", modbusClient.Speed())
-			}
-			log.Infof("Probing for ABB meter with %sunit id %d at %s", baudRateLogging, emm.modbusUnitId, modbusClient.URL())
-		}
-		abbMeterType, err := modbusClient.ReadUint32(emm.modbusUnitId, 0x8960, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.HOLDING_REGISTER)
-		if err == nil {
-			abb := &abb{}
-			if abb.probe(emm, modbusClient, abbMeterType) {
-				return true
-			}
-		}
-	}
-	if brand == "Victron" || brand == "" {
-		// Victron grid meter
-		if log.InfoEnabled() {
-			baudRateLogging := ""
-			if modbusClient.Speed() > 0 {
-				baudRateLogging = fmt.Sprintf("baud rate %d and ", modbusClient.Speed())
-			}
-			log.Infof("Probing for Victron meter with %sunit id %d at %s", baudRateLogging, emm.modbusUnitId, modbusClient.URL())
-		}
-
-		if domain.RoleGrid == emm.role {
-			_, err := modbusClient.ReadBytes(emm.modbusUnitId, 2609, 14, modbus.INPUT_REGISTER)
-			if err == nil {
-				victron := &victron{}
-				if victron.probe(emm, modbusClient, domain.RoleGrid) {
-					return true
-				}
-			}
-			// Victron pv meter
-		} else if domain.RolePv == emm.role {
-			// address 1309 gives a weird error in v3.01 of victron. A bug should be raised, because victron thinks it needs to be a battery instead of PV.
-			//_, err := modbusClient.ReadBytes(emm.modbusUnitId, 1309, 14, modbus.INPUT_REGISTER)
-			//if err == nil {
-			victron := &victron{}
-			if victron.probe(emm, modbusClient, domain.RolePv) {
-				return true
-			}
-			//}
-		}
-	}
-	return false
-}
-
-func (emm *electricityModbusMeter) newModbusClient(config *modbus.ClientConfiguration) (*modbus.ModbusClient, error) {
-	modbusClient, err := modbus.NewClient(config)
+func newModbusClient(clientConfig *modbus.ClientConfiguration) (*modbus.ModbusClient, error) {
+	modbusClient, err := modbus.NewClient(clientConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -196,70 +137,51 @@ func (emm *electricityModbusMeter) newModbusClient(config *modbus.ClientConfigur
 	return modbusClient, nil
 }
 
-func (emm *electricityModbusMeter) WaitForInitialization() bool {
-	emm.probeWaitGroup.Wait()
-	return emm.modbusClient != nil
-}
-
-func (emm *electricityModbusMeter) StartReading(ctx context.Context) domain.ElectricityMeter {
-	if !emm.WaitForInitialization() {
-		log.Warningf("Unable to read values from electricity meter %s in role %v as it is an unknown device", emm.name, emm.role)
-		return emm
-	}
-	if emm.updateTicker != nil {
-		// Meter already started
-		return emm
-	}
-	emm.updateTicker = time.NewTicker(emm.updateInterval)
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				emm.shutdown()
-				return
-			case _ = <-emm.updateTicker.C:
-				var electricityState *domain.ElectricityState = nil
-				var electricityUsage *domain.ElectricityUsage = nil
-				if emm.attributes == "state" || emm.attributes == "" {
-					electricityState = domain.NewElectricityState()
-				}
-				if emm.shouldUpdateUsage() && (emm.attributes == "usage" || emm.attributes == "") {
-					electricityUsage = domain.NewElectricityUsage()
-				}
-				if electricityState != nil || electricityUsage != nil {
-					emm.readValues(emm, electricityState, electricityUsage)
-					event := domain.NewElectricityMeterValues().
-						SetName(emm.name).
-						SetRole(emm.role).
-						SetMeterPhases(emm.phases).
-						SetMeterBrand(emm.meterBrand).
-						SetMeterType(emm.meterType).
-						SetMeterSerial(emm.meterSerial).
-						SetReadLineIndices(emm.lineIndices).
-						SetElectricityState(electricityState).
-						SetElectricityUsage(electricityUsage)
-					domain.ElectricityMeterReadings.Trigger(event)
-				}
+func probeMeterWithClient(name string, role domain.EnergySourceRole, meterConfig *config.EnergyMeter, modbusClient *modbus.ModbusClient) domain.EnergyMeter {
+	if meterConfig.Brand == "Carlo Gavazzi" || meterConfig.Brand == "" {
+		// Carlo Gavazzi meter type
+		if log.InfoEnabled() {
+			baudRateLogging := ""
+			if modbusClient.Speed() > 0 {
+				baudRateLogging = fmt.Sprintf("baud rate %d and ", modbusClient.Speed())
 			}
+			log.Infof("Probing for Carlo Gavazzi meter with %sunit id %d at %s", baudRateLogging, meterConfig.ModbusUnitId, modbusClient.URL())
 		}
-	}()
-	return emm
-}
-
-func (emm *electricityModbusMeter) shutdown() {
-	if emm.updateTicker != nil {
-		emm.updateTicker.Stop()
-		emm.updateTicker = nil
-		log.Infof("Stop reading values from electricity meter %s in role %v", emm.name, emm.role)
-	}
-	if emm.modbusClient != nil {
-		// TODO a modbus client is cached (see probe() method), so we should only close the client if no other meter is reading from it as well.
-		err := emm.modbusClient.Close()
-		if err != nil && log.DebugEnabled() {
-			log.Debugf("Unable to close modbus client: %v", err)
+		meter, err := newCarloGavazziMeter(name, role, modbusClient, meterConfig)
+		if err == nil {
+			return meter
 		}
-		delete(modbusClientCache, emm.url)
-		emm.modbusClient = nil
+		log.Infof("Probe failed for Carlo Gavazzi meter: %v", err)
 	}
+	if meterConfig.Brand == "ABB" || meterConfig.Brand == "" {
+		// Abb meter
+		if log.InfoEnabled() {
+			baudRateLogging := ""
+			if modbusClient.Speed() > 0 {
+				baudRateLogging = fmt.Sprintf("baud rate %d and ", modbusClient.Speed())
+			}
+			log.Infof("Probing for ABB meter with %sunit id %d at %s", baudRateLogging, meterConfig.ModbusUnitId, modbusClient.URL())
+		}
+		meter, err := newAbbMeter(name, role, modbusClient, meterConfig)
+		if err == nil {
+			return meter
+		}
+		log.Infof("Probe failed for ABB meter: %v", err)
+	}
+	if meterConfig.Brand == "Victron" || meterConfig.Brand == "" {
+		// Victron grid meter
+		if log.InfoEnabled() {
+			baudRateLogging := ""
+			if modbusClient.Speed() > 0 {
+				baudRateLogging = fmt.Sprintf("baud rate %d and ", modbusClient.Speed())
+			}
+			log.Infof("Probing for Victron meter with %sunit id %d at %s", baudRateLogging, meterConfig.ModbusUnitId, modbusClient.URL())
+		}
+		meter, err := newVictronMeter(name, role, modbusClient, meterConfig)
+		if err == nil {
+			return meter
+		}
+		log.Infof("Probe failed for Victron meter: %v", err)
+	}
+	return nil
 }

@@ -13,7 +13,6 @@ import (
 	"enman/internal/persistency/noop"
 	"enman/internal/prices/entsoe"
 	"flag"
-	"fmt"
 	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
@@ -70,10 +69,16 @@ func main() {
 		return nil
 	})
 
-	// Setup modbus/serial electricity meters
-	createElectricityMeter(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters).StartReading(syncGroupContext)
+	// Setup energy meters
+	gridMeter := meters.ProbeEnergyMeter(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters)
+	if gridMeter != nil {
+		gridMeter.StartReading(syncGroupContext)
+	}
 	for _, pv := range configuration.Pvs {
-		createElectricityMeter(pv.Name, domain.RolePv, pv.Meters).StartReading(syncGroupContext)
+		energyMeter := meters.ProbeEnergyMeter(pv.Name, domain.RolePv, pv.Meters)
+		if energyMeter != nil {
+			energyMeter.StartReading(syncGroupContext)
+		}
 	}
 
 	// Set price importers
@@ -156,47 +161,6 @@ func main() {
 	})
 	if err := syncGroup.Wait(); err != nil {
 		log.Errorf("%v", err)
-	}
-}
-
-func createElectricityMeter(name string, role domain.ElectricitySourceRole, meterConfigs []*config.ElectricityMeter) domain.ElectricityMeter {
-	if meterConfigs == nil || len(meterConfigs) < 1 {
-		return nil
-	}
-	if domain.RoleGrid == role && len(meterConfigs) == 1 && meterConfigs[0].Type == "serial" {
-		return meters.NewElectricitySerialMeter(
-			name,
-			role,
-			meterConfigs[0].Brand,
-			meterConfigs[0].Speed,
-			meterConfigs[0].ConnectURL,
-			meterConfigs[0].LineIndices,
-			meterConfigs[0].Attributes)
-	}
-	if len(meterConfigs) > 1 {
-		singleMeters := make([]domain.ElectricityMeter, 0)
-		for ix, meterConfig := range meterConfigs {
-			singleMeters = append(singleMeters, meters.NewElectricityModbusMeter(
-				fmt.Sprintf("%s-%d", name, ix+1),
-				role,
-				meterConfig.Brand,
-				meterConfig.Speed,
-				meterConfig.ConnectURL,
-				meterConfig.ModbusUnitId,
-				meterConfig.LineIndices,
-				meterConfig.Attributes))
-		}
-		return meters.NewCompoundElectricityMeter(name, role, singleMeters)
-	} else {
-		return meters.NewElectricityModbusMeter(
-			name,
-			role,
-			meterConfigs[0].Brand,
-			meterConfigs[0].Speed,
-			meterConfigs[0].ConnectURL,
-			meterConfigs[0].ModbusUnitId,
-			meterConfigs[0].LineIndices,
-			meterConfigs[0].Attributes)
 	}
 }
 

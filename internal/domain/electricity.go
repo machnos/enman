@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"context"
 	"encoding/json"
 )
 
@@ -23,12 +22,8 @@ const (
 )
 
 type ElectricityMeter interface {
-	Name() string
-	Role() ElectricitySourceRole
-	StartReading(context.Context) ElectricityMeter
-	// WaitForInitialization waits until the electricity meter is fully initialized and returns true or false
-	// whether the meter is capable of reading values.
-	WaitForInitialization() bool
+	EnergyMeter
+	IsElectricityMeter() bool
 	LineIndices() []uint8
 }
 
@@ -217,12 +212,13 @@ func (es *ElectricityState) TotalCurrent() float32 {
 }
 
 func (es *ElectricityState) Phases() uint8 {
-	for x := MaxPhases; x >= MinPhases; x-- {
-		if es.voltage[x-1] != 0 {
-			return x
+	phases := uint8(0)
+	for x := MinPhases - 1; x < MaxPhases; x++ {
+		if es.power[x] != 0 || es.voltage[x] != 0 || es.current[x] != 0 {
+			phases++
 		}
 	}
-	return 0
+	return phases
 }
 
 func (es *ElectricityState) SetValues(other *ElectricityState) {

@@ -3,227 +3,274 @@ package meters
 import (
 	"bufio"
 	"context"
+	"enman/internal/config"
 	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/serial"
+	"fmt"
+	"math"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-type dsmrGridMeter struct {
+type dsmrMeter struct {
+	*energyMeter
+	*electricityMeter
+	*gasMeter
+	*serialMeter
+	runContext                     context.Context
+	cancelFunc                     context.CancelFunc
+	shutdownWaitGroup              sync.WaitGroup
+	electricityState               *domain.ElectricityState
+	electricityUsage               *domain.ElectricityUsage
+	gasUsage                       *domain.GasUsage
+	gasMeterReferenceChannelPrefix string
+	mbusClientValue                *regexp.Regexp
 }
 
-func (d *dsmrGridMeter) probe(meter *electricitySerialMeter, serialPort serial.Port) bool {
+func newDsmrMeter(name string, serialConfig *serial.Config, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
+	enMe := newEnergyMeter(name, domain.RoleGrid)
+	elMe := newElectricityMeter(meterConfig)
+	gaMe := newGasMeter()
+	seMe := newSerialMeter(serialConfig)
+	dsmr := &dsmrMeter{
+		energyMeter:      enMe,
+		electricityMeter: elMe,
+		gasMeter:         gaMe,
+		serialMeter:      seMe,
+		electricityState: domain.NewElectricityState(),
+		electricityUsage: domain.NewElectricityUsage(),
+		gasUsage:         domain.NewGasUsage(),
+	}
+	enMe.meter = seMe
+	seMe.meter = dsmr
+	return dsmr, dsmr.validMeter()
+}
+func (d *dsmrMeter) validMeter() error {
+	serialPort, err := serial.Open(d.serialConfig)
+	if err != nil {
+		return err
+	}
 	reader := bufio.NewReader(serialPort)
-	buf := make([]byte, 2048)
-	_, err := reader.Read(buf)
+	message, err := reader.ReadString('\x21')
 	if err != nil {
-		return false
+		return err
 	}
-	lines := strings.Split(string(buf), string('\n'))
+	lines := strings.Split(message, string('\n'))
+	found := false
 	for _, line := range lines {
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "1-3:0.2.8") {
-			dsmrValue := d.valueFromObisLine(line)
+			dsmrValue := d.float32ValueFromObisLine(line)
 			if dsmrValue != 50 {
-				log.Infof("Detected a DSMR electricity meter with an unsupported version %v at %s. Meter will not be queried for values.", dsmrValue, meter.url)
-				return false
+				_ = serialPort.Close()
+				return fmt.Errorf("detected a DSMR grid meter with an unsupported version %v at %s. Meter will not be queried for values", dsmrValue, d.serialPort)
 			}
-			log.Infof("Detected a DSMR meter at %s.", meter.url)
-			meter.serialPort = serialPort
-			meter.readValues = d.readValues
-			meter.reader = reader
-			return true
+			log.Infof("Detected a DSMR meter at %s.", d.serialConfig.Address)
+			d.serialPort = serialPort
+			d.reader = reader
+			d.model = "DSMR"
+			d.runContext, d.cancelFunc = context.WithCancel(context.Background())
+			d.mbusClientValue, _ = regexp.Compile("\\(.*\\)\\((.*)\\*.*\\)")
+			d.startUpdateLoop()
+			found = true
+		} else if strings.HasPrefix(line, "0-0:96.1.0") {
+			d.serial = d.stringValueFromObisLine(line)
+		} else if strings.HasPrefix(line, "1-0:52.7.0") {
+			if d.phases < 2 {
+				d.phases = 2
+			}
+		} else if strings.HasPrefix(line, "1-0:72.7.0") {
+			if d.phases < 3 {
+				d.phases = 3
+			}
+		} else if strings.HasPrefix(line, "0-1:24.1.0") {
+			mbusDevice := d.stringValueFromObisLine(line)
+			switch mbusDevice {
+			case "003":
+				d.gasMeterReferenceChannelPrefix = "0-1"
+			}
+		} else if strings.HasPrefix(line, "0-2:24.1.0") {
+			mbusDevice := d.stringValueFromObisLine(line)
+			switch mbusDevice {
+			case "003":
+				d.gasMeterReferenceChannelPrefix = "0-2"
+			}
+		} else if strings.HasPrefix(line, "0-3:24.1.0") {
+			mbusDevice := d.stringValueFromObisLine(line)
+			switch mbusDevice {
+			case "003":
+				d.gasMeterReferenceChannelPrefix = "0-3"
+			}
+		} else if strings.HasPrefix(line, "0-4:24.1.0") {
+			mbusDevice := d.stringValueFromObisLine(line)
+			switch mbusDevice {
+			case "003":
+				d.gasMeterReferenceChannelPrefix = "0-4"
+			}
 		}
 	}
-	return false
+	if found {
+		// keep serial port open and return without error
+		return nil
+	}
+	_ = serialPort.Close()
+	return fmt.Errorf("DSMR grid meter not found at %s", d.serialConfig.Address)
 }
 
-func (d *dsmrGridMeter) readValues(meter *electricitySerialMeter, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
-	message, err := meter.reader.ReadString('\x21')
-	if err != nil {
-		return
+func (d *dsmrMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage) {
+	if d.HasStateAttribute() {
+		electricityState.SetValues(d.electricityState)
 	}
-	if meter.phases < 1 {
-		meter.phases = 1
+	if d.HasUsageAttribute() {
+		electricityUsage.SetValues(d.electricityUsage)
 	}
-	totalEnergyConsumed := float64(0)
-	totalEnergyProvided := float64(0)
-	lines := strings.Split(message, "\n")
-	for ix := 0; ix < len(lines); ix++ {
-		trimmedLine := strings.TrimSpace(lines[ix])
-		if meter.HasUsageAttribute() && electricityUsage != nil {
-			if strings.HasPrefix(trimmedLine, "1-0:1.8.1.255") {
-				totalEnergyConsumed += float64(d.valueFromObisLine(trimmedLine) * 1000)
-			} else if strings.HasPrefix(trimmedLine, "1-0:1.8.2.255") {
-				totalEnergyConsumed += float64(d.valueFromObisLine(trimmedLine) * 1000)
-			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.1.255") {
-				totalEnergyProvided += float64(d.valueFromObisLine(trimmedLine) * 1000)
-			} else if strings.HasPrefix(trimmedLine, "1-0:2.8.2.255") {
-				totalEnergyProvided += float64(d.valueFromObisLine(trimmedLine) * 1000)
-			}
-		}
-		if meter.HasStateAttribute() && electricityState != nil {
-			if strings.HasPrefix(trimmedLine, "1-0:32.7.0") {
-				electricityState.SetVoltage(0, d.valueFromObisLine(trimmedLine))
-			} else if strings.HasPrefix(trimmedLine, "1-0:52.7.0") {
-				electricityState.SetVoltage(1, d.valueFromObisLine(trimmedLine))
-			} else if strings.HasPrefix(trimmedLine, "1-0:72.7.0") {
-				electricityState.SetVoltage(2, d.valueFromObisLine(trimmedLine))
-			} else if strings.HasPrefix(trimmedLine, "1-0:31.7.0") {
-				electricityState.SetCurrent(0, d.valueFromObisLine(trimmedLine))
-			} else if strings.HasPrefix(trimmedLine, "1-0:51.7.0") {
-				electricityState.SetCurrent(1, d.valueFromObisLine(trimmedLine))
-			} else if strings.HasPrefix(trimmedLine, "1-0:71.7.0") {
-				electricityState.SetCurrent(2, d.valueFromObisLine(trimmedLine))
-			} else if strings.HasPrefix(trimmedLine, "1-0:21.7.0") {
-				value := d.valueFromObisLine(trimmedLine)
-				if value > 0 {
-					electricityState.SetPower(0, value*1000)
-				}
-			} else if strings.HasPrefix(trimmedLine, "1-0:41.7.0") {
-				value := d.valueFromObisLine(trimmedLine)
-				if value > 0 {
-					electricityState.SetPower(1, value*1000)
-				}
-			} else if strings.HasPrefix(trimmedLine, "1-0:61.7.0") {
-				value := d.valueFromObisLine(trimmedLine)
-				if value > 0 {
-					electricityState.SetPower(2, value*1000)
-				}
-			} else if strings.HasPrefix(trimmedLine, "1-0:22.7.0") {
-				value := d.valueFromObisLine(trimmedLine)
-				if value > 0 {
-					electricityState.SetPower(0, value*-1000)
-				}
-			} else if strings.HasPrefix(trimmedLine, "1-0:42.7.0") {
-				value := d.valueFromObisLine(trimmedLine)
-				if value > 0 {
-					electricityState.SetPower(1, value*-1000)
-				}
-			} else if strings.HasPrefix(trimmedLine, "1-0:62.7.0") {
-				value := d.valueFromObisLine(trimmedLine)
-				if value > 0 {
-					electricityState.SetPower(2, value*-1000)
-				}
-			}
-			if strings.HasPrefix(trimmedLine, "1-0:52.7.0") {
-				if meter.phases < 2 {
-					meter.phases = 2
-				}
-			} else if strings.HasPrefix(trimmedLine, "1-0:72.7.0") {
-				if meter.phases < 3 {
-					meter.phases = 3
-				}
-			}
-		}
-	}
-	if meter.HasUsageAttribute() && electricityUsage != nil {
-		// TODO add KWH per phase, see https://www.netbeheernederland.nl/_upload/Files/Slimme_meter_15_a727fce1f1.pdf
-		electricityUsage.SetTotalEnergyConsumed(totalEnergyConsumed)
-		electricityUsage.SetTotalEnergyProvided(totalEnergyProvided)
+	gasUsage.SetValues(d.gasUsage)
+	json, _ := d.electricityUsage.MarshalJSON()
+	println(string(json))
+}
+
+func (d *dsmrMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
+	if electricityValues != nil {
+		electricityValues.SetMeterPhases(d.phases).
+			SetMeterBrand(d.brand).
+			SetMeterType(d.model).
+			SetMeterSerial(d.serial).
+			SetReadLineIndices(d.lineIndices)
 	}
 }
 
-func (d *dsmrGridMeter) readValues2(meter *electricitySerialMeter, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, ctx context.Context) {
-	reader := bufio.NewReader(meter.serialPort)
-	for {
-		select {
-		case <-ctx.Done():
-			_ = meter.serialPort.Close()
-			return
-		default:
-			message, err := reader.ReadString('\x21')
-			if err != nil {
-				continue
-			}
-			totalEnergyConsumed := float64(0)
-			totalEnergyProvided := float64(0)
-			nrOfPhases := uint8(1)
-			lines := strings.Split(message, "\n")
-			for ix := 0; ix < len(lines); ix++ {
-				trimmedLine := strings.TrimSpace(lines[ix])
-				if strings.HasPrefix(trimmedLine, "1-0:1.8.1.255") {
-					totalEnergyConsumed += float64(d.valueFromObisLine(trimmedLine) * 1000)
-				} else if strings.HasPrefix(trimmedLine, "1-0:1.8.2.255") {
-					totalEnergyConsumed += float64(d.valueFromObisLine(trimmedLine) * 1000)
-				} else if strings.HasPrefix(trimmedLine, "1-0:2.8.1.255") {
-					totalEnergyProvided += float64(d.valueFromObisLine(trimmedLine) * 1000)
-				} else if strings.HasPrefix(trimmedLine, "1-0:2.8.2.255") {
-					totalEnergyProvided += float64(d.valueFromObisLine(trimmedLine) * 1000)
-				} else if strings.HasPrefix(trimmedLine, "1-0:32.7.0") {
-					electricityState.SetVoltage(0, d.valueFromObisLine(trimmedLine))
-				} else if strings.HasPrefix(trimmedLine, "1-0:52.7.0") {
-					if nrOfPhases < 2 {
-						nrOfPhases = 2
-					}
-					electricityState.SetVoltage(1, d.valueFromObisLine(trimmedLine))
-				} else if strings.HasPrefix(trimmedLine, "1-0:72.7.0") {
-					if nrOfPhases < 3 {
-						nrOfPhases = 3
-					}
-					electricityState.SetVoltage(2, d.valueFromObisLine(trimmedLine))
-				} else if strings.HasPrefix(trimmedLine, "1-0:31.7.0") {
-					electricityState.SetCurrent(0, d.valueFromObisLine(trimmedLine))
-				} else if strings.HasPrefix(trimmedLine, "1-0:51.7.0") {
-					electricityState.SetCurrent(1, d.valueFromObisLine(trimmedLine))
-				} else if strings.HasPrefix(trimmedLine, "1-0:71.7.0") {
-					electricityState.SetCurrent(2, d.valueFromObisLine(trimmedLine))
-				} else if strings.HasPrefix(trimmedLine, "1-0:21.7.0") {
-					value := d.valueFromObisLine(trimmedLine)
-					if value > 0 {
-						electricityState.SetPower(0, value*1000)
-					}
-				} else if strings.HasPrefix(trimmedLine, "1-0:41.7.0") {
-					value := d.valueFromObisLine(trimmedLine)
-					if value > 0 {
-						electricityState.SetPower(1, value*1000)
-					}
-				} else if strings.HasPrefix(trimmedLine, "1-0:61.7.0") {
-					value := d.valueFromObisLine(trimmedLine)
-					if value > 0 {
-						electricityState.SetPower(2, value*1000)
-					}
-				} else if strings.HasPrefix(trimmedLine, "1-0:22.7.0") {
-					value := d.valueFromObisLine(trimmedLine)
-					if value > 0 {
-						electricityState.SetPower(0, value*-1000)
-					}
-				} else if strings.HasPrefix(trimmedLine, "1-0:42.7.0") {
-					value := d.valueFromObisLine(trimmedLine)
-					if value > 0 {
-						electricityState.SetPower(1, value*-1000)
-					}
-				} else if strings.HasPrefix(trimmedLine, "1-0:62.7.0") {
-					value := d.valueFromObisLine(trimmedLine)
-					if value > 0 {
-						electricityState.SetPower(2, value*-1000)
-					}
-				}
-			}
-			// TODO add KWH per phase, see https://www.netbeheernederland.nl/_upload/Files/Slimme_meter_15_a727fce1f1.pdf
-			electricityUsage.SetTotalEnergyConsumed(totalEnergyConsumed)
-			electricityUsage.SetTotalEnergyProvided(totalEnergyProvided)
-
-			event := domain.NewElectricityMeterValues().
-				SetName(meter.name).
-				SetRole(meter.role).
-				SetMeterPhases(nrOfPhases).
-				SetElectricityState(electricityState).
-				SetElectricityUsage(electricityUsage)
-			domain.ElectricityMeterReadings.Trigger(event)
-		}
-	}
+func (d *dsmrMeter) shutdown() {
+	log.Infof("Shutting down DSMR meter at %s.", d.serialConfig.Address)
+	d.cancelFunc()
+	d.shutdownWaitGroup.Wait()
 }
 
-func (d *dsmrGridMeter) valueFromObisLine(obisLine string) float32 {
+func (d *dsmrMeter) float32ValueFromObisLine(obisLine string) float32 {
+	return float32(d.float64ValueFromObisLine(obisLine))
+}
+
+func (d *dsmrMeter) float64ValueFromObisLine(obisLine string) float64 {
 	// TODO waarde kan soms unparsable zijn, bijv 1-0:31.7.0(kW)
+	value := d.stringValueFromObisLine(obisLine)
+	float, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0
+	}
+	return math.Ceil(float*1000) / 1000
+}
+
+func (d *dsmrMeter) stringValueFromObisLine(obisLine string) string {
 	value := obisLine[strings.Index(obisLine, "(")+1 : strings.Index(obisLine, ")")]
 	if strings.Index(value, "*") != -1 {
 		value = value[0:strings.Index(value, "*")]
 	}
-	float, err := strconv.ParseFloat(value, 32)
-	if err != nil {
-		return 0
-	}
-	return float32(float)
+	return value
+}
+
+func (d *dsmrMeter) startUpdateLoop() {
+	d.shutdownWaitGroup.Add(1)
+	go func() {
+		defer d.shutdownWaitGroup.Done()
+		for {
+			select {
+			case <-d.runContext.Done():
+				return
+			default:
+				message, err := d.reader.ReadString('\x21')
+				if err != nil {
+					return
+				}
+				if d.phases < 1 {
+					d.phases = 1
+				}
+				totalEnergyConsumed := float64(0)
+				totalEnergyProvided := float64(0)
+				lines := strings.Split(message, "\n")
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if d.HasUsageAttribute() {
+						if strings.HasPrefix(line, "1-0:1.8.1") {
+							totalEnergyConsumed += d.float64ValueFromObisLine(line)
+						} else if strings.HasPrefix(line, "1-0:1.8.2") {
+							totalEnergyConsumed += d.float64ValueFromObisLine(line)
+						} else if strings.HasPrefix(line, "1-0:2.8.1") {
+							totalEnergyProvided += d.float64ValueFromObisLine(line)
+						} else if strings.HasPrefix(line, "1-0:2.8.2") {
+							totalEnergyProvided += d.float64ValueFromObisLine(line)
+						}
+					}
+					if d.HasStateAttribute() {
+						if strings.HasPrefix(line, "1-0:32.7.0") {
+							d.electricityState.SetVoltage(0, d.float32ValueFromObisLine(line))
+						} else if strings.HasPrefix(line, "1-0:52.7.0") {
+							d.electricityState.SetVoltage(1, d.float32ValueFromObisLine(line))
+						} else if strings.HasPrefix(line, "1-0:72.7.0") {
+							d.electricityState.SetVoltage(2, d.float32ValueFromObisLine(line))
+						} else if strings.HasPrefix(line, "1-0:31.7.0") {
+							d.electricityState.SetCurrent(0, d.float32ValueFromObisLine(line))
+						} else if strings.HasPrefix(line, "1-0:51.7.0") {
+							d.electricityState.SetCurrent(1, d.float32ValueFromObisLine(line))
+						} else if strings.HasPrefix(line, "1-0:71.7.0") {
+							d.electricityState.SetCurrent(2, d.float32ValueFromObisLine(line))
+						} else if strings.HasPrefix(line, "1-0:21.7.0") {
+							value := d.float32ValueFromObisLine(line)
+							if value > 0 {
+								d.electricityState.SetPower(0, value*1000)
+							}
+						} else if strings.HasPrefix(line, "1-0:41.7.0") {
+							value := d.float32ValueFromObisLine(line)
+							if value > 0 {
+								d.electricityState.SetPower(1, value*1000)
+							}
+						} else if strings.HasPrefix(line, "1-0:61.7.0") {
+							value := d.float32ValueFromObisLine(line)
+							if value > 0 {
+								d.electricityState.SetPower(2, value*1000)
+							}
+						} else if strings.HasPrefix(line, "1-0:22.7.0") {
+							value := d.float32ValueFromObisLine(line)
+							if value > 0 {
+								d.electricityState.SetPower(0, value*-1000)
+							}
+						} else if strings.HasPrefix(line, "1-0:42.7.0") {
+							value := d.float32ValueFromObisLine(line)
+							if value > 0 {
+								d.electricityState.SetPower(1, value*-1000)
+							}
+						} else if strings.HasPrefix(line, "1-0:62.7.0") {
+							value := d.float32ValueFromObisLine(line)
+							if value > 0 {
+								d.electricityState.SetPower(2, value*-1000)
+							}
+						} else if strings.HasPrefix(line, "1-0:52.7.0") {
+							if d.phases < 2 {
+								d.phases = 2
+							}
+						} else if strings.HasPrefix(line, "1-0:72.7.0") {
+							if d.phases < 3 {
+								d.phases = 3
+							}
+						}
+					}
+					if strings.HasPrefix(line, d.gasMeterReferenceChannelPrefix+":24.2.1") {
+						result := d.mbusClientValue.FindStringSubmatch(line)
+						if result != nil && len(result) == 2 {
+							float, err := strconv.ParseFloat(result[1], 64)
+							if err != nil {
+								continue
+							}
+							d.gasUsage.SetGasConsumed(math.Ceil(float*1000) / 1000)
+						}
+					}
+				}
+				if d.HasUsageAttribute() {
+					d.electricityUsage.SetTotalEnergyConsumed(totalEnergyConsumed)
+					d.electricityUsage.SetTotalEnergyProvided(totalEnergyProvided)
+				}
+			}
+		}
+	}()
 }

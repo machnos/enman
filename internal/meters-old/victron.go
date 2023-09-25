@@ -1,74 +1,47 @@
-package meters
+package meters_old
 
 import (
-	"enman/internal/config"
 	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/modbus"
-	"fmt"
 )
 
-type victronMeter struct {
-	*energyMeter
-	*electricityMeter
-	*modbusMeter
-	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage)
+type victron struct {
+	*genericEnergyMeter
+	*genericElectricityMeter
+	*modbusEnergyMeter
 }
 
-func newVictronMeter(name string, role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
-	enMe := newEnergyMeter(name, role)
-	elMe := newElectricityMeter(meterConfig)
-	moMe := newModbusMeter(modbusClient, meterConfig.ModbusUnitId)
-	vm := &victronMeter{
-		enMe,
-		elMe,
-		moMe,
-		nil,
-	}
-	enMe.meter = moMe
-	moMe.meter = vm
-	return vm, vm.validMeter()
-}
-
-func (v *victronMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
-	if electricityValues != nil {
-		electricityValues.
-			SetMeterPhases(v.phases).
-			SetMeterBrand(v.brand).
-			SetMeterType(v.model).
-			SetMeterSerial(v.serial).
-			SetReadLineIndices(v.lineIndices)
+func newVictron(genEnMe *genericEnergyMeter, genElMe *genericElectricityMeter, moElMe *modbusEnergyMeter) *victron {
+	return &victron{
+		genEnMe, genElMe, moElMe,
 	}
 }
 
-func (v *victronMeter) readValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
-	v.readModbusValues(state, usage)
-}
-
-func (v *victronMeter) shutdown() {
-}
-
-func (v *victronMeter) validMeter() error {
-	switch v.role {
+func (v *victron) probe(modbusClient *modbus.ModbusClient, meterRole domain.EnergySourceRole) bool {
+	switch meterRole {
 	case domain.RoleGrid:
-		v.model = "Victron Grid"
-		v.phases = v.probePhases(v.modbusUnitId, v.modbusClient, []uint16{2616, 2618, 2620})
-		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 2609)
+		v.meterType = "Victron Grid"
+		v.phases = v.probePhases(v.modbusUnitId, modbusClient, []uint16{2616, 2618, 2620})
+		v.meterSerial = v.probeSerial(v.modbusUnitId, modbusClient, 2609)
 		v.readModbusValues = v.readGridValues
 	case domain.RolePv:
-		v.model = "Victron PV"
-		v.phases = v.probePhases(v.modbusUnitId, v.modbusClient, []uint16{1027, 1031, 1035})
-		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 1039)
+		v.meterType = "Victron PV"
+		v.phases = v.probePhases(v.modbusUnitId, modbusClient, []uint16{1027, 1031, 1035})
+		// address 1309 gives a weird error in v3.01 of victron. A bug should be raised, because victron thinks it needs to be a battery instead of PV.
+		//v.meterSerial = v.probeSerial(v.modbusUnitId, modbusClient, 1309)
 		v.readModbusValues = v.readPvValues
 	default:
-		return fmt.Errorf("detected an unsupported Victron meter (%v). Meter will not be queried for values", v.role)
+		log.Warningf("Detected an unsupported Victron meter (%v). Meter will not be queried for values.", meterRole)
+		return false
 	}
-	v.brand = "Victron"
-	log.Infof("Detected a %d phase %s with unitId %d at %s.", v.phases, v.model, v.modbusUnitId, v.modbusClient.URL())
-	return nil
+	v.modbusClient = modbusClient
+	v.meterBrand = "Victron"
+	log.Infof("Detected a %d phase %s with unitId %d at %s.", v.phases, v.meterType, v.modbusUnitId, v.modbusClient.URL())
+	return true
 }
 
-func (v *victronMeter) probePhases(modbusUnitId uint8, modbusClient *modbus.ModbusClient, addresses []uint16) uint8 {
+func (v *victron) probePhases(modbusUnitId uint8, modbusClient *modbus.ModbusClient, addresses []uint16) uint8 {
 	phases := uint8(0)
 	for _, address := range addresses {
 		values, _ := modbusClient.ReadRegisters(modbusUnitId, address, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
@@ -80,7 +53,7 @@ func (v *victronMeter) probePhases(modbusUnitId uint8, modbusClient *modbus.Modb
 	return phases
 }
 
-func (v *victronMeter) probeSerial(modbusUnitId uint8, modbusClient *modbus.ModbusClient, address uint16) string {
+func (v *victron) probeSerial(modbusUnitId uint8, modbusClient *modbus.ModbusClient, address uint16) string {
 	bytes, err := modbusClient.ReadBytes(modbusUnitId, address, 14, modbus.INPUT_REGISTER)
 	if err != nil {
 		log.Warningf("Unable to read Victron serial: %s", err.Error())
@@ -89,7 +62,7 @@ func (v *victronMeter) probeSerial(modbusUnitId uint8, modbusClient *modbus.Modb
 	return string(bytes)
 }
 
-func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
+func (v *victron) readGridValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
 	modbusClient := v.modbusClient
 	if v.HasStateAttribute() && electricityState != nil {
 		uint16s, _ := modbusClient.ReadRegisters(v.modbusUnitId, 2600, 3, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
@@ -122,7 +95,7 @@ func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState,
 	}
 }
 
-func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
+func (v *victron) readPvValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
 	modbusClient := v.modbusClient
 	if v.HasStateAttribute() && electricityState != nil {
 		uint16s, _ := modbusClient.ReadRegisters(v.modbusUnitId, 1027, 11, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
@@ -142,4 +115,13 @@ func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, e
 			electricityUsage.SetEnergyConsumed(v.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, v.lineIndices[ix], 100, 0)))
 		}
 	}
+}
+
+func (v *victron) enrichMeterValues(electricityMeterValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
+	electricityMeterValues.
+		SetRole(v.role).
+		SetMeterPhases(v.phases).
+		SetMeterSerial(v.meterSerial).
+		SetMeterType(v.meterType).
+		SetMeterBrand(v.meterBrand)
 }

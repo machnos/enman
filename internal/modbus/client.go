@@ -322,7 +322,22 @@ func (mc *ModbusClient) Open() (err error) {
 }
 
 func (mc *ModbusClient) URL() string {
-	return mc.conf.URL
+	var prefix string
+	switch mc.transportType {
+	case modbusRTU:
+		prefix = "rtu://"
+	case modbusRTUOverTCP:
+		prefix = "rtuovertcp://"
+	case modbusRTUOverUDP:
+		prefix = "rtuoverudp://"
+	case modbusTCP:
+		prefix = "tcp://"
+	case modbusTCPOverTLS:
+		prefix = "tcp+tls://"
+	case modbusTCPOverUDP:
+		prefix = "udp://"
+	}
+	return prefix + mc.conf.URL
 }
 
 func (mc *ModbusClient) Speed() uint {
@@ -754,7 +769,7 @@ func (mc *ModbusClient) WriteCoils(unitId uint8, addr uint16, values []bool) (er
 }
 
 // Writes a single 16-bit register (function code 06).
-func (mc *ModbusClient) WriteRegister(unitId uint8, addr uint16, value uint16) (err error) {
+func (mc *ModbusClient) WriteRegister(unitId uint8, addr uint16, value uint16, endianness Endianness) (err error) {
 	var req *pdu
 	var res *pdu
 
@@ -768,7 +783,7 @@ func (mc *ModbusClient) WriteRegister(unitId uint8, addr uint16, value uint16) (
 	}
 
 	// register address
-	req.payload = uint16ToBytes(BIG_ENDIAN, addr)
+	req.payload = uint16ToBytes(endianness, addr)
 	// register value
 	req.payload = append(req.payload, uint16ToBytes(mc.endianness, value)...)
 

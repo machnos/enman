@@ -31,24 +31,21 @@ const (
 	bucketElectricityFieldConsumptionCosts       = fieldPrefixConsumption + fieldSuffixCosts
 	bucketElectricityFieldFeedbackPricePerKwh    = fieldPrefixFeedback + fieldSuffixPricePerKwh
 	bucketElectricityFieldFeedbackCosts          = fieldPrefixFeedback + fieldSuffixCosts
-	bucketElectricityTagName                     = "name"
-	bucketElectricityTagRole                     = "role"
 	measurementState                             = "state"
-	measurementUsage                             = "usage"
 	measurementCosts                             = "costs"
 )
 
 func (i *influxRepository) ElectricitySourceNames(from time.Time, till time.Time) ([]string, error) {
-	builder := NewQueryBuilder(NewSchemaTagValuesQuery(bucketElectricity, bucketElectricityTagName).SetFrom(from).SetTill(till))
+	builder := NewQueryBuilder(NewSchemaTagValuesQuery(bucketElectricity, tagName).SetFrom(from).SetTill(till))
 	result, err := i.queryApi.Query(context.Background(), builder.Build())
 	if err != nil {
 		return nil, err
 	}
-	var roles []string
+	var names []string
 	for result.Next() {
-		roles = append(roles, fmt.Sprintf("%v", result.Record().Value()))
+		names = append(names, fmt.Sprintf("%v", result.Record().Value()))
 	}
-	return roles, nil
+	return names, nil
 }
 
 func (i *influxRepository) ElectricityUsages(
@@ -61,7 +58,7 @@ func (i *influxRepository) ElectricityUsages(
 	builder := NewQueryBuilder(NewBucketQuerySource(bucketElectricity)).Append(NewRangeStatement(from, till)).
 		Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementUsage)))
 	if name != "" {
-		builder.Append(NewFilterStatement(NewFilterFunction(bucketElectricityTagName, Equals, name)))
+		builder.Append(NewFilterStatement(NewFilterFunction(tagName, Equals, name)))
 	}
 	builder.Append(i.toAggregateWindowStatement(aggregate)).
 		Append(NewPivotStatement("_field", "_time", "_value"))
@@ -80,7 +77,7 @@ func (i *influxRepository) ElectricityUsages(
 	return energyUsages, nil
 }
 
-func (i *influxRepository) ElectricityUsageAtTime(moment time.Time, sourceName string, role domain.ElectricitySourceRole, timeMatchType domain.MatchType) (*domain.ElectricityUsageRecord, error) {
+func (i *influxRepository) ElectricityUsageAtTime(moment time.Time, sourceName string, role domain.EnergySourceRole, timeMatchType domain.MatchType) (*domain.ElectricityUsageRecord, error) {
 	builder := NewQueryBuilder(NewBucketQuerySource(bucketElectricity))
 	if domain.LessOrEqual == timeMatchType {
 		// Stop time is excluded, so we need to add the minimum amount of time.
@@ -92,10 +89,10 @@ func (i *influxRepository) ElectricityUsageAtTime(moment time.Time, sourceName s
 	}
 	builder.Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementUsage)))
 	if sourceName != "" {
-		builder.Append(NewFilterStatement(NewFilterFunction(bucketElectricityTagName, Equals, sourceName)))
+		builder.Append(NewFilterStatement(NewFilterFunction(tagName, Equals, sourceName)))
 	}
 	if role != "" {
-		builder.Append(NewFilterStatement(NewFilterFunction(bucketElectricityTagRole, Equals, string(role))))
+		builder.Append(NewFilterStatement(NewFilterFunction(tagRole, Equals, string(role))))
 	}
 	if domain.LessOrEqual == timeMatchType {
 		builder.Append(NewSortStatement("_time").SetDescending())
@@ -128,7 +125,7 @@ func (i *influxRepository) ElectricityStates(
 	builder := NewQueryBuilder(NewBucketQuerySource(bucketElectricity)).Append(NewRangeStatement(from, till)).
 		Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementState)))
 	if name != "" {
-		builder.Append(NewFilterStatement(NewFilterFunction(bucketElectricityTagName, Equals, name)))
+		builder.Append(NewFilterStatement(NewFilterFunction(tagName, Equals, name)))
 	}
 	builder.Append(i.toAggregateWindowStatement(aggregate)).
 		Append(NewPivotStatement("_field", "_time", "_value"))
@@ -141,8 +138,8 @@ func (i *influxRepository) ElectricityStates(
 	for result.Next() {
 		state := &domain.ElectricityStateRecord{
 			Time:             result.Record().Time(),
-			Name:             result.Record().ValueByKey(bucketElectricityTagName).(string),
-			Role:             result.Record().ValueByKey(bucketElectricityTagRole).(string),
+			Name:             result.Record().ValueByKey(tagName).(string),
+			Role:             result.Record().ValueByKey(tagRole).(string),
 			ElectricityState: domain.NewElectricityState(),
 		}
 		for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
@@ -176,7 +173,7 @@ func (i *influxRepository) ElectricityCosts(
 	builder := NewQueryBuilder(NewBucketQuerySource(bucketElectricity)).Append(NewRangeStatement(from, till)).
 		Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementCosts)))
 	if name != "" {
-		builder.Append(NewFilterStatement(NewFilterFunction(bucketElectricityTagName, Equals, name)))
+		builder.Append(NewFilterStatement(NewFilterFunction(tagName, Equals, name)))
 	}
 	// Shift the records by -1m because the stored time is the end time of the cost calculation.
 	// For example a time of 14:00 means the energy cost between 13:00-14:00. By setting the time to 13:59 it will be
@@ -193,7 +190,7 @@ func (i *influxRepository) ElectricityCosts(
 	for result.Next() {
 		cost := &domain.ElectricityCostRecord{
 			Time:                   result.Record().Time(),
-			Name:                   result.Record().ValueByKey(bucketElectricityTagName).(string),
+			Name:                   result.Record().ValueByKey(tagName).(string),
 			ConsumptionCosts:       float32(result.Record().ValueByKey(bucketElectricityFieldConsumptionCosts).(float64)),
 			ConsumptionPricePerKwh: float32(result.Record().ValueByKey(bucketElectricityFieldConsumptionPricePerKwh).(float64)),
 			ConsumptionEnergy:      float32(result.Record().ValueByKey(bucketElectricityFieldTotalEnergyConsumed).(float64)),
@@ -212,8 +209,8 @@ func (i *influxRepository) ElectricityCosts(
 func (i *influxRepository) NewElectricityUsageFromRecord(record *query.FluxRecord) *domain.ElectricityUsageRecord {
 	electricityUsage := &domain.ElectricityUsageRecord{
 		Time:             record.Time(),
-		Name:             record.ValueByKey(bucketElectricityTagName).(string),
-		Role:             record.ValueByKey(bucketElectricityTagRole).(string),
+		Name:             record.ValueByKey(tagName).(string),
+		Role:             record.ValueByKey(tagRole).(string),
 		ElectricityUsage: domain.NewElectricityUsage(),
 	}
 	for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
@@ -248,8 +245,8 @@ func (emvcl *ElectricityMeterValueChangeListener) HandleEvent(values *domain.Ele
 		return
 	}
 	tags := map[string]string{
-		bucketElectricityTagName: values.Name(),
-		bucketElectricityTagRole: string(values.Role()),
+		tagName: values.Name(),
+		tagRole: string(values.Role()),
 	}
 	if values.ElectricityState() != nil {
 		fields := map[string]interface{}{}
@@ -296,8 +293,8 @@ type ElectricityCostsValueChangeListener struct {
 
 func (ecvcl *ElectricityCostsValueChangeListener) HandleEvent(values *domain.ElectricityCostsValues) {
 	tags := map[string]string{
-		bucketElectricityTagName: values.EnergyProviderName(),
-		bucketElectricityTagRole: string(domain.RoleGrid),
+		tagName: values.EnergyProviderName(),
+		tagRole: string(domain.RoleGrid),
 	}
 	fields := map[string]interface{}{
 		bucketElectricityFieldTotalEnergyConsumed:    values.ConsumptionEnergy(),

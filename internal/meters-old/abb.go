@@ -1,80 +1,49 @@
-package meters
+package meters_old
 
 import (
-	"enman/internal/config"
 	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/modbus"
-	"fmt"
 )
 
-type abbMeter struct {
-	*energyMeter
-	*electricityMeter
-	*modbusMeter
-	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage)
+type abb struct {
+	*genericEnergyMeter
+	*genericElectricityMeter
+	*modbusEnergyMeter
 }
 
-func newAbbMeter(name string, role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
-	enMe := newEnergyMeter(name, role)
-	elMe := newElectricityMeter(meterConfig)
-	moMe := newModbusMeter(modbusClient, meterConfig.ModbusUnitId)
-	abb := &abbMeter{
-		enMe,
-		elMe,
-		moMe,
-		nil,
-	}
-	enMe.meter = moMe
-	moMe.meter = abb
-	return abb, abb.validMeter()
-}
-
-func (a *abbMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
-	if electricityValues != nil {
-		electricityValues.
-			SetMeterPhases(a.phases).
-			SetMeterBrand(a.brand).
-			SetMeterType(a.model).
-			SetMeterSerial(a.serial).
-			SetReadLineIndices(a.lineIndices)
+func newAbb(genEnMe *genericEnergyMeter, genElMe *genericElectricityMeter, moElMe *modbusEnergyMeter) *abb {
+	return &abb{
+		genEnMe,
+		genElMe,
+		moElMe,
 	}
 }
 
-func (a *abbMeter) readValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
-	a.readModbusValues(state, usage)
-}
-
-func (a *abbMeter) shutdown() {
-}
-
-func (a *abbMeter) validMeter() error {
-	meterType, err := a.modbusClient.ReadUint32(a.modbusUnitId, 0x8960, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.HOLDING_REGISTER)
-	if err != nil {
-		return err
-	}
+func (a *abb) probe(modbusClient *modbus.ModbusClient, meterType uint32) bool {
 	switch meterType {
 	case 0x42323120:
-		a.model = "B21"
+		a.meterType = "B21"
 		a.phases = 1
 		a.readModbusValues = a.readSinglePhaseValues
 	case 0x42323320:
-		a.model = "B23"
+		a.meterType = "B23"
 		a.phases = 3
 		a.readModbusValues = a.readThreePhaseValues
 	case 0x42323420:
-		a.model = "B24"
+		a.meterType = "B24"
 		a.phases = 3
 		a.readModbusValues = a.readThreePhaseValues
 	default:
-		return fmt.Errorf("detected an unsupported ABB electricity meter (%d). Meter will not be queried for values", meterType)
+		log.Warningf("Detected an unsupported ABB electricity meter (%d). Meter will not be queried for values.", meterType)
+		return false
 	}
-	a.brand = "ABB"
-	log.Infof("Detected a %d phase %s %s (identification code %d) with unitId %d at %s.", a.phases, a.brand, a.model, meterType, a.modbusUnitId, a.modbusClient.URL())
-	return nil
+	a.modbusClient = modbusClient
+	log.Infof("Detected a %d phase %s %s (identification code %d) with unitId %d at %s.", a.phases, a.meterBrand, a.meterType, meterType, a.modbusUnitId, a.modbusClient.URL())
+	return true
 }
 
-func (a *abbMeter) readSinglePhaseValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
+func (a *abb) readSinglePhaseValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
 	modbusClient := a.modbusClient
 	if a.HasStateAttribute() && electricityState != nil {
 		uint32s, _ := modbusClient.ReadUint32s(a.modbusUnitId, 0x5b00, 1, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.HOLDING_REGISTER)
@@ -91,7 +60,7 @@ func (a *abbMeter) readSinglePhaseValues(electricityState *domain.ElectricitySta
 	}
 }
 
-func (a *abbMeter) readThreePhaseValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
+func (a *abb) readThreePhaseValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
 	modbusClient := a.modbusClient
 	if a.HasStateAttribute() && electricityState != nil {
 		uint32s, _ := modbusClient.ReadUint32s(a.modbusUnitId, 0x5b00, 3, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.HOLDING_REGISTER)
@@ -123,4 +92,13 @@ func (a *abbMeter) readThreePhaseValues(electricityState *domain.ElectricityStat
 			electricityUsage.SetEnergyProvided(a.lineIndices[ix], modbusClient.ValueFromUint64sResultArray(uint64s, a.lineIndices[ix], 100, 0))
 		}
 	}
+}
+
+func (a *abb) enrichMeterValues(electricityMeterValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
+	electricityMeterValues.
+		SetRole(a.role).
+		SetMeterPhases(a.phases).
+		SetMeterSerial(a.meterSerial).
+		SetMeterType(a.meterType).
+		SetMeterBrand(a.meterBrand)
 }

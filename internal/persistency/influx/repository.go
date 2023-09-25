@@ -22,8 +22,17 @@ const (
 	bucketElectricityHour          = bucketElectricity + "_hour"
 	bucketElectricityDay           = bucketElectricity + "_day"
 	bucketElectricityMonth         = bucketElectricity + "_month"
+	bucketGasHour                  = bucketGas + "_hour"
+	bucketGasDay                   = bucketGas + "_day"
+	bucketGasMonth                 = bucketGas + "_month"
+	bucketWaterHour                = bucketWater + "_hour"
+	bucketWaterDay                 = bucketWater + "_day"
+	bucketWaterMonth               = bucketWater + "_month"
 	queryTimeout                   = 30
 	electricityAggregationTemplate = "influx_task_electricity_aggregation.tmpl"
+	measurementUsage               = "usage"
+	tagName                        = "name"
+	tagRole                        = "role"
 )
 
 //go:embed influx_task_electricity_aggregation.tmpl
@@ -97,6 +106,39 @@ func (i *influxRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
+	err = i.createBucketWhenNotPresent(org, bucketGas, int64((time.Hour * 24 * 90).Seconds()))
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketGasHour, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketGasDay, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketGasMonth, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketWater, int64((time.Hour * 24 * 90).Seconds()))
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketWaterHour, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketWaterDay, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketWaterMonth, 0)
+	if err != nil {
+		return err
+	}
+	// TODO migrate tasks logic to application (also for gas & water)
 	err = i.createTaskWhenNotPresent(org,
 		"Electricity per hour",
 		"1h",
@@ -138,6 +180,8 @@ func (i *influxRepository) Initialize() error {
 	}
 	enmandomain.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: i}, nil)
 	enmandomain.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: i}, nil)
+	enmandomain.GasMeterReadings.Register(&GasMeterValueChangeListener{repo: i}, nil)
+	enmandomain.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: i}, nil)
 	return nil
 }
 

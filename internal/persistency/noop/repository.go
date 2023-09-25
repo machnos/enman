@@ -15,7 +15,7 @@ func (r *Repository) ElectricitySourceNames(time.Time, time.Time) ([]string, err
 func (r *Repository) ElectricityUsages(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.ElectricityUsageRecord, error) {
 	return nil, nil
 }
-func (r *Repository) ElectricityUsageAtTime(time.Time, string, domain.ElectricitySourceRole, domain.MatchType) (*domain.ElectricityUsageRecord, error) {
+func (r *Repository) ElectricityUsageAtTime(time.Time, string, domain.EnergySourceRole, domain.MatchType) (*domain.ElectricityUsageRecord, error) {
 	return nil, nil
 }
 func (r *Repository) ElectricityStates(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.ElectricityStateRecord, error) {
@@ -34,6 +34,24 @@ func (r *Repository) EnergyPriceAtTime(time.Time, string, domain.MatchType) (*do
 	return nil, nil
 }
 func (r *Repository) StoreEnergyPrice(*domain.EnergyPrice) {
+}
+func (r *Repository) GasSourceNames(time.Time, time.Time) ([]string, error) {
+	return nil, nil
+}
+func (r *Repository) GasUsages(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.GasUsageRecord, error) {
+	return nil, nil
+}
+func (r *Repository) GasUsageAtTime(time.Time, string, domain.EnergySourceRole, domain.MatchType) (*domain.GasUsageRecord, error) {
+	return nil, nil
+}
+func (r *Repository) WaterSourceNames(time.Time, time.Time) ([]string, error) {
+	return nil, nil
+}
+func (r *Repository) WaterUsages(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.WaterUsageRecord, error) {
+	return nil, nil
+}
+func (r *Repository) WaterUsageAtTime(time.Time, string, domain.EnergySourceRole, domain.MatchType) (*domain.WaterUsageRecord, error) {
+	return nil, nil
 }
 func (r *Repository) Close() {
 }

@@ -32,7 +32,7 @@ const (
 type Repository interface {
 	ElectricitySourceNames(from time.Time, till time.Time) ([]string, error)
 	ElectricityUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*ElectricityUsageRecord, error)
-	ElectricityUsageAtTime(moment time.Time, sourceName string, role ElectricitySourceRole, timeMatchType MatchType) (*ElectricityUsageRecord, error)
+	ElectricityUsageAtTime(moment time.Time, sourceName string, role EnergySourceRole, timeMatchType MatchType) (*ElectricityUsageRecord, error)
 	ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*ElectricityStateRecord, error)
 	ElectricityCosts(from time.Time, till time.Time, providerName string, aggregate *AggregateConfiguration) ([]*ElectricityCostRecord, error)
 
@@ -40,6 +40,14 @@ type Repository interface {
 	EnergyPrices(from time.Time, till time.Time, providerName string) ([]*EnergyPrice, error)
 	EnergyPriceAtTime(moment time.Time, providerName string, timeMatchType MatchType) (*EnergyPrice, error)
 	StoreEnergyPrice(price *EnergyPrice)
+
+	GasSourceNames(from time.Time, till time.Time) ([]string, error)
+	GasUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*GasUsageRecord, error)
+	GasUsageAtTime(moment time.Time, sourceName string, role EnergySourceRole, timeMatchType MatchType) (*GasUsageRecord, error)
+
+	WaterSourceNames(from time.Time, till time.Time) ([]string, error)
+	WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*WaterUsageRecord, error)
+	WaterUsageAtTime(moment time.Time, sourceName string, role EnergySourceRole, timeMatchType MatchType) (*WaterUsageRecord, error)
 
 	Initialize() error
 	Close()
@@ -167,6 +175,20 @@ type ElectricityStateRecord struct {
 	Name string
 	Role string
 	*ElectricityState
+}
+
+type GasUsageRecord struct {
+	Time time.Time
+	Name string
+	Role string
+	*GasUsage
+}
+
+type WaterUsageRecord struct {
+	Time time.Time
+	Name string
+	Role string
+	*WaterUsage
 }
 
 type ElectricityCostRecord struct {

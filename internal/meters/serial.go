@@ -2,112 +2,75 @@ package meters
 
 import (
 	"bufio"
-	"context"
+	"enman/internal/config"
 	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/serial"
-	"sync"
 	"time"
 )
 
-type electricitySerialMeter struct {
-	genericElectricityMeter
-	url            string
-	probeWaitGroup sync.WaitGroup
-	serialPort     serial.Port
-	readValues     func(*electricitySerialMeter, *domain.ElectricityState, *domain.ElectricityUsage)
-	reader         *bufio.Reader
+type serialMeter struct {
+	serialConfig *serial.Config
+	serialPort   serial.Port
+	reader       *bufio.Reader
+	updInterval  time.Duration
+	meter        implementingEnergyMeter
 }
 
-func NewElectricitySerialMeter(name string, role domain.ElectricitySourceRole, brand string, speed uint16, url string, lineIndices []uint8, attributes string) domain.ElectricityMeter {
-	esm := &electricitySerialMeter{
-		genericElectricityMeter: genericElectricityMeter{
-			name:        name,
-			role:        role,
-			lineIndices: lineIndices,
-			attributes:  attributes,
-		},
-		url: url,
+func newSerialMeter(serialConfig *serial.Config) *serialMeter {
+	return &serialMeter{
+		serialConfig: serialConfig,
+		updInterval:  500 * time.Millisecond,
 	}
-	probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
-	if speed != 0 {
-		probeBaudRates = []uint{uint(speed)}
-	}
-
-	esm.probeWaitGroup.Add(1)
-	go esm.probeMeter(probeBaudRates, brand)
-	return esm
 }
 
-func (esm *electricitySerialMeter) WaitForInitialization() bool {
-	esm.probeWaitGroup.Wait()
-	return esm.serialPort != nil
+func (sm *serialMeter) updateInterval() time.Duration {
+	return sm.updInterval
 }
 
-func (esm *electricitySerialMeter) StartReading(ctx context.Context) domain.ElectricityMeter {
-	if !esm.WaitForInitialization() {
-		log.Warningf("Unable to read values from electricity meter %s in role %v as it is an unknown device", esm.name, esm.role)
-		return esm
-	}
-	state := domain.NewElectricityState()
-	usage := domain.NewElectricityUsage()
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				esm.shutdown()
-				return
-			default:
-				esm.readValues(esm, state, usage)
-				event := domain.NewElectricityMeterValues().
-					SetName(esm.Name()).
-					SetRole(esm.Role()).
-					SetMeterPhases(esm.Phases()).
-					SetElectricityState(state).
-					SetElectricityUsage(usage)
-				domain.ElectricityMeterReadings.Trigger(event)
-			}
-		}
-	}()
-	return esm
+func (sm *serialMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, waterUsage *domain.WaterUsage) {
+	sm.meter.readValues(electricityState, electricityUsage, gasUsage, waterUsage)
 }
 
-func (esm *electricitySerialMeter) probeMeter(baudRates []uint, brand string) bool {
-	defer esm.probeWaitGroup.Done()
-	for _, rate := range baudRates {
-		serialPort, err := serial.Open(&serial.Config{
-			Address:  esm.url,
-			BaudRate: int(rate),
-			Timeout:  time.Millisecond * 500,
-			DataBits: 8,
-			Parity:   "N",
-			StopBits: 1,
-		})
-		if err != nil {
-			return false
-		}
-		if brand == "DSMR" || brand == "" {
-			if log.InfoEnabled() {
-				log.Infof("Probing for DSMR meter with baud rate %d at %s", rate, esm.url)
-			}
-			d := &dsmrGridMeter{}
-			if d.probe(esm, serialPort) {
-				return true
-			}
-		}
-		_ = serialPort.Close()
-	}
-	return false
-}
-
-func (esm *electricitySerialMeter) shutdown() {
-	if esm.serialPort != nil {
-		log.Infof("Stop reading values from electricity meter %s in role %v", esm.name, esm.role)
-		err := esm.serialPort.Close()
+func (sm *serialMeter) shutdown() {
+	sm.meter.shutdown()
+	if sm.serialPort != nil {
+		err := sm.serialPort.Close()
 		if err != nil && log.DebugEnabled() {
 			log.Debugf("Unable to close serial port: %v", err)
 		}
-		esm.serialPort = nil
+		sm.serialPort = nil
 	}
+}
+
+func (sm *serialMeter) enrichEvents(electricityMeterValues *domain.ElectricityMeterValues, gasMeterValues *domain.GasMeterValues, waterMeterValues *domain.WaterMeterValues) {
+	sm.meter.enrichEvents(electricityMeterValues, gasMeterValues, waterMeterValues)
+}
+
+func probeSerialMeter(name string, _ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+	probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
+	if meterConfig.Speed != 0 {
+		probeBaudRates = []uint{uint(meterConfig.Speed)}
+	}
+	for _, rate := range probeBaudRates {
+		serialConfig := &serial.Config{
+			Address:  meterConfig.ConnectURL,
+			BaudRate: int(rate),
+			Timeout:  time.Second * 5,
+			DataBits: 8,
+			Parity:   "N",
+			StopBits: 1,
+		}
+		if meterConfig.Brand == "DSMR" || meterConfig.Brand == "" {
+			if log.InfoEnabled() {
+				log.Infof("Probing for DSMR meter with baud rate %d at %s", rate, meterConfig.ConnectURL)
+			}
+			meter, err := newDsmrMeter(name, serialConfig, meterConfig)
+			if err == nil {
+				return meter
+			}
+			log.Infof("Probe failed for DSMR meter: %v", err)
+		}
+	}
+	return nil
 }

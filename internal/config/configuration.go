@@ -22,24 +22,24 @@ type Grid struct {
 	Voltage              uint16                `json:"voltage"`
 	MaxCurrent           float32               `json:"max_current" validate:"gte=0"`
 	Phases               uint8                 `json:"phases"`
-	Meters               []*ElectricityMeter   `json:"meters" validate:"dive"`
+	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }
 
 type Pv struct {
 	Name                 string                `json:"name" validate:"required"`
-	Meters               []*ElectricityMeter   `json:"meters" validate:"dive"`
+	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }
 
-type ElectricityMeter struct {
-	ConnectURL   string  `json:"connect_url"`
-	Type         string  `json:"type" validate:"required,oneof=modbus serial"`
-	Brand        string  `json:"brand" validate:"oneof='ABB' 'Carlo Gavazzi' 'DSMR' 'Victron' ''"`
-	ModbusUnitId uint8   `json:"modbus_unit_id" validate:"required_if=Type modbus"`
-	Speed        uint16  `json:"speed"`
-	LineIndices  []uint8 `json:"line_indices" validate:"required"`
-	Attributes   string  `json:"attributes" validate:"oneof='state' 'usage' ''"`
+type EnergyMeter struct {
+	ConnectURL   string   `json:"connect_url"`
+	Type         string   `json:"type" validate:"required,oneof=modbus serial"`
+	Brand        string   `json:"brand" validate:"oneof='ABB' 'Carlo Gavazzi' 'DSMR' 'Victron' ''"`
+	ModbusUnitId uint8    `json:"modbus_unit_id" validate:"required_if=Type modbus"`
+	Speed        uint32   `json:"speed"`
+	LineIndices  []uint8  `json:"line_indices" validate:"required,gte=1,lte=3"`
+	Attributes   []string `json:"attributes" validate:"dive,oneof='state' 'usage' ''"`
 }
 
 type ModbusMeterSimulator struct {

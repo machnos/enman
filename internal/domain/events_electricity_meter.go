@@ -16,7 +16,7 @@ type ElectricityMeterValueChangeListener interface {
 type ElectricityMeterValues struct {
 	eventTime        time.Time
 	name             string
-	role             ElectricitySourceRole
+	role             EnergySourceRole
 	meterBrand       string
 	meterType        string
 	meterSerial      string
@@ -45,12 +45,12 @@ func (emv *ElectricityMeterValues) Name() string {
 	return emv.name
 }
 
-func (emv *ElectricityMeterValues) SetRole(role ElectricitySourceRole) *ElectricityMeterValues {
+func (emv *ElectricityMeterValues) SetRole(role EnergySourceRole) *ElectricityMeterValues {
 	emv.role = role
 	return emv
 }
 
-func (emv *ElectricityMeterValues) Role() ElectricitySourceRole {
+func (emv *ElectricityMeterValues) Role() EnergySourceRole {
 	return emv.role
 }
 
