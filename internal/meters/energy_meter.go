@@ -109,9 +109,8 @@ type implementingEnergyMeter interface {
 }
 
 func ProbeEnergyMeter(name string, role domain.EnergySourceRole, meterConfigs []*config.EnergyMeter) domain.EnergyMeter {
-	// TODO implement
 	if len(meterConfigs) > 1 {
-
+		// TODO implement compound energy meters
 	}
 	return probeEnergyMeter(name, role, meterConfigs[0])
 }

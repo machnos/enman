@@ -12,6 +12,7 @@ type Configuration struct {
 	Http          *Http            `json:"http"`
 	Grid          *Grid            `json:"grid"`
 	Pvs           []*Pv            `json:"pvs" validate:"dive"`
+	AcLoads       []*AcLoad        `json:"ac_loads" validate:"dive"`
 	Persistency   *Persistency     `json:"persistency"`
 	ModbusServers []*ModbusServers `json:"modbus_servers" validate:"dive"`
 	Prices        *Prices          `json:"prices"`
@@ -28,6 +29,13 @@ type Grid struct {
 
 type Pv struct {
 	Name                 string                `json:"name" validate:"required"`
+	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
+	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
+}
+
+type AcLoad struct {
+	Name                 string                `json:"name" validate:"required"`
+	Role                 string                `json:"role" validate:"required,oneof=EvCharger"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }

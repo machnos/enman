@@ -17,6 +17,7 @@ type System struct {
 	location *time.Location
 	grid     *Grid
 	pvs      []*Pv
+	acLoads  []*AcLoad
 }
 
 func NewSystem(location *time.Location) *System {
@@ -69,6 +70,24 @@ func (s *System) AddPv(name string) *System {
 		return pv.name == values.Name() && RolePv == values.Role()
 	})
 	s.pvs = append(s.pvs, pv)
+	return s
+}
+
+func (s *System) AcLoads() []*AcLoad {
+	return s.acLoads
+}
+
+func (s *System) AddAcLoad(name string, role EnergySourceRole) *System {
+	acLoad := &AcLoad{
+		name:             name,
+		role:             role,
+		electricityState: NewElectricityState(),
+		electricityUsage: NewElectricityUsage(),
+	}
+	ElectricityMeterReadings.Register(&AcLoadMeterListener{acLoad: acLoad}, func(values *ElectricityMeterValues) bool {
+		return acLoad.name == values.Name() && acLoad.Role() == values.Role()
+	})
+	s.acLoads = append(s.acLoads, acLoad)
 	return s
 }
 
@@ -177,5 +196,39 @@ func (pvml *PvMeterListener) HandleEvent(values *ElectricityMeterValues) {
 	pvml.pv.electricityState.SetValues(values.ElectricityState())
 	if values.electricityUsage != nil {
 		pvml.pv.electricityUsage.SetValues(values.ElectricityUsage())
+	}
+}
+
+type AcLoad struct {
+	name             string
+	role             EnergySourceRole
+	electricityState *ElectricityState
+	electricityUsage *ElectricityUsage
+}
+
+func (p *AcLoad) Name() string {
+	return p.name
+}
+
+func (p *AcLoad) Role() EnergySourceRole {
+	return p.role
+}
+
+func (p *AcLoad) ElectricityState() *ElectricityState {
+	return p.electricityState
+}
+
+func (p *AcLoad) ElectricityUsage() *ElectricityUsage {
+	return p.electricityUsage
+}
+
+type AcLoadMeterListener struct {
+	acLoad *AcLoad
+}
+
+func (aclml *AcLoadMeterListener) HandleEvent(values *ElectricityMeterValues) {
+	aclml.acLoad.electricityState.SetValues(values.ElectricityState())
+	if values.electricityUsage != nil {
+		aclml.acLoad.electricityUsage.SetValues(values.ElectricityUsage())
 	}
 }

@@ -80,6 +80,12 @@ func main() {
 			energyMeter.StartReading(syncGroupContext)
 		}
 	}
+	for _, acLoad := range configuration.AcLoads {
+		energyMeter := meters.ProbeEnergyMeter(acLoad.Name, domain.EnergySourceRole(acLoad.Role), acLoad.Meters)
+		if energyMeter != nil {
+			energyMeter.StartReading(syncGroupContext)
+		}
+	}
 
 	// Set price importers
 	if configuration.Prices != nil {
@@ -212,6 +218,28 @@ func createModbusServers(config *config.Configuration, system *domain.System) []
 						p.ElectricityUsage())
 					if simulator != nil {
 						requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
+					}
+					break
+				}
+			}
+		}
+	}
+	for _, acLoad := range config.AcLoads {
+		if acLoad.ModbusMeterSimulator != nil {
+			if acLoad.Name == "" {
+				log.Warningf("AcLoad with modbus simulator id %d has no name. The name is required for the meter simulator to work. ", acLoad.ModbusMeterSimulator.ModbusUnitId)
+				continue
+			}
+			for _, a := range system.AcLoads() {
+				if a.Name() == acLoad.Name && a.Role() == domain.EnergySourceRole(acLoad.Role) {
+					log.Infof("Adding %s energy meter simulator for AcLoad %s at unit id %d", acLoad.ModbusMeterSimulator.MeterType, acLoad.Name, acLoad.ModbusMeterSimulator.ModbusUnitId)
+					simulator := proxy.NewMeterSimulator(
+						acLoad.ModbusMeterSimulator.MeterType,
+						acLoad.ModbusMeterSimulator.ModbusUnitId,
+						a.ElectricityState(),
+						a.ElectricityUsage())
+					if simulator != nil {
+						requestHandler.AddHandler(acLoad.ModbusMeterSimulator.ModbusUnitId, simulator)
 					}
 					break
 				}

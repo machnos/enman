@@ -80,7 +80,7 @@ func (c *carloGavazziMeter) validMeter() error {
 					"to manually update the EM24 to 'application H', or set the front selector in an unlocked position " +
 					"and reinitialize the system")
 			} else {
-				err := c.modbusClient.WriteRegister(c.modbusUnitId, em24ApplicationRegister, em24ApplicationH)
+				err := c.modbusClient.WriteRegister(c.modbusUnitId, em24ApplicationRegister, em24ApplicationH, modbus.BIG_ENDIAN)
 				if err != nil {
 					return err
 				}
