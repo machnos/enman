@@ -42,9 +42,9 @@ func main() {
 
 	// Setup system
 	system := domain.NewSystem(time.Now().Location())
-	system.SetGrid(configuration.Grid.Name, configuration.Grid.Voltage, configuration.Grid.MaxCurrent, configuration.Grid.Phases)
+	system.SetGrid(configuration.Grid.Name, configuration.Grid.Voltage, configuration.Grid.MaxCurrent, configuration.Grid.Phases, nil)
 	for _, pv := range configuration.Pvs {
-		system.AddPv(pv.Name)
+		system.AddPv(pv.Name, nil)
 	}
 
 	// Setup repository

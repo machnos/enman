@@ -49,7 +49,7 @@ func (c *carloGavazzi) probe(modbusClient *modbus.ModbusClient, meterType uint16
 					"and reinitialize the system.")
 				return false
 			} else {
-				err := modbusClient.WriteRegister(c.modbusUnitId, em24ApplicationRegister, em24ApplicationH)
+				err := modbusClient.WriteRegister(c.modbusUnitId, em24ApplicationRegister, em24ApplicationH, modbus.BIG_ENDIAN)
 				if err != nil {
 					log.Error(err.Error())
 					return false
