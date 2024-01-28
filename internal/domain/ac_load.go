@@ -60,6 +60,7 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 				}
 				acl.electricityState = es
 				acl.electricityUsage = eu
+				// TODO fire value changed events
 			}
 		}
 	}()

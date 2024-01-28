@@ -59,6 +59,7 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 				}
 				pv.electricityState = es
 				pv.electricityUsage = eu
+				// TODO fire value changed events
 			}
 		}
 	}()

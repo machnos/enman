@@ -79,6 +79,7 @@ func (g *Grid) StartMeasuring(context context.Context) {
 				g.electricityUsage = eu
 				g.gasUsage = gu
 				g.waterUsage = wu
+				// TODO fire value changed events
 			}
 		}
 	}()

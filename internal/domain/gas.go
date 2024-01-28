@@ -2,11 +2,6 @@ package domain
 
 import "encoding/json"
 
-type GasMeter interface {
-	EnergyMeter
-	IsGasMeter() bool
-}
-
 type GasUsage struct {
 	gasConsumed float64
 }
