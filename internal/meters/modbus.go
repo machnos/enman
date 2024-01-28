@@ -19,12 +19,11 @@ var modbusClientCache = make(map[string]*modbus.ModbusClient)
 type modbusMeter struct {
 	modbusClient  *modbus.ModbusClient
 	modbusUnitId  uint8
-	meter         implementingEnergyMeter
 	usageLastRead time.Time
 	updInterval   time.Duration
 }
 
-func (mm *modbusMeter) updateInterval() time.Duration {
+func (mm *modbusMeter) UpdateInterval() time.Duration {
 	return mm.updInterval
 }
 
@@ -36,12 +35,7 @@ func newModbusMeter(modbusClient *modbus.ModbusClient, modbusUnitId uint8) *modb
 	}
 }
 
-func (mm *modbusMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, waterUsage *domain.WaterUsage) {
-	mm.meter.readValues(electricityState, electricityUsage, gasUsage, waterUsage)
-}
-
 func (mm *modbusMeter) shutdown() {
-	mm.meter.shutdown()
 	if mm.modbusClient != nil {
 		// TODO a modbus client is cached (see probeModbusMeter() method), so we should only close the client if no other meter is reading from it as well.
 		err := mm.modbusClient.Close()
@@ -51,10 +45,6 @@ func (mm *modbusMeter) shutdown() {
 		delete(modbusClientCache, mm.modbusClient.URL())
 		mm.modbusClient = nil
 	}
-}
-
-func (mm *modbusMeter) enrichEvents(electricityMeterValues *domain.ElectricityMeterValues, gasMeterValues *domain.GasMeterValues, waterMeterValues *domain.WaterMeterValues) {
-	mm.meter.enrichEvents(electricityMeterValues, gasMeterValues, waterMeterValues)
 }
 
 func (mm *modbusMeter) shouldUpdateUsage() bool {
@@ -147,7 +137,7 @@ func probeMeterWithClient(name string, role domain.EnergySourceRole, meterConfig
 			}
 			log.Infof("Probing for Carlo Gavazzi meter with %sunit id %d at %s", baudRateLogging, meterConfig.ModbusUnitId, modbusClient.URL())
 		}
-		meter, err := newCarloGavazziMeter(name, role, modbusClient, meterConfig)
+		meter, err := newCarloGavazziMeter(modbusClient, meterConfig)
 		if err == nil {
 			return meter
 		}
@@ -162,7 +152,7 @@ func probeMeterWithClient(name string, role domain.EnergySourceRole, meterConfig
 			}
 			log.Infof("Probing for ABB meter with %sunit id %d at %s", baudRateLogging, meterConfig.ModbusUnitId, modbusClient.URL())
 		}
-		meter, err := newAbbMeter(name, role, modbusClient, meterConfig)
+		meter, err := newAbbMeter(modbusClient, meterConfig)
 		if err == nil {
 			return meter
 		}
@@ -177,7 +167,7 @@ func probeMeterWithClient(name string, role domain.EnergySourceRole, meterConfig
 			}
 			log.Infof("Probing for Victron meter with %sunit id %d at %s", baudRateLogging, meterConfig.ModbusUnitId, modbusClient.URL())
 		}
-		meter, err := newVictronMeter(name, role, modbusClient, meterConfig)
+		meter, err := newVictronMeter(role, modbusClient, meterConfig)
 		if err == nil {
 			return meter
 		}

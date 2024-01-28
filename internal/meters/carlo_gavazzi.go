@@ -23,8 +23,8 @@ type carloGavazziMeter struct {
 	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage)
 }
 
-func newCarloGavazziMeter(name string, role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
-	enMe := newEnergyMeter(name, role)
+func newCarloGavazziMeter(modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
+	enMe := newEnergyMeter("Carlo Gavazzi")
 	elMe := newElectricityMeter(meterConfig)
 	moMe := newModbusMeter(modbusClient, meterConfig.ModbusUnitId)
 	cg := &carloGavazziMeter{
@@ -33,27 +33,16 @@ func newCarloGavazziMeter(name string, role domain.EnergySourceRole, modbusClien
 		moMe,
 		nil,
 	}
-	enMe.meter = moMe
-	moMe.meter = cg
 	return cg, cg.validMeter()
 }
 
-func (c *carloGavazziMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
-	if electricityValues != nil {
-		electricityValues.
-			SetMeterPhases(c.phases).
-			SetMeterBrand(c.brand).
-			SetMeterType(c.model).
-			SetMeterSerial(c.serial).
-			SetReadLineIndices(c.lineIndices)
-	}
-}
-
-func (c *carloGavazziMeter) readValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
+func (c *carloGavazziMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
 	c.readModbusValues(state, usage)
 }
 
-func (c *carloGavazziMeter) shutdown() {
+func (c *carloGavazziMeter) Shutdown() {
+	log.Infof("Shutting down %s meter with unitId %d at %s.", c.Brand(), c.modbusUnitId, c.modbusClient.URL())
+	c.modbusMeter.shutdown()
 }
 
 func (c *carloGavazziMeter) validMeter() error {
@@ -68,8 +57,8 @@ func (c *carloGavazziMeter) validMeter() error {
 			return err
 		}
 		if application != em24ApplicationH {
-			log.Infof("Detected a Carlo Gavazzi EM24 with unitId %d that is not configured as 'Application H'. "+
-				"Trying to set application mode to 'Application H'.", c.modbusUnitId)
+			log.Infof("Detected a %s EM24 with unitId %d that is not configured as 'Application H'. "+
+				"Trying to set application mode to 'Application H'.", c.Brand(), c.modbusUnitId)
 			// Application not set to 'H'. Check if we can update the value.
 			frontSelector, err := c.modbusClient.ReadRegister(c.modbusUnitId, em24FrontSelectorRegister, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 			if err != nil {
@@ -230,9 +219,8 @@ func (c *carloGavazziMeter) validMeter() error {
 		c.serial = c.readGenericSerial(c.modbusUnitId, c.modbusClient)
 		c.readModbusValues = c.readEM530andEM540Values
 	default:
-		return fmt.Errorf("detected an unsupported Carlo Gavazzi electricity meter (%d). Meter will not be queried for values", meterType)
+		return fmt.Errorf("detected an unsupported %s electricity meter (%d). Meter will not be queried for values", c.Brand(), meterType)
 	}
-	c.brand = "Carlo Gavazzi"
 	log.Infof("Detected a %d phase %s %s (identification code %d, serial %s) with unitId %d at %s.", c.phases, c.brand, c.model, meterType, c.serial, c.modbusUnitId, c.modbusClient.URL())
 	return nil
 }

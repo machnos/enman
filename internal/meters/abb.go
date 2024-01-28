@@ -15,8 +15,8 @@ type abbMeter struct {
 	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage)
 }
 
-func newAbbMeter(name string, role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
-	enMe := newEnergyMeter(name, role)
+func newAbbMeter(modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
+	enMe := newEnergyMeter("ABB")
 	elMe := newElectricityMeter(meterConfig)
 	moMe := newModbusMeter(modbusClient, meterConfig.ModbusUnitId)
 	abb := &abbMeter{
@@ -25,27 +25,15 @@ func newAbbMeter(name string, role domain.EnergySourceRole, modbusClient *modbus
 		moMe,
 		nil,
 	}
-	enMe.meter = moMe
-	moMe.meter = abb
 	return abb, abb.validMeter()
 }
 
-func (a *abbMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
-	if electricityValues != nil {
-		electricityValues.
-			SetMeterPhases(a.phases).
-			SetMeterBrand(a.brand).
-			SetMeterType(a.model).
-			SetMeterSerial(a.serial).
-			SetReadLineIndices(a.lineIndices)
-	}
-}
-
-func (a *abbMeter) readValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
+func (a *abbMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
 	a.readModbusValues(state, usage)
 }
-
-func (a *abbMeter) shutdown() {
+func (a *abbMeter) Shutdown() {
+	log.Infof("Shutting down %s meter with unitId %d at %s.", a.Brand(), a.modbusUnitId, a.modbusClient.URL())
+	a.modbusMeter.shutdown()
 }
 
 func (a *abbMeter) validMeter() error {
@@ -67,10 +55,9 @@ func (a *abbMeter) validMeter() error {
 		a.phases = 3
 		a.readModbusValues = a.readThreePhaseValues
 	default:
-		return fmt.Errorf("detected an unsupported ABB electricity meter (%d). Meter will not be queried for values", meterType)
+		return fmt.Errorf("detected an unsupported %s electricity meter (%d). Meter will not be queried for values", a.Brand(), meterType)
 	}
-	a.brand = "ABB"
-	log.Infof("Detected a %d phase %s %s (identification code %d) with unitId %d at %s.", a.phases, a.brand, a.model, meterType, a.modbusUnitId, a.modbusClient.URL())
+	log.Infof("detected a %d phase %s %s (identification code %d) with unitId %d at %s.", a.phases, a.brand, a.model, meterType, a.modbusUnitId, a.modbusClient.URL())
 	return nil
 }
 

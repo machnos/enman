@@ -42,9 +42,20 @@ func main() {
 
 	// Setup system
 	system := domain.NewSystem(time.Now().Location())
-	system.SetGrid(configuration.Grid.Name, configuration.Grid.Voltage, configuration.Grid.MaxCurrent, configuration.Grid.Phases, nil)
+	system.SetGrid(configuration.Grid.Name,
+		configuration.Grid.Voltage,
+		configuration.Grid.MaxCurrent,
+		configuration.Grid.Phases,
+		meters.ProbeEnergyMeters(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters),
+	)
 	for _, pv := range configuration.Pvs {
-		system.AddPv(pv.Name, nil)
+		system.AddPv(pv.Name, meters.ProbeEnergyMeters(pv.Name, domain.RolePv, pv.Meters))
+	}
+	for _, acLoad := range configuration.AcLoads {
+		system.AddAcLoad(acLoad.Name,
+			domain.EnergySourceRole(acLoad.Role),
+			meters.ProbeEnergyMeters(acLoad.Name, domain.EnergySourceRole(acLoad.Role), acLoad.Meters),
+		)
 	}
 
 	// Setup repository
@@ -68,24 +79,6 @@ func main() {
 		domain.ElectricityPrices.Deregister(costCalculator)
 		return nil
 	})
-
-	// Setup energy meters
-	gridMeter := meters.ProbeEnergyMeter(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters)
-	if gridMeter != nil {
-		gridMeter.StartReading(syncGroupContext)
-	}
-	for _, pv := range configuration.Pvs {
-		energyMeter := meters.ProbeEnergyMeter(pv.Name, domain.RolePv, pv.Meters)
-		if energyMeter != nil {
-			energyMeter.StartReading(syncGroupContext)
-		}
-	}
-	for _, acLoad := range configuration.AcLoads {
-		energyMeter := meters.ProbeEnergyMeter(acLoad.Name, domain.EnergySourceRole(acLoad.Role), acLoad.Meters)
-		if energyMeter != nil {
-			energyMeter.StartReading(syncGroupContext)
-		}
-	}
 
 	// Set price importers
 	if configuration.Prices != nil {
@@ -153,7 +146,10 @@ func main() {
 			return nil
 		})
 	}
+	// Start all meters on the System.
+	system.StartMeasuring(syncGroupContext)
 
+	// Start the http server
 	httpServer, err := http.NewServer(configuration.Http, system, repository)
 	if err != nil {
 		log.Warningf("Failed to create http server: %s", err.Error())

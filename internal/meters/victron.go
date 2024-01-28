@@ -12,40 +12,31 @@ type victronMeter struct {
 	*energyMeter
 	*electricityMeter
 	*modbusMeter
+	role             domain.EnergySourceRole
 	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage)
 }
 
-func newVictronMeter(name string, role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
-	enMe := newEnergyMeter(name, role)
+func newVictronMeter(role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
+	enMe := newEnergyMeter("Victron")
 	elMe := newElectricityMeter(meterConfig)
 	moMe := newModbusMeter(modbusClient, meterConfig.ModbusUnitId)
 	vm := &victronMeter{
 		enMe,
 		elMe,
 		moMe,
+		role,
 		nil,
 	}
-	enMe.meter = moMe
-	moMe.meter = vm
 	return vm, vm.validMeter()
 }
 
-func (v *victronMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
-	if electricityValues != nil {
-		electricityValues.
-			SetMeterPhases(v.phases).
-			SetMeterBrand(v.brand).
-			SetMeterType(v.model).
-			SetMeterSerial(v.serial).
-			SetReadLineIndices(v.lineIndices)
-	}
-}
-
-func (v *victronMeter) readValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
+func (v *victronMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
 	v.readModbusValues(state, usage)
 }
 
-func (v *victronMeter) shutdown() {
+func (v *victronMeter) Shutdown() {
+	log.Infof("Shutting down Victron meter with unitId %d at %s.", v.modbusUnitId, v.modbusClient.URL())
+	v.modbusMeter.shutdown()
 }
 
 func (v *victronMeter) validMeter() error {
@@ -61,9 +52,8 @@ func (v *victronMeter) validMeter() error {
 		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 1039)
 		v.readModbusValues = v.readPvValues
 	default:
-		return fmt.Errorf("detected an unsupported Victron meter (%v). Meter will not be queried for values", v.role)
+		return fmt.Errorf("detected an unsupported %s meter (%v). Meter will not be queried for values", v.Brand(), v.role)
 	}
-	v.brand = "Victron"
 	log.Infof("Detected a %d phase %s with unitId %d at %s.", v.phases, v.model, v.modbusUnitId, v.modbusClient.URL())
 	return nil
 }
@@ -83,7 +73,7 @@ func (v *victronMeter) probePhases(modbusUnitId uint8, modbusClient *modbus.Modb
 func (v *victronMeter) probeSerial(modbusUnitId uint8, modbusClient *modbus.ModbusClient, address uint16) string {
 	bytes, err := modbusClient.ReadBytes(modbusUnitId, address, 14, modbus.INPUT_REGISTER)
 	if err != nil {
-		log.Warningf("Unable to read Victron serial: %s", err.Error())
+		log.Warningf("Unable to read %s serial: %s", v.Brand(), err.Error())
 		return ""
 	}
 	return string(bytes)

@@ -31,7 +31,7 @@ type dsmrMeter struct {
 }
 
 func newDsmrMeter(name string, serialConfig *serial.Config, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
-	enMe := newEnergyMeter(name, domain.RoleGrid)
+	enMe := newEnergyMeter("DSMR")
 	elMe := newElectricityMeter(meterConfig)
 	gaMe := newGasMeter()
 	seMe := newSerialMeter(serialConfig)
@@ -44,8 +44,6 @@ func newDsmrMeter(name string, serialConfig *serial.Config, meterConfig *config.
 		electricityUsage: domain.NewElectricityUsage(),
 		gasUsage:         domain.NewGasUsage(),
 	}
-	enMe.meter = seMe
-	seMe.meter = dsmr
 	return dsmr, dsmr.validMeter()
 }
 func (d *dsmrMeter) validMeter() error {
@@ -66,9 +64,9 @@ func (d *dsmrMeter) validMeter() error {
 			dsmrValue := d.float32ValueFromObisLine(line)
 			if dsmrValue != 50 {
 				_ = serialPort.Close()
-				return fmt.Errorf("detected a DSMR grid meter with an unsupported version %v at %s. Meter will not be queried for values", dsmrValue, d.serialPort)
+				return fmt.Errorf("detected a %s grid meter with an unsupported version %v at %s. Meter will not be queried for values", d.Brand(), dsmrValue, d.serialPort)
 			}
-			log.Infof("Detected a DSMR meter at %s.", d.serialConfig.Address)
+			log.Infof("Detected a %s meter at %s.", d.Brand(), d.serialConfig.Address)
 			d.serialPort = serialPort
 			d.reader = reader
 			d.model = "DSMR"
@@ -117,10 +115,10 @@ func (d *dsmrMeter) validMeter() error {
 		return nil
 	}
 	_ = serialPort.Close()
-	return fmt.Errorf("DSMR grid meter not found at %s", d.serialConfig.Address)
+	return fmt.Errorf("%s grid meter not found at %s", d.Brand(), d.serialConfig.Address)
 }
 
-func (d *dsmrMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage) {
+func (d *dsmrMeter) UpdateValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage) {
 	if d.HasStateAttribute() {
 		electricityState.SetValues(d.electricityState)
 	}
@@ -132,20 +130,11 @@ func (d *dsmrMeter) readValues(electricityState *domain.ElectricityState, electr
 	println(string(json))
 }
 
-func (d *dsmrMeter) enrichEvents(electricityValues *domain.ElectricityMeterValues, _ *domain.GasMeterValues, _ *domain.WaterMeterValues) {
-	if electricityValues != nil {
-		electricityValues.SetMeterPhases(d.phases).
-			SetMeterBrand(d.brand).
-			SetMeterType(d.model).
-			SetMeterSerial(d.serial).
-			SetReadLineIndices(d.lineIndices)
-	}
-}
-
-func (d *dsmrMeter) shutdown() {
+func (d *dsmrMeter) Shutdown() {
 	log.Infof("Shutting down DSMR meter at %s.", d.serialConfig.Address)
 	d.cancelFunc()
 	d.shutdownWaitGroup.Wait()
+	d.serialMeter.shutdown()
 }
 
 func (d *dsmrMeter) float32ValueFromObisLine(obisLine string) float32 {

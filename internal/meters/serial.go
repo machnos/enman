@@ -14,7 +14,6 @@ type serialMeter struct {
 	serialPort   serial.Port
 	reader       *bufio.Reader
 	updInterval  time.Duration
-	meter        implementingEnergyMeter
 }
 
 func newSerialMeter(serialConfig *serial.Config) *serialMeter {
@@ -24,16 +23,11 @@ func newSerialMeter(serialConfig *serial.Config) *serialMeter {
 	}
 }
 
-func (sm *serialMeter) updateInterval() time.Duration {
+func (sm *serialMeter) UpdateInterval() time.Duration {
 	return sm.updInterval
 }
 
-func (sm *serialMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, waterUsage *domain.WaterUsage) {
-	sm.meter.readValues(electricityState, electricityUsage, gasUsage, waterUsage)
-}
-
 func (sm *serialMeter) shutdown() {
-	sm.meter.shutdown()
 	if sm.serialPort != nil {
 		err := sm.serialPort.Close()
 		if err != nil && log.DebugEnabled() {
@@ -41,10 +35,6 @@ func (sm *serialMeter) shutdown() {
 		}
 		sm.serialPort = nil
 	}
-}
-
-func (sm *serialMeter) enrichEvents(electricityMeterValues *domain.ElectricityMeterValues, gasMeterValues *domain.GasMeterValues, waterMeterValues *domain.WaterMeterValues) {
-	sm.meter.enrichEvents(electricityMeterValues, gasMeterValues, waterMeterValues)
 }
 
 func probeSerialMeter(name string, _ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
