@@ -48,9 +48,8 @@ func main() {
 	}
 	fmt.Printf("Grid setpoint: %.0fw\n", client.ValueFromInt16sResultArray(uint16s, 0, 0, 0))
 
-	gridSetPoint := int16(30)
-	fmt.Printf("Setting grid setpoint to: %d\n", uint16(gridSetPoint))
-
+	gridSetPoint := int16(20)
+	fmt.Printf("Setting grid setpoint to: %d\n", gridSetPoint)
 	err = client.WriteRegister(unitIdSystem, 2700, uint16(gridSetPoint), modbus.BIG_ENDIAN)
 	if err != nil {
 		fmt.Printf("%s", err.Error())

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
@@ -34,13 +35,23 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 		// Meter already started
 		return
 	}
-	// Look for the highest update interval
+	// Look for the highest update interval, phases and read line indices.
 	interval := time.Millisecond
+	meterPhases := uint8(0)
+	readLineIndices := make([]uint8, 0)
 	for _, meter := range pv.meters {
 		if meter.UpdateInterval() > interval {
 			interval = meter.UpdateInterval()
 		}
+		electricityMeter, ok := meter.(ElectricityMeter)
+		if ok {
+			meterPhases += electricityMeter.Phases()
+			readLineIndices = append(readLineIndices, electricityMeter.LineIndices()...)
+		}
 	}
+	sort.Slice(readLineIndices, func(i, j int) bool {
+		return readLineIndices[i] < readLineIndices[j]
+	})
 	pv.updateTicker = time.NewTicker(interval)
 
 	go func() {
@@ -59,7 +70,16 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 				}
 				pv.electricityState = es
 				pv.electricityUsage = eu
-				// TODO fire value changed events
+				if !es.IsZero() || !eu.IsZero() {
+					electricityMeterValues := NewElectricityMeterValues().
+						SetName(pv.Name()).
+						SetRole(pv.Role()).
+						SetElectricityState(es).
+						SetElectricityUsage(eu).
+						SetMeterPhases(meterPhases).
+						SetReadLineIndices(readLineIndices)
+					ElectricityMeterReadings.Trigger(electricityMeterValues)
+				}
 			}
 		}
 	}()

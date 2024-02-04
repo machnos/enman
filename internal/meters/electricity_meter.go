@@ -6,8 +6,8 @@ import (
 )
 
 type electricityMeter struct {
-	lineIndices []uint8
 	attributes  []string
+	lineIndices []uint8
 	phases      uint8
 }
 
@@ -23,4 +23,10 @@ func (e *electricityMeter) HasStateAttribute() bool {
 }
 func (e *electricityMeter) HasUsageAttribute() bool {
 	return len(e.attributes) == 0 || slices.Contains(e.attributes, "usage")
+}
+func (e *electricityMeter) LineIndices() []uint8 {
+	return e.lineIndices
+}
+func (e *electricityMeter) Phases() uint8 {
+	return e.phases
 }

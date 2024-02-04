@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
@@ -35,13 +36,23 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 		// Meter already started
 		return
 	}
-	// Look for the highest update interval
+	// Look for the highest update interval, phases and read line indices.
 	interval := time.Millisecond
+	meterPhases := uint8(0)
+	readLineIndices := make([]uint8, 0)
 	for _, meter := range acl.meters {
 		if meter.UpdateInterval() > interval {
 			interval = meter.UpdateInterval()
 		}
+		electricityMeter, ok := meter.(ElectricityMeter)
+		if ok {
+			meterPhases += electricityMeter.Phases()
+			readLineIndices = append(readLineIndices, electricityMeter.LineIndices()...)
+		}
 	}
+	sort.Slice(readLineIndices, func(i, j int) bool {
+		return readLineIndices[i] < readLineIndices[j]
+	})
 	acl.updateTicker = time.NewTicker(interval)
 
 	go func() {
@@ -60,7 +71,16 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 				}
 				acl.electricityState = es
 				acl.electricityUsage = eu
-				// TODO fire value changed events
+				if !es.IsZero() || !eu.IsZero() {
+					electricityMeterValues := NewElectricityMeterValues().
+						SetName(acl.Name()).
+						SetRole(acl.Role()).
+						SetElectricityState(es).
+						SetElectricityUsage(eu).
+						SetMeterPhases(meterPhases).
+						SetReadLineIndices(readLineIndices)
+					ElectricityMeterReadings.Trigger(electricityMeterValues)
+				}
 			}
 		}
 	}()

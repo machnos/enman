@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"sort"
 	"time"
 )
 
@@ -50,13 +51,24 @@ func (g *Grid) StartMeasuring(context context.Context) {
 		// Meter already started
 		return
 	}
-	// Look for the highest update interval
+
+	// Look for the highest update interval, phases and read line indices.
 	interval := time.Millisecond
+	meterPhases := uint8(0)
+	readLineIndices := make([]uint8, 0)
 	for _, meter := range g.meters {
 		if meter.UpdateInterval() > interval {
 			interval = meter.UpdateInterval()
 		}
+		electricityMeter, ok := meter.(ElectricityMeter)
+		if ok {
+			meterPhases += electricityMeter.Phases()
+			readLineIndices = append(readLineIndices, electricityMeter.LineIndices()...)
+		}
 	}
+	sort.Slice(readLineIndices, func(i, j int) bool {
+		return readLineIndices[i] < readLineIndices[j]
+	})
 	g.updateTicker = time.NewTicker(interval)
 
 	go func() {
@@ -79,7 +91,30 @@ func (g *Grid) StartMeasuring(context context.Context) {
 				g.electricityUsage = eu
 				g.gasUsage = gu
 				g.waterUsage = wu
-				// TODO fire value changed events
+				if !es.IsZero() || !eu.IsZero() {
+					electricityMeterValues := NewElectricityMeterValues().
+						SetName(g.Name()).
+						SetRole(g.Role()).
+						SetElectricityState(es).
+						SetElectricityUsage(eu).
+						SetMeterPhases(meterPhases).
+						SetReadLineIndices(readLineIndices)
+					ElectricityMeterReadings.Trigger(electricityMeterValues)
+				}
+				if !gu.IsZero() {
+					gasMeterValues := NewGasMeterValues().
+						SetName(g.Name()).
+						SetRole(g.Role()).
+						SetGasUsage(gu)
+					GasMeterReadings.Trigger(gasMeterValues)
+				}
+				if !wu.IsZero() {
+					waterMeterValues := NewWaterMeterValues().
+						SetName(g.Name()).
+						SetRole(g.Role()).
+						SetWaterUsage(wu)
+					WaterMeterReadings.Trigger(waterMeterValues)
+				}
 			}
 		}
 	}()

@@ -17,9 +17,6 @@ type ElectricityMeterValues struct {
 	eventTime        time.Time
 	name             string
 	role             EnergySourceRole
-	meterBrand       string
-	meterType        string
-	meterSerial      string
 	meterPhases      uint8
 	readLineIndices  []uint8
 	electricityUsage *ElectricityUsage
@@ -52,33 +49,6 @@ func (emv *ElectricityMeterValues) SetRole(role EnergySourceRole) *ElectricityMe
 
 func (emv *ElectricityMeterValues) Role() EnergySourceRole {
 	return emv.role
-}
-
-func (emv *ElectricityMeterValues) SetMeterBrand(meterBrand string) *ElectricityMeterValues {
-	emv.meterBrand = meterBrand
-	return emv
-}
-
-func (emv *ElectricityMeterValues) MeterBrand() string {
-	return emv.meterBrand
-}
-
-func (emv *ElectricityMeterValues) SetMeterType(meterType string) *ElectricityMeterValues {
-	emv.meterType = meterType
-	return emv
-}
-
-func (emv *ElectricityMeterValues) MeterType() string {
-	return emv.meterType
-}
-
-func (emv *ElectricityMeterValues) SetMeterSerial(meterSerial string) *ElectricityMeterValues {
-	emv.meterSerial = meterSerial
-	return emv
-}
-
-func (emv *ElectricityMeterValues) MeterSerial() string {
-	return emv.meterSerial
 }
 
 func (emv *ElectricityMeterValues) SetMeterPhases(meterPhases uint8) *ElectricityMeterValues {
