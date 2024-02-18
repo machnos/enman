@@ -94,4 +94,7 @@ func (s *System) StartMeasuring(context context.Context) {
 	for _, acLoad := range s.AcLoads() {
 		acLoad.StartMeasuring(context)
 	}
+	for _, battery := range s.Batteries() {
+		battery.StartMeasuring(context)
+	}
 }

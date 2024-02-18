@@ -19,6 +19,18 @@
 <div id="container5" style="width:100%; height:400px;"></div>
 <br />
 <br />
+<h5>Watts per battery</h5>
+<div id="container6" style="width:100%; height:400px;"></div>
+<br />
+<br />
+<h5>Amps per battery</h5>
+<div id="container7" style="width:100%; height:400px;"></div>
+<br />
+<br />
+<h5>State of charge per battery</h5>
+<div id="container8" style="width:100%; height:400px;"></div>
+<br />
+<br />
 <script>
 $(document).ready(function(){
     'use strict';
@@ -355,6 +367,162 @@ $(document).ready(function(){
             $('#container5').append(graph);
         }
     });
+
+    $.ajax({
+        url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0],
+    }).done(function(data) {
+        if (data && data.states) {
+            let currentMarkers = [];
+            let powerMarkers = [];
+            let voltageMarkers = [];
+            let socMarkers = [];
+            $.each(data.states, function(series, stateSerie) {
+                $.each(stateSerie.states, function(i, state) {
+                    currentMarkers.push({
+                        time: Date.parse(state.time),
+                        value: (state.current),
+                        provider: series
+                    });
+                    powerMarkers.push({
+                        time: Date.parse(state.time),
+                        value: (state.power),
+                        provider: series
+                    });
+                    voltageMarkers.push({
+                        time: Date.parse(state.time),
+                        value: (state.voltage),
+                        provider: series
+                    });
+                    socMarkers.push({
+                        time: Date.parse(state.time),
+                        value: (state.soc),
+                        provider: series
+                    });
+                });
+            });
+            let graph = Plot.plot({
+                x: {
+                    type: "time",
+                    label: "Time"
+                },
+                y: {
+                    label: "Watt"
+                },
+                grid: true,
+                width: "1200",
+                color: {
+                    scheme: "blues",
+                    legend: true
+                },
+                marks: [
+                    Plot.line(powerMarkers, {
+                        x: "time",
+                        y: "value",
+                        stroke: "provider",
+                        strokeWidth: 2,
+                        // curve: "natural",
+                        // marker: "circle",
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(powerMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                            function formatDate(date) {
+                                let hour = date.getHours();
+                                hour = hour < 10 ? ('0' + hour) : hour;
+                                let minutes = date.getMinutes()
+                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                                let seconds = date.getSeconds()
+                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
+                                return hour + ':' + minutes + ':' + seconds;
+                            }
+                            return 'Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'W';
+                        }})),
+                ]
+            });
+            $('#container6').append(graph);
+
+            graph = Plot.plot({
+                x: {
+                    type: "time",
+                    label: "Time"
+                },
+                y: {
+                    label: "Amps"
+                },
+                grid: true,
+                width: "1200",
+                color: {
+                    scheme: "blues",
+                    legend: true
+                },
+                marks: [
+                    Plot.line(currentMarkers, {
+                        x: "time",
+                        y: "value",
+                        stroke: "provider",
+                        strokeWidth: 2,
+                        // curve: "natural",
+                        // marker: "circle",
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(currentMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                            function formatDate(date) {
+                                let hour = date.getHours();
+                                hour = hour < 10 ? ('0' + hour) : hour;
+                                let minutes = date.getMinutes()
+                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                                let seconds = date.getSeconds()
+                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
+                                return hour + ':' + minutes + ':' + seconds;
+                            }
+                            return 'Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'Amps';
+                        }})),
+                ]
+            });
+            $('#container7').append(graph);
+
+            graph = Plot.plot({
+                x: {
+                    type: "time",
+                    label: "Time"
+                },
+                y: {
+                    label: "SoC"
+                },
+                grid: true,
+                width: "1200",
+                color: {
+                    scheme: "blues",
+                    legend: true
+                },
+                marks: [
+                    Plot.line(socMarkers, {
+                        x: "time",
+                        y: "value",
+                        stroke: "provider",
+                        strokeWidth: 2,
+                        // curve: "natural",
+                        // marker: "circle",
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(socMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                            function formatDate(date) {
+                                let hour = date.getHours();
+                                hour = hour < 10 ? ('0' + hour) : hour;
+                                let minutes = date.getMinutes()
+                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                                let seconds = date.getSeconds()
+                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
+                                return hour + ':' + minutes + ':' + seconds;
+                            }
+                            return 'Time: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + '%';
+                        }})),
+                ]
+            });
+            $('#container8').append(graph);
+
+        }
+    });
+
 });
 </script>
 {{end}}

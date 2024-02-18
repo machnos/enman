@@ -49,7 +49,7 @@ func (i *influxRepository) GasUsages(
 	}
 	gasUsages := make([]*domain.GasUsageRecord, 0)
 	for result.Next() {
-		gasUsages = append(gasUsages, i.NewGasUsageFromRecord(result.Record()))
+		gasUsages = append(gasUsages, i.newGasUsageFromRecord(result.Record()))
 	}
 	if result.Err() != nil {
 		return nil, result.Err()
@@ -93,10 +93,10 @@ func (i *influxRepository) GasUsageAtTime(moment time.Time, sourceName string, r
 	if !hasNext {
 		return nil, nil
 	}
-	return i.NewGasUsageFromRecord(result.Record()), nil
+	return i.newGasUsageFromRecord(result.Record()), nil
 }
 
-func (i *influxRepository) NewGasUsageFromRecord(record *query.FluxRecord) *domain.GasUsageRecord {
+func (i *influxRepository) newGasUsageFromRecord(record *query.FluxRecord) *domain.GasUsageRecord {
 	gasUsage := &domain.GasUsageRecord{
 		Time:     record.Time(),
 		Name:     record.ValueByKey(tagName).(string),

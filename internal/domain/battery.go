@@ -16,7 +16,7 @@ type BatteryState struct {
 }
 
 type batteryState struct {
-	Current float32 `json:"current" validate:"gte=0"`
+	Current float32 `json:"current"`
 	Power   float32 `json:"power"`
 	Voltage float32 `json:"voltage" validate:"gte=0"`
 	SoC     float32 `json:"soc" validate:"gte=0"`
