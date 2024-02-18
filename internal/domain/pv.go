@@ -66,7 +66,7 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 				es := NewElectricityState()
 				eu := NewElectricityUsage()
 				for _, meter := range pv.meters {
-					meter.UpdateValues(es, eu, nil, nil)
+					meter.UpdateValues(es, eu, nil, nil, nil)
 				}
 				pv.electricityState = es
 				pv.electricityUsage = eu

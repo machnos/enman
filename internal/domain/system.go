@@ -15,10 +15,11 @@ const (
 )
 
 type System struct {
-	location *time.Location
-	grid     *Grid
-	pvs      []*Pv
-	acLoads  []*AcLoad
+	location  *time.Location
+	grid      *Grid
+	pvs       []*Pv
+	acLoads   []*AcLoad
+	batteries []*Battery
 }
 
 func NewSystem(location *time.Location) *System {
@@ -54,6 +55,10 @@ func (s *System) AddPv(name string, meters []EnergyMeter) *System {
 	return s
 }
 
+func (s *System) Pvs() []*Pv {
+	return s.pvs
+}
+
 func (s *System) AcLoads() []*AcLoad {
 	return s.acLoads
 }
@@ -67,8 +72,16 @@ func (s *System) AddAcLoad(name string, role EnergySourceRole, meters []EnergyMe
 	return s
 }
 
-func (s *System) Pvs() []*Pv {
-	return s.pvs
+func (s *System) Batteries() []*Battery {
+	return s.batteries
+}
+
+func (s *System) AddBattery(name string, meters []EnergyMeter) *System {
+	s.batteries = append(s.batteries, &Battery{
+		name:   name,
+		meters: meters,
+	})
+	return s
 }
 
 func (s *System) StartMeasuring(context context.Context) {

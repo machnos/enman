@@ -13,7 +13,7 @@ type victronMeter struct {
 	*electricityMeter
 	*modbusMeter
 	role             domain.EnergySourceRole
-	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage)
+	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage, *domain.BatteryState)
 }
 
 func newVictronMeter(role domain.EnergySourceRole, modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
@@ -30,8 +30,8 @@ func newVictronMeter(role domain.EnergySourceRole, modbusClient *modbus.ModbusCl
 	return vm, vm.validMeter()
 }
 
-func (v *victronMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
-	v.readModbusValues(state, usage)
+func (v *victronMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage, batteryState *domain.BatteryState) {
+	v.readModbusValues(state, usage, batteryState)
 }
 
 func (v *victronMeter) Shutdown() {
@@ -51,10 +51,18 @@ func (v *victronMeter) validMeter() error {
 		v.phases = v.probePhases(v.modbusUnitId, v.modbusClient, []uint16{1027, 1031, 1035})
 		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 1039)
 		v.readModbusValues = v.readPvValues
+	case domain.RoleBattery:
+		v.model = "Victron Battery"
+		v.phases = 1
+		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 1039)
+		v.readModbusValues = v.readBatteryValues
 	default:
 		return fmt.Errorf("detected an unsupported %s meter (%v). Meter will not be queried for values", v.Brand(), v.role)
 	}
 	log.Infof("Detected a %d phase %s with unitId %d at %s.", v.phases, v.model, v.modbusUnitId, v.modbusClient.URL())
+	if v.role != domain.RoleBattery {
+		v.setDefaultLineIndices(fmt.Sprintf("%d phase %s %s with unitId %d at %s", v.phases, v.brand, v.model, v.modbusUnitId, v.modbusClient.URL()))
+	}
 	return nil
 }
 
@@ -79,7 +87,7 @@ func (v *victronMeter) probeSerial(modbusUnitId uint8, modbusClient *modbus.Modb
 	return string(bytes)
 }
 
-func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
+func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, _ *domain.BatteryState) {
 	modbusClient := v.modbusClient
 	if v.HasStateAttribute() && electricityState != nil {
 		uint16s, _ := modbusClient.ReadRegisters(v.modbusUnitId, 2600, 3, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
@@ -112,7 +120,7 @@ func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState,
 	}
 }
 
-func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) {
+func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, _ *domain.BatteryState) {
 	modbusClient := v.modbusClient
 	if v.HasStateAttribute() && electricityState != nil {
 		uint16s, _ := modbusClient.ReadRegisters(v.modbusUnitId, 1027, 11, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
@@ -132,4 +140,18 @@ func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, e
 			electricityUsage.SetEnergyConsumed(v.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, v.lineIndices[ix], 100, 0)))
 		}
 	}
+}
+
+func (v *victronMeter) readBatteryValues(_ *domain.ElectricityState, _ *domain.ElectricityUsage, batteryState *domain.BatteryState) {
+	modbusClient := v.modbusClient
+	uint16s, _ := modbusClient.ReadRegisters(v.modbusUnitId, 258, 4, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+	batteryState.SetVoltage(modbusClient.ValueFromUint16sResultArray(uint16s, 1, 100, 0))
+	batteryState.SetCurrent(modbusClient.ValueFromInt16sResultArray(uint16s, 3, 10, 0))
+	batteryState.SetPower(modbusClient.ValueFromInt16sResultArray(uint16s, 0, 0, 0))
+
+	uint16s, _ = modbusClient.ReadRegisters(v.modbusUnitId, 266, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+	batteryState.SetSoC(modbusClient.ValueFromUint16sResultArray(uint16s, 0, 10, 0))
+
+	uint16s, _ = modbusClient.ReadRegisters(v.modbusUnitId, 304, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+	batteryState.SetSoH(modbusClient.ValueFromUint16sResultArray(uint16s, 0, 10, 0))
 }

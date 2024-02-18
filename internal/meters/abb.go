@@ -28,7 +28,7 @@ func newAbbMeter(modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMe
 	return abb, abb.validMeter()
 }
 
-func (a *abbMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
+func (a *abbMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) {
 	a.readModbusValues(state, usage)
 }
 func (a *abbMeter) Shutdown() {
@@ -58,6 +58,7 @@ func (a *abbMeter) validMeter() error {
 		return fmt.Errorf("detected an unsupported %s electricity meter (%d). Meter will not be queried for values", a.Brand(), meterType)
 	}
 	log.Infof("detected a %d phase %s %s (identification code %d) with unitId %d at %s.", a.phases, a.brand, a.model, meterType, a.modbusUnitId, a.modbusClient.URL())
+	a.setDefaultLineIndices(fmt.Sprintf("%d phase %s %s with unitId %d at %s", a.phases, a.brand, a.model, a.modbusUnitId, a.modbusClient.URL()))
 	return nil
 }
 

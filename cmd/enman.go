@@ -46,15 +46,20 @@ func main() {
 		configuration.Grid.Voltage,
 		configuration.Grid.MaxCurrent,
 		configuration.Grid.Phases,
-		meters.ProbeEnergyMeters(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters),
+		meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters),
 	)
 	for _, pv := range configuration.Pvs {
-		system.AddPv(pv.Name, meters.ProbeEnergyMeters(pv.Name, domain.RolePv, pv.Meters))
+		system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters))
 	}
 	for _, acLoad := range configuration.AcLoads {
 		system.AddAcLoad(acLoad.Name,
 			domain.EnergySourceRole(acLoad.Role),
-			meters.ProbeEnergyMeters(acLoad.Name, domain.EnergySourceRole(acLoad.Role), acLoad.Meters),
+			meters.ProbeEnergyMeters(domain.EnergySourceRole(acLoad.Role), acLoad.Meters),
+		)
+	}
+	for _, battery := range configuration.Batteries {
+		system.AddBattery(battery.Name,
+			meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters),
 		)
 	}
 

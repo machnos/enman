@@ -67,7 +67,7 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 				es := NewElectricityState()
 				eu := NewElectricityUsage()
 				for _, meter := range acl.meters {
-					meter.UpdateValues(es, eu, nil, nil)
+					meter.UpdateValues(es, eu, nil, nil, nil)
 				}
 				acl.electricityState = es
 				acl.electricityUsage = eu

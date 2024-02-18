@@ -85,7 +85,7 @@ func (g *Grid) StartMeasuring(context context.Context) {
 				gu := NewGasUsage()
 				wu := NewWaterUsage()
 				for _, meter := range g.meters {
-					meter.UpdateValues(es, eu, gu, wu)
+					meter.UpdateValues(es, eu, gu, wu, nil)
 				}
 				g.electricityState = es
 				g.electricityUsage = eu

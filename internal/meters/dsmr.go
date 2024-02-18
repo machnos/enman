@@ -30,7 +30,7 @@ type dsmrMeter struct {
 	mbusClientValue                *regexp.Regexp
 }
 
-func newDsmrMeter(name string, serialConfig *serial.Config, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
+func newDsmrMeter(serialConfig *serial.Config, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
 	enMe := newEnergyMeter("DSMR")
 	elMe := newElectricityMeter(meterConfig)
 	gaMe := newGasMeter()
@@ -112,13 +112,14 @@ func (d *dsmrMeter) validMeter() error {
 	}
 	if found {
 		// keep serial port open and return without error
+		d.setDefaultLineIndices(fmt.Sprintf("%s %s at %s", d.brand, d.model, d.serialConfig.Address))
 		return nil
 	}
 	_ = serialPort.Close()
 	return fmt.Errorf("%s grid meter not found at %s", d.Brand(), d.serialConfig.Address)
 }
 
-func (d *dsmrMeter) UpdateValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage) {
+func (d *dsmrMeter) UpdateValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) {
 	if d.HasStateAttribute() {
 		electricityState.SetValues(d.electricityState)
 	}

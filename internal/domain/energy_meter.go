@@ -7,6 +7,11 @@ type EnergyMeter interface {
 	Model() string
 	Serial() string
 	UpdateInterval() time.Duration
-	UpdateValues(electricityState *ElectricityState, electricityUsage *ElectricityUsage, gasUsage *GasUsage, waterUsage *WaterUsage)
+	UpdateValues(
+		electricityState *ElectricityState,
+		electricityUsage *ElectricityUsage,
+		gasUsage *GasUsage,
+		waterUsage *WaterUsage,
+		batteryState *BatteryState)
 	Shutdown()
 }

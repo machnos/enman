@@ -29,10 +29,10 @@ func newEnergyMeter(brand string) *energyMeter {
 	}
 }
 
-func ProbeEnergyMeters(name string, role domain.EnergySourceRole, meterConfigs []*config.EnergyMeter) []domain.EnergyMeter {
+func ProbeEnergyMeters(role domain.EnergySourceRole, meterConfigs []*config.EnergyMeter) []domain.EnergyMeter {
 	meters := make([]domain.EnergyMeter, 0)
 	for _, meterConfig := range meterConfigs {
-		meter := probeEnergyMeter(name, role, meterConfig)
+		meter := probeEnergyMeter(role, meterConfig)
 		if meter != nil {
 			meters = append(meters, meter)
 		}
@@ -40,11 +40,11 @@ func ProbeEnergyMeters(name string, role domain.EnergySourceRole, meterConfigs [
 	return meters
 }
 
-func probeEnergyMeter(name string, role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeEnergyMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	if "modbus" == meterConfig.Type {
-		return probeModbusMeter(name, role, meterConfig)
+		return probeModbusMeter(role, meterConfig)
 	} else if "serial" == meterConfig.Type {
-		return probeSerialMeter(name, role, meterConfig)
+		return probeSerialMeter(role, meterConfig)
 	}
 	return nil
 }

@@ -37,7 +37,7 @@ func (sm *serialMeter) shutdown() {
 	}
 }
 
-func probeSerialMeter(name string, _ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeSerialMeter(_ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
 	if meterConfig.Speed != 0 {
 		probeBaudRates = []uint{uint(meterConfig.Speed)}
@@ -55,7 +55,7 @@ func probeSerialMeter(name string, _ domain.EnergySourceRole, meterConfig *confi
 			if log.InfoEnabled() {
 				log.Infof("Probing for DSMR meter with baud rate %d at %s", rate, meterConfig.ConnectURL)
 			}
-			meter, err := newDsmrMeter(name, serialConfig, meterConfig)
+			meter, err := newDsmrMeter(serialConfig, meterConfig)
 			if err == nil {
 				return meter
 			}

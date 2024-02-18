@@ -55,7 +55,7 @@ func (mm *modbusMeter) shouldUpdateUsage() bool {
 	return false
 }
 
-func probeModbusMeter(name string, role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	var meter domain.EnergyMeter
 	if strings.HasPrefix(meterConfig.ConnectURL, "rtu") {
 		probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
@@ -79,7 +79,7 @@ func probeModbusMeter(name string, role domain.EnergySourceRole, meterConfig *co
 				}
 				modbusClient = client
 			}
-			meter = probeMeterWithClient(name, role, meterConfig, modbusClient)
+			meter = probeMeterWithClient(role, meterConfig, modbusClient)
 			if meter != nil {
 				modbusClientCache[meterConfig.ConnectURL] = modbusClient
 				break
@@ -100,7 +100,7 @@ func probeModbusMeter(name string, role domain.EnergySourceRole, meterConfig *co
 				log.Debugf("Unable to create modbus client: %v", err)
 			}
 		} else {
-			meter = probeMeterWithClient(name, role, meterConfig, modbusClient)
+			meter = probeMeterWithClient(role, meterConfig, modbusClient)
 			if meter == nil {
 				err := modbusClient.Close()
 				if err != nil && log.DebugEnabled() {
@@ -110,7 +110,7 @@ func probeModbusMeter(name string, role domain.EnergySourceRole, meterConfig *co
 		}
 	}
 	if meter == nil {
-		log.Warningf("Unable to detect modbus energy meter in role %s with name %s at url '%s'", role, name, meterConfig.ConnectURL)
+		log.Warningf("Unable to detect modbus energy meter in role %s at url '%s'", role, meterConfig.ConnectURL)
 	}
 	return meter
 }
@@ -127,7 +127,7 @@ func newModbusClient(clientConfig *modbus.ClientConfiguration) (*modbus.ModbusCl
 	return modbusClient, nil
 }
 
-func probeMeterWithClient(name string, role domain.EnergySourceRole, meterConfig *config.EnergyMeter, modbusClient *modbus.ModbusClient) domain.EnergyMeter {
+func probeMeterWithClient(role domain.EnergySourceRole, meterConfig *config.EnergyMeter, modbusClient *modbus.ModbusClient) domain.EnergyMeter {
 	if meterConfig.Brand == "Carlo Gavazzi" || meterConfig.Brand == "" {
 		// Carlo Gavazzi meter type
 		if log.InfoEnabled() {

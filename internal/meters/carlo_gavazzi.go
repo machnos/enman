@@ -36,7 +36,7 @@ func newCarloGavazziMeter(modbusClient *modbus.ModbusClient, meterConfig *config
 	return cg, cg.validMeter()
 }
 
-func (c *carloGavazziMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage) {
+func (c *carloGavazziMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) {
 	c.readModbusValues(state, usage)
 }
 
@@ -222,6 +222,7 @@ func (c *carloGavazziMeter) validMeter() error {
 		return fmt.Errorf("detected an unsupported %s electricity meter (%d). Meter will not be queried for values", c.Brand(), meterType)
 	}
 	log.Infof("Detected a %d phase %s %s (identification code %d, serial %s) with unitId %d at %s.", c.phases, c.brand, c.model, meterType, c.serial, c.modbusUnitId, c.modbusClient.URL())
+	c.setDefaultLineIndices(fmt.Sprintf("%d phase %s %s with unitId %d at %s", c.phases, c.brand, c.model, c.modbusUnitId, c.modbusClient.URL()))
 	return nil
 }
 
