@@ -46,6 +46,7 @@ func main() {
 		configuration.Grid.Voltage,
 		configuration.Grid.MaxCurrent,
 		configuration.Grid.Phases,
+		configuration.Grid.TargetConsumption,
 		meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters),
 	)
 	for _, pv := range configuration.Pvs {

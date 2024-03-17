@@ -11,6 +11,7 @@ type Grid struct {
 	voltage            uint16
 	maxCurrentPerPhase float32
 	phases             uint8
+	targetConsumption  int16
 	electricityState   *ElectricityState
 	electricityUsage   *ElectricityUsage
 	gasUsage           *GasUsage
@@ -37,6 +38,10 @@ func (g *Grid) MaxCurrentPerPhase() float32 {
 
 func (g *Grid) Phases() uint8 {
 	return g.phases
+}
+
+func (g *Grid) TargetConsumption() int16 {
+	return g.targetConsumption
 }
 
 func (g *Grid) ElectricityState() *ElectricityState {

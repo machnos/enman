@@ -32,13 +32,14 @@ func (s *System) Location() *time.Location {
 	return s.location
 }
 
-func (s *System) SetGrid(name string, voltage uint16, maxCurrentPerPhase float32, phases uint8, meters []EnergyMeter) *System {
+func (s *System) SetGrid(name string, voltage uint16, maxCurrentPerPhase float32, phases uint8, targetConsumption int16, meters []EnergyMeter) *System {
 	s.grid = &Grid{
 		name:               name,
 		voltage:            voltage,
 		maxCurrentPerPhase: maxCurrentPerPhase,
 		phases:             phases,
 		meters:             meters,
+		targetConsumption:  targetConsumption,
 	}
 	return s
 }

@@ -24,6 +24,7 @@ type Grid struct {
 	Voltage              uint16                `json:"voltage"`
 	MaxCurrent           float32               `json:"max_current" validate:"gte=0"`
 	Phases               uint8                 `json:"phases"`
+	TargetConsumption    int16                 `json:"target_consumption"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }
