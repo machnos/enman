@@ -7,12 +7,13 @@ import (
 )
 
 type AcLoad struct {
-	name             string
-	role             EnergySourceRole
-	electricityState *ElectricityState
-	electricityUsage *ElectricityUsage
-	meters           []EnergyMeter
-	updateTicker     *time.Ticker
+	name               string
+	role               EnergySourceRole
+	percentageFromGrid uint8
+	electricityState   *ElectricityState
+	electricityUsage   *ElectricityUsage
+	meters             []EnergyMeter
+	updateTicker       *time.Ticker
 }
 
 func (acl *AcLoad) Name() string {
@@ -21,6 +22,10 @@ func (acl *AcLoad) Name() string {
 
 func (acl *AcLoad) Role() EnergySourceRole {
 	return acl.role
+}
+
+func (acl *AcLoad) PercentageFromGrid() uint8 {
+	return acl.percentageFromGrid
 }
 
 func (acl *AcLoad) ElectricityState() *ElectricityState {

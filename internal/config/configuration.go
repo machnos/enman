@@ -38,6 +38,7 @@ type Pv struct {
 type AcLoad struct {
 	Name                 string                `json:"name" validate:"required"`
 	Role                 string                `json:"role" validate:"required,oneof=EvCharger"`
+	PercentageFromGrid   uint8                 `json:"percentage_from_grid" validate:"get=0,lte=100"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 }

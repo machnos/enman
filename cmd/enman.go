@@ -55,6 +55,7 @@ func main() {
 	for _, acLoad := range configuration.AcLoads {
 		system.AddAcLoad(acLoad.Name,
 			domain.EnergySourceRole(acLoad.Role),
+			acLoad.PercentageFromGrid,
 			meters.ProbeEnergyMeters(domain.EnergySourceRole(acLoad.Role), acLoad.Meters),
 		)
 	}

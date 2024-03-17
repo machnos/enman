@@ -64,11 +64,12 @@ func (s *System) AcLoads() []*AcLoad {
 	return s.acLoads
 }
 
-func (s *System) AddAcLoad(name string, role EnergySourceRole, meters []EnergyMeter) *System {
+func (s *System) AddAcLoad(name string, role EnergySourceRole, percentageFromGrid uint8, meters []EnergyMeter) *System {
 	s.acLoads = append(s.acLoads, &AcLoad{
-		name:   name,
-		role:   role,
-		meters: meters,
+		name:               name,
+		role:               role,
+		percentageFromGrid: percentageFromGrid,
+		meters:             meters,
 	})
 	return s
 }
