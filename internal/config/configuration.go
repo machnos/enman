@@ -27,12 +27,14 @@ type Grid struct {
 	TargetConsumption    int16                 `json:"target_consumption"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
+	Controller           *GridController       `json:"controller"`
 }
 
 type Pv struct {
 	Name                 string                `json:"name" validate:"required"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
+	Controller           *PvController         `json:"controller"`
 }
 
 type AcLoad struct {
@@ -56,6 +58,19 @@ type EnergyMeter struct {
 	Speed        uint32   `json:"speed"`
 	LineIndices  []uint8  `json:"line_indices" validate:"gte=0,lte=3,dive,gte=0,lte=2"`
 	Attributes   []string `json:"attributes" validate:"dive,oneof='state' 'usage' ''"`
+}
+
+type GridController struct {
+	ConnectURL string `json:"connect_url"`
+	Type       string `json:"type" validate:"required,oneof=modbus"`
+	Brand      string `json:"brand" validate:"oneof='Victron' ''"`
+	Speed      uint32 `json:"speed"`
+}
+
+type PvController struct {
+	ConnectURL string `json:"connect_url"`
+	Type       string `json:"type" validate:"required,oneof=http"`
+	Brand      string `json:"brand" validate:"oneof='Shelly' ''"`
 }
 
 type ModbusMeterSimulator struct {

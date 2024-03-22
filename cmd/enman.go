@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"enman/internal/config"
+	"enman/internal/controllers"
 	"enman/internal/domain"
 	"enman/internal/http"
 	"enman/internal/log"
@@ -48,6 +49,7 @@ func main() {
 		configuration.Grid.Phases,
 		configuration.Grid.TargetConsumption,
 		meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters),
+		controllers.ProbeGridController(configuration.Grid.Controller),
 	)
 	for _, pv := range configuration.Pvs {
 		system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters))
@@ -64,6 +66,11 @@ func main() {
 			meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters),
 		)
 	}
+	syncGroup.Go(func() error {
+		<-syncGroupContext.Done()
+		modbus.EmptyClientCache()
+		return nil
+	})
 
 	// Setup repository
 	repository := loadRepository(configuration)

@@ -45,17 +45,26 @@ func (v *victronMeter) validMeter() error {
 	case domain.RoleGrid:
 		v.model = "Victron Grid"
 		v.phases = v.probePhases(v.modbusUnitId, v.modbusClient, []uint16{2616, 2618, 2620})
+		if v.phases == 0 {
+			return fmt.Errorf("detected an unsupported %s meter (%v). Meter will not be queried for values", v.Brand(), v.role)
+		}
 		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 2609)
 		v.readModbusValues = v.readGridValues
 	case domain.RolePv:
 		v.model = "Victron PV"
 		v.phases = v.probePhases(v.modbusUnitId, v.modbusClient, []uint16{1027, 1031, 1035})
+		if v.phases == 0 {
+			return fmt.Errorf("detected an unsupported %s meter (%v). Meter will not be queried for values", v.Brand(), v.role)
+		}
 		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 1039)
 		v.readModbusValues = v.readPvValues
 	case domain.RoleBattery:
 		v.model = "Victron Battery"
 		v.phases = 1
-		v.serial = v.probeSerial(v.modbusUnitId, v.modbusClient, 1039)
+		_, err := v.modbusClient.ReadRegisters(225, 309, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+		if err != nil {
+			return fmt.Errorf("detected an unsupported %s meter (%v). Meter will not be queried for values", v.Brand(), v.role)
+		}
 		v.readModbusValues = v.readBatteryValues
 	default:
 		return fmt.Errorf("detected an unsupported %s meter (%v). Meter will not be queried for values", v.Brand(), v.role)

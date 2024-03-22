@@ -67,6 +67,39 @@ type ClientConfiguration struct {
 	TLSRootCAs *x509.CertPool
 }
 
+var modbusClientCache = make(map[string]*ModbusClient)
+
+func GetOrCreateCached(config *ClientConfiguration) (*ModbusClient, bool, error) {
+	modbusClient, clientCached := modbusClientCache[config.URL]
+	if !clientCached {
+		client, err := NewClient(config)
+		if err != nil {
+			return nil, false, err
+		}
+		err = client.Open()
+		if err != nil {
+			return nil, false, err
+		}
+		modbusClientCache[config.URL] = client
+		modbusClient = client
+	}
+	return modbusClient, clientCached, nil
+}
+
+func RemoveCached(client *ModbusClient) {
+	delete(modbusClientCache, client.URL())
+	err := client.Close()
+	if err != nil && log.DebugEnabled() {
+		log.Debugf("Unable to close modbus client: %v", err)
+	}
+}
+
+func EmptyClientCache() {
+	for _, val := range modbusClientCache {
+		RemoveCached(val)
+	}
+}
+
 // Modbus client object.
 type ModbusClient struct {
 	conf          ClientConfiguration

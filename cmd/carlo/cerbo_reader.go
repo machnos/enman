@@ -20,13 +20,19 @@ func main() {
 		syscall.Exit(-1)
 	}
 	unitIdBattery := uint8(225)
-	uint16s, err := client.ReadRegisters(unitIdBattery, 258, 2, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 
+	uint16s, err := client.ReadRegisters(unitIdBattery, 258, 2, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 	if err != nil {
 		return
 	}
 	fmt.Printf("Watts: %.0fw\n", client.ValueFromInt16sResultArray(uint16s, 0, 0, 0))
 	fmt.Printf("Voltage: %.2fv\n", client.ValueFromUint16sResultArray(uint16s, 1, 100, 0))
+
+	uint16s, err = client.ReadRegisters(unitIdBattery, 309, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+	if err != nil {
+		return
+	}
+	fmt.Printf("Capacity: %.0fAh\n", client.ValueFromUint16sResultArray(uint16s, 0, 10, 0))
 
 	uint16s, err = client.ReadRegisters(unitIdBattery, 266, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 	if err != nil {
@@ -48,7 +54,7 @@ func main() {
 	}
 	fmt.Printf("Grid setpoint: %.0fw\n", client.ValueFromInt16sResultArray(uint16s, 0, 0, 0))
 
-	gridSetPoint := int16(20)
+	gridSetPoint := int16(10)
 	fmt.Printf("Setting grid setpoint to: %d\n", gridSetPoint)
 	err = client.WriteRegister(unitIdSystem, 2700, uint16(gridSetPoint), modbus.BIG_ENDIAN)
 	if err != nil {

@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+type PvController interface {
+	DisablePv()
+	EnablePv()
+}
+
 type Pv struct {
 	name             string
 	electricityState *ElectricityState

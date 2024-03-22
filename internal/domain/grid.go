@@ -6,17 +6,22 @@ import (
 	"time"
 )
 
+type GridController interface {
+	SetTargetConsumption(targetConsumption uint8) error
+}
+
 type Grid struct {
 	name               string
 	voltage            uint16
 	maxCurrentPerPhase float32
 	phases             uint8
 	targetConsumption  int16
+	meters             []EnergyMeter
+	controller         GridController
 	electricityState   *ElectricityState
 	electricityUsage   *ElectricityUsage
 	gasUsage           *GasUsage
 	waterUsage         *WaterUsage
-	meters             []EnergyMeter
 	updateTicker       *time.Ticker
 }
 

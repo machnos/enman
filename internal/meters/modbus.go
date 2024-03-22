@@ -14,8 +14,6 @@ const (
 	meterUsageUpdateInterval = time.Second * 10
 )
 
-var modbusClientCache = make(map[string]*modbus.ModbusClient)
-
 type modbusMeter struct {
 	modbusClient  *modbus.ModbusClient
 	modbusUnitId  uint8
@@ -38,11 +36,7 @@ func newModbusMeter(modbusClient *modbus.ModbusClient, modbusUnitId uint8) *modb
 func (mm *modbusMeter) shutdown() {
 	if mm.modbusClient != nil {
 		// TODO a modbus client is cached (see probeModbusMeter() method), so we should only close the client if no other meter is reading from it as well.
-		err := mm.modbusClient.Close()
-		if err != nil && log.DebugEnabled() {
-			log.Debugf("Unable to close modbus client: %v", err)
-		}
-		delete(modbusClientCache, mm.modbusClient.URL())
+		modbus.RemoveCached(mm.modbusClient)
 		mm.modbusClient = nil
 	}
 }
@@ -68,44 +62,33 @@ func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMe
 				Timeout: time.Millisecond * 500,
 				Speed:   rate,
 			}
-			modbusClient, clientCached := modbusClientCache[meterConfig.ConnectURL]
-			if !clientCached {
-				client, err := newModbusClient(clientConfig)
-				if err != nil {
-					if log.DebugEnabled() {
-						log.Debugf("Unable to create modbus client: %v", err)
-					}
-					continue
+			modbusClient, clientCached, err := modbus.GetOrCreateCached(clientConfig)
+			if err != nil {
+				if log.DebugEnabled() {
+					log.Debugf("Unable to create modbus client: %v", err)
 				}
-				modbusClient = client
+				continue
 			}
 			meter = probeMeterWithClient(role, meterConfig, modbusClient)
 			if meter != nil {
-				modbusClientCache[meterConfig.ConnectURL] = modbusClient
 				break
 			} else if !clientCached {
-				err := modbusClient.Close()
-				if err != nil && log.DebugEnabled() {
-					log.Debugf("Unable to close modbus client: %v", err)
-				}
+				modbus.RemoveCached(modbusClient)
 			}
 		}
 	} else {
 		clientConfig := &modbus.ClientConfiguration{
 			URL: meterConfig.ConnectURL,
 		}
-		modbusClient, err := newModbusClient(clientConfig)
+		modbusClient, clientCached, err := modbus.GetOrCreateCached(clientConfig)
 		if err != nil {
 			if log.DebugEnabled() {
 				log.Debugf("Unable to create modbus client: %v", err)
 			}
 		} else {
 			meter = probeMeterWithClient(role, meterConfig, modbusClient)
-			if meter == nil {
-				err := modbusClient.Close()
-				if err != nil && log.DebugEnabled() {
-					log.Debugf("Unable to close modbus client: %v", err)
-				}
+			if meter == nil && !clientCached {
+				modbus.RemoveCached(modbusClient)
 			}
 		}
 	}
@@ -113,18 +96,6 @@ func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMe
 		log.Warningf("Unable to detect modbus energy meter in role %s at url '%s'", role, meterConfig.ConnectURL)
 	}
 	return meter
-}
-
-func newModbusClient(clientConfig *modbus.ClientConfiguration) (*modbus.ModbusClient, error) {
-	modbusClient, err := modbus.NewClient(clientConfig)
-	if err != nil {
-		return nil, err
-	}
-	err = modbusClient.Open()
-	if err != nil {
-		return nil, err
-	}
-	return modbusClient, nil
 }
 
 func probeMeterWithClient(role domain.EnergySourceRole, meterConfig *config.EnergyMeter, modbusClient *modbus.ModbusClient) domain.EnergyMeter {
