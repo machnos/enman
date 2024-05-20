@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+const (
+	electricityMeterUsageUpdateInterval = time.Second * 10
+)
+
 var ElectricityMeterReadings = genericEventHandler[ElectricityMeterValueChangeListener, *ElectricityMeterValues]{
 	listeners: make(map[ElectricityMeterValueChangeListener]func(values *ElectricityMeterValues) bool),
 }

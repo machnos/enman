@@ -83,6 +83,8 @@ func (g *Grid) StartMeasuring(context context.Context) {
 	g.updateTicker = time.NewTicker(interval)
 
 	go func() {
+		var usageLastRead time.Time
+	outer:
 		for {
 			select {
 			case <-context.Done():
@@ -92,23 +94,29 @@ func (g *Grid) StartMeasuring(context context.Context) {
 				return
 			case _ = <-g.updateTicker.C:
 				es := NewElectricityState()
-				eu := NewElectricityUsage()
-				gu := NewGasUsage()
-				wu := NewWaterUsage()
+				var eu *ElectricityUsage = nil
+				var gu *GasUsage = nil
+				var wu *WaterUsage = nil
+				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricityMeterUsageUpdateInterval) {
+					usageLastRead = time.Now()
+					eu = NewElectricityUsage()
+					gu = NewGasUsage()
+					wu = NewWaterUsage()
+				}
 				for _, meter := range g.meters {
 					err := meter.UpdateValues(es, eu, gu, wu, nil)
 					if err != nil {
 						if log.DebugEnabled() {
 							log.Debugf("Failed to read grid values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
 						}
-						return
+						continue outer
 					}
 				}
 				g.electricityState.SetValues(es)
-				if !eu.IsZero() {
+				if eu != nil && !eu.IsZero() {
 					g.electricityUsage.SetValues(eu)
 				}
-				if !es.IsZero() || !eu.IsZero() {
+				if !es.IsZero() || (eu != nil && !eu.IsZero()) {
 					electricityMeterValues := NewElectricityMeterValues().
 						SetName(g.Name()).
 						SetRole(g.Role()).
@@ -118,7 +126,7 @@ func (g *Grid) StartMeasuring(context context.Context) {
 						SetReadLineIndices(readLineIndices)
 					ElectricityMeterReadings.Trigger(electricityMeterValues)
 				}
-				if !gu.IsZero() {
+				if gu != nil && !gu.IsZero() {
 					g.gasUsage.SetValues(gu)
 					gasMeterValues := NewGasMeterValues().
 						SetName(g.Name()).
@@ -126,7 +134,7 @@ func (g *Grid) StartMeasuring(context context.Context) {
 						SetGasUsage(gu)
 					GasMeterReadings.Trigger(gasMeterValues)
 				}
-				if !wu.IsZero() {
+				if wu != nil && !wu.IsZero() {
 					g.waterUsage.SetValues(wu)
 					waterMeterValues := NewWaterMeterValues().
 						SetName(g.Name()).

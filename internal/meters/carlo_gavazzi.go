@@ -258,7 +258,7 @@ func (c *carloGavazziMeter) readEm24Values(electricityState *domain.ElectricityS
 		return err
 	}
 
-	if c.HasUsageAttribute() && c.shouldUpdateUsage() && electricityUsage != nil {
+	if c.HasUsageAttribute() && electricityUsage != nil {
 		modbusClient := c.modbusClient
 		if len(c.lineIndices) == 3 {
 			// Only set totals when all line indices are configured
@@ -290,7 +290,7 @@ func (c *carloGavazziMeter) readEx100SeriesValues(electricityState *domain.Elect
 		return err
 	}
 
-	if c.HasUsageAttribute() && c.shouldUpdateUsage() && electricityUsage != nil {
+	if c.HasUsageAttribute() && electricityUsage != nil {
 		modbusClient := c.modbusClient
 		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0010, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
 		if err != nil {
@@ -311,7 +311,7 @@ func (c *carloGavazziMeter) readEx300SeriesValues(electricityState *domain.Elect
 	if err != nil {
 		return err
 	}
-	if c.HasUsageAttribute() && c.shouldUpdateUsage() && electricityUsage != nil {
+	if c.HasUsageAttribute() && electricityUsage != nil {
 		modbusClient := c.modbusClient
 		if len(c.lineIndices) == 3 {
 			// Only set totals when all line indices are configured
@@ -354,7 +354,7 @@ func (c *carloGavazziMeter) readEM530andEM540Values(electricityState *domain.Ele
 	if err != nil {
 		return err
 	}
-	if c.HasUsageAttribute() && c.shouldUpdateUsage() && electricityUsage != nil {
+	if c.HasUsageAttribute() && electricityUsage != nil {
 		modbusClient := c.modbusClient
 		if len(c.lineIndices) == 3 {
 			// Only set totals when all line indices are configured

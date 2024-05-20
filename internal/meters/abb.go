@@ -81,7 +81,7 @@ func (a *abbMeter) readSinglePhaseValues(electricityState *domain.ElectricitySta
 		}
 		electricityState.SetPower(a.lineIndices[0], modbusClient.ValueFromInt32sResultArray(uint32s, 0, 100, 0))
 	}
-	if a.HasUsageAttribute() && a.shouldUpdateUsage() && electricityUsage != nil {
+	if a.HasUsageAttribute() && electricityUsage != nil {
 		uint64s, err := modbusClient.ReadUint64s(a.modbusUnitId, 0x5000, 2, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.HOLDING_REGISTER)
 		if err != nil {
 			return err
@@ -117,7 +117,7 @@ func (a *abbMeter) readThreePhaseValues(electricityState *domain.ElectricityStat
 			electricityState.SetPower(a.lineIndices[ix], modbusClient.ValueFromUint32sResultArray(uint32s, a.lineIndices[ix], 100, 0))
 		}
 	}
-	if a.HasUsageAttribute() && a.shouldUpdateUsage() && electricityUsage != nil {
+	if a.HasUsageAttribute() && electricityUsage != nil {
 		uint64s, err := modbusClient.ReadUint64s(a.modbusUnitId, 0x5000, 2, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.HOLDING_REGISTER)
 		if err != nil {
 			return err

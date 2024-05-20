@@ -118,7 +118,7 @@ func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState,
 		}
 	}
 
-	if v.HasUsageAttribute() && v.shouldUpdateUsage() && electricityUsage != nil {
+	if v.HasUsageAttribute() && electricityUsage != nil {
 		uint32s, err := modbusClient.ReadUint32s(v.modbusUnitId, 2622, 3, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
 		if err != nil {
 			return err
@@ -157,7 +157,7 @@ func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, e
 			electricityState.SetPower(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+2, 0, 0))
 		}
 	}
-	if v.HasUsageAttribute() && v.shouldUpdateUsage() && electricityUsage != nil {
+	if v.HasUsageAttribute() && electricityUsage != nil {
 		uint32s, err := modbusClient.ReadUint32s(v.modbusUnitId, 1046, 3, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
 		if err != nil {
 			return err

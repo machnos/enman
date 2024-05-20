@@ -10,15 +10,10 @@ import (
 	"time"
 )
 
-const (
-	meterUsageUpdateInterval = time.Second * 10
-)
-
 type modbusMeter struct {
-	modbusClient  *modbus.ModbusClient
-	modbusUnitId  uint8
-	usageLastRead time.Time
-	updInterval   time.Duration
+	modbusClient *modbus.ModbusClient
+	modbusUnitId uint8
+	updInterval  time.Duration
 }
 
 func (mm *modbusMeter) UpdateInterval() time.Duration {
@@ -39,14 +34,6 @@ func (mm *modbusMeter) shutdown() {
 		modbus.RemoveCached(mm.modbusClient)
 		mm.modbusClient = nil
 	}
-}
-
-func (mm *modbusMeter) shouldUpdateUsage() bool {
-	if mm.usageLastRead.IsZero() || (time.Now().Sub(mm.usageLastRead) > meterUsageUpdateInterval) {
-		mm.usageLastRead = time.Now()
-		return true
-	}
-	return false
 }
 
 func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
