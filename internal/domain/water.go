@@ -2,11 +2,6 @@ package domain
 
 import "encoding/json"
 
-type WaterMeter interface {
-	EnergyMeter
-	IsWaterMeter() bool
-}
-
 type WaterUsage struct {
 	waterConsumed float64
 }

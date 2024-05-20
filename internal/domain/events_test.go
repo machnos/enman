@@ -20,14 +20,14 @@ func Test_ElectricityMeterReadingsEventsWithoutFilter(t *testing.T) {
 func Test_ElectricityMeterReadingsEventsWithFilter(t *testing.T) {
 	listener := &MockEnergyMeterListener{}
 	ElectricityMeterReadings.Register(listener, func(values *ElectricityMeterValues) bool {
-		return values.MeterBrand() == "ABB"
+		return values.Name() == "GridMeter"
 	})
 	// Fire an event without a meter brand
 	ElectricityMeterReadings.Trigger(NewElectricityMeterValues())
 	// Fire an event with the correct meter brand
-	ElectricityMeterReadings.Trigger(NewElectricityMeterValues().SetMeterBrand("ABB"))
+	ElectricityMeterReadings.Trigger(NewElectricityMeterValues().SetName("GridMeter"))
 	// Fire an event with a wrong meter brand
-	ElectricityMeterReadings.Trigger(NewElectricityMeterValues().SetMeterBrand("Carlo Gavazzi"))
+	ElectricityMeterReadings.Trigger(NewElectricityMeterValues().SetName("NotAGridMeter"))
 	// Events are fired in separate go routines. Give the system some time to execute them.
 	time.Sleep(time.Millisecond * 10)
 	if listener.eventsReceived != 1 {

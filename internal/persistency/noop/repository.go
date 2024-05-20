@@ -9,50 +9,60 @@ type Repository struct {
 	domain.Repository
 }
 
-func (r *Repository) ElectricitySourceNames(time.Time, time.Time) ([]string, error) {
+func (r *Repository) ElectricitySourceNames(_ time.Time, _ time.Time) ([]string, error) {
 	return nil, nil
 }
-func (r *Repository) ElectricityUsages(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.ElectricityUsageRecord, error) {
+func (r *Repository) ElectricityUsages(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.ElectricityUsageRecord, error) {
 	return nil, nil
 }
-func (r *Repository) ElectricityUsageAtTime(time.Time, string, domain.EnergySourceRole, domain.MatchType) (*domain.ElectricityUsageRecord, error) {
+func (r *Repository) ElectricityUsageAtTime(_ time.Time, _ string, _ domain.EnergySourceRole, _ domain.MatchType) (*domain.ElectricityUsageRecord, error) {
 	return nil, nil
 }
-func (r *Repository) ElectricityStates(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.ElectricityStateRecord, error) {
+func (r *Repository) ElectricityStates(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.ElectricityStateRecord, error) {
 	return nil, nil
 }
-func (r *Repository) ElectricityCosts(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.ElectricityCostRecord, error) {
+func (r *Repository) ElectricityCosts(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.ElectricityCostRecord, error) {
 	return nil, nil
 }
-func (r *Repository) EnergyPriceProviderNames(time.Time, time.Time) ([]string, error) {
+func (r *Repository) EnergyPriceProviderNames(_ time.Time, _ time.Time) ([]string, error) {
 	return nil, nil
 }
-func (r *Repository) EnergyPrices(time.Time, time.Time, string) ([]*domain.EnergyPrice, error) {
+func (r *Repository) EnergyPrices(_ time.Time, _ time.Time, _ string) ([]*domain.EnergyPrice, error) {
 	return nil, nil
 }
-func (r *Repository) EnergyPriceAtTime(time.Time, string, domain.MatchType) (*domain.EnergyPrice, error) {
+func (r *Repository) EnergyPriceAtTime(_ time.Time, _ string, _ domain.MatchType) (*domain.EnergyPrice, error) {
 	return nil, nil
 }
-func (r *Repository) StoreEnergyPrice(*domain.EnergyPrice) {
+func (r *Repository) StoreEnergyPrice(_ *domain.EnergyPrice) {
 }
-func (r *Repository) GasSourceNames(time.Time, time.Time) ([]string, error) {
+func (r *Repository) GasSourceNames(_ time.Time, _ time.Time) ([]string, error) {
 	return nil, nil
 }
-func (r *Repository) GasUsages(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.GasUsageRecord, error) {
+func (r *Repository) GasUsages(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.GasUsageRecord, error) {
 	return nil, nil
 }
-func (r *Repository) GasUsageAtTime(time.Time, string, domain.EnergySourceRole, domain.MatchType) (*domain.GasUsageRecord, error) {
+func (r *Repository) GasUsageAtTime(_ time.Time, _ string, _ domain.EnergySourceRole, _ domain.MatchType) (*domain.GasUsageRecord, error) {
 	return nil, nil
 }
-func (r *Repository) WaterSourceNames(time.Time, time.Time) ([]string, error) {
+func (r *Repository) WaterSourceNames(_ time.Time, _ time.Time) ([]string, error) {
 	return nil, nil
 }
-func (r *Repository) WaterUsages(time.Time, time.Time, string, *domain.AggregateConfiguration) ([]*domain.WaterUsageRecord, error) {
+func (r *Repository) WaterUsages(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.WaterUsageRecord, error) {
 	return nil, nil
 }
-func (r *Repository) WaterUsageAtTime(time.Time, string, domain.EnergySourceRole, domain.MatchType) (*domain.WaterUsageRecord, error) {
+func (r *Repository) WaterUsageAtTime(_ time.Time, _ string, _ domain.EnergySourceRole, _ domain.MatchType) (*domain.WaterUsageRecord, error) {
 	return nil, nil
 }
+func (r *Repository) BatterySourceNames(_ time.Time, _ time.Time) ([]string, error) {
+	return nil, nil
+}
+func (r *Repository) BatteryStates(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.BatteryStateRecord, error) {
+	return nil, nil
+}
+func (r *Repository) BatteryStateAtTime(_ time.Time, _ string, _ domain.EnergySourceRole, _ domain.MatchType) (*domain.BatteryStateRecord, error) {
+	return nil, nil
+}
+
 func (r *Repository) Close() {
 }
 func (r *Repository) Initialize() error {

@@ -261,12 +261,12 @@ func TestTLSServer(t *testing.T) {
 
 	// client #1 should only be allowed access to holding registers of unit id #1
 	// while client#2 should be allowed access to holding registers of unit ids #1 and #4
-	err = c1.WriteRegister(1, 2, 100)
+	err = c1.WriteRegister(1, 2, 100, BIG_ENDIAN)
 	if err != nil {
 		t.Errorf("c1.WriteRegister() should have succeeded, got: %v", err)
 	}
 
-	err = c1.WriteRegister(4, 2, 200)
+	err = c1.WriteRegister(4, 2, 200, BIG_ENDIAN)
 	if err != ErrIllegalFunction {
 		t.Errorf("c1.WriteRegister() should have failed with %v, got: %v",
 			ErrIllegalFunction, err)
@@ -280,7 +280,7 @@ func TestTLSServer(t *testing.T) {
 		t.Errorf("unexpected register values: %v", regs)
 	}
 
-	err = c2.WriteRegister(4, 2, 200)
+	err = c2.WriteRegister(4, 2, 200, BIG_ENDIAN)
 	if err != nil {
 		t.Errorf("c2.WriteRegister() should have succeeded, got: %v", err)
 	}

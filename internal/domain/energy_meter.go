@@ -1,12 +1,17 @@
 package domain
 
-import "context"
+import "time"
 
 type EnergyMeter interface {
-	Name() string
-	Role() EnergySourceRole
 	Brand() string
 	Model() string
 	Serial() string
-	StartReading(context.Context)
+	UpdateInterval() time.Duration
+	UpdateValues(
+		electricityState *ElectricityState,
+		electricityUsage *ElectricityUsage,
+		gasUsage *GasUsage,
+		waterUsage *WaterUsage,
+		batteryState *BatteryState) error
+	Shutdown()
 }

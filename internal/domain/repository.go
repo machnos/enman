@@ -49,6 +49,10 @@ type Repository interface {
 	WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*WaterUsageRecord, error)
 	WaterUsageAtTime(moment time.Time, sourceName string, role EnergySourceRole, timeMatchType MatchType) (*WaterUsageRecord, error)
 
+	BatterySourceNames(from time.Time, till time.Time) ([]string, error)
+	BatteryStates(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*BatteryStateRecord, error)
+	BatteryStateAtTime(moment time.Time, sourceName string, role EnergySourceRole, timeMatchType MatchType) (*BatteryStateRecord, error)
+
 	Initialize() error
 	Close()
 }
@@ -189,6 +193,13 @@ type WaterUsageRecord struct {
 	Name string
 	Role string
 	*WaterUsage
+}
+
+type BatteryStateRecord struct {
+	Time time.Time
+	Name string
+	Role string
+	*BatteryState
 }
 
 type ElectricityCostRecord struct {

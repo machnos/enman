@@ -61,6 +61,7 @@ func (p *PricesApi) prices(w http.ResponseWriter, r *http.Request) {
 func (p *PricesApi) providers(w http.ResponseWriter, r *http.Request) {
 	rsp := struct {
 		Providers []string `json:"providers"`
+		Grid      string   `json:"grid"`
 	}{}
 	startTime, endTime, success := p.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
@@ -73,6 +74,7 @@ func (p *PricesApi) providers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rsp.Providers = providers
+	rsp.Grid = p.System.Grid().Name()
 	render.JSON(w, r, rsp)
 }
 

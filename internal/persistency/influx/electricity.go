@@ -69,7 +69,7 @@ func (i *influxRepository) ElectricityUsages(
 	}
 	energyUsages := make([]*domain.ElectricityUsageRecord, 0)
 	for result.Next() {
-		energyUsages = append(energyUsages, i.NewElectricityUsageFromRecord(result.Record()))
+		energyUsages = append(energyUsages, i.newElectricityUsageFromRecord(result.Record()))
 	}
 	if result.Err() != nil {
 		return nil, result.Err()
@@ -113,7 +113,7 @@ func (i *influxRepository) ElectricityUsageAtTime(moment time.Time, sourceName s
 	if !hasNext {
 		return nil, nil
 	}
-	return i.NewElectricityUsageFromRecord(result.Record()), nil
+	return i.newElectricityUsageFromRecord(result.Record()), nil
 }
 
 func (i *influxRepository) ElectricityStates(
@@ -206,7 +206,7 @@ func (i *influxRepository) ElectricityCosts(
 	return costs, nil
 }
 
-func (i *influxRepository) NewElectricityUsageFromRecord(record *query.FluxRecord) *domain.ElectricityUsageRecord {
+func (i *influxRepository) newElectricityUsageFromRecord(record *query.FluxRecord) *domain.ElectricityUsageRecord {
 	electricityUsage := &domain.ElectricityUsageRecord{
 		Time:             record.Time(),
 		Name:             record.ValueByKey(tagName).(string),

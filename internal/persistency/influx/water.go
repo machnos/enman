@@ -49,7 +49,7 @@ func (i *influxRepository) WaterUsages(
 	}
 	waterUsages := make([]*domain.WaterUsageRecord, 0)
 	for result.Next() {
-		waterUsages = append(waterUsages, i.NewWaterUsageFromRecord(result.Record()))
+		waterUsages = append(waterUsages, i.newWaterUsageFromRecord(result.Record()))
 	}
 	if result.Err() != nil {
 		return nil, result.Err()
@@ -93,10 +93,10 @@ func (i *influxRepository) WaterUsageAtTime(moment time.Time, sourceName string,
 	if !hasNext {
 		return nil, nil
 	}
-	return i.NewWaterUsageFromRecord(result.Record()), nil
+	return i.newWaterUsageFromRecord(result.Record()), nil
 }
 
-func (i *influxRepository) NewWaterUsageFromRecord(record *query.FluxRecord) *domain.WaterUsageRecord {
+func (i *influxRepository) newWaterUsageFromRecord(record *query.FluxRecord) *domain.WaterUsageRecord {
 	waterUsage := &domain.WaterUsageRecord{
 		Time:       record.Time(),
 		Name:       record.ValueByKey(tagName).(string),

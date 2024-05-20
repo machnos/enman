@@ -28,6 +28,9 @@ const (
 	bucketWaterHour                = bucketWater + "_hour"
 	bucketWaterDay                 = bucketWater + "_day"
 	bucketWaterMonth               = bucketWater + "_month"
+	bucketBatteryHour              = bucketBattery + "_hour"
+	bucketBatteryDay               = bucketBattery + "_day"
+	bucketBatteryMonth             = bucketBattery + "_month"
 	queryTimeout                   = 30
 	electricityAggregationTemplate = "influx_task_electricity_aggregation.tmpl"
 	measurementUsage               = "usage"
@@ -65,6 +68,10 @@ func NewInfluxRepository(serverUrl string, token string) enmandomain.Repository 
 		client:    influxdb2.NewClientWithOptions(serverUrl, token, influxdb2.DefaultOptions().SetHTTPClient(httpClient)),
 		writeApis: make(map[string]api.WriteAPI),
 	}
+	repo.writeApis[bucketElectricity] = repo.client.WriteAPI(organization, bucketElectricity)
+	repo.writeApis[bucketGas] = repo.client.WriteAPI(organization, bucketGas)
+	repo.writeApis[bucketWater] = repo.client.WriteAPI(organization, bucketWater)
+	repo.writeApis[bucketBattery] = repo.client.WriteAPI(organization, bucketBattery)
 	repo.writeApis[bucketElectricity] = repo.client.WriteAPI(organization, bucketElectricity)
 	repo.writeApis[bucketPrices] = repo.client.WriteAPI(organization, bucketPrices)
 	repo.queryApi = repo.client.QueryAPI(organization)
@@ -138,7 +145,23 @@ func (i *influxRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
-	// TODO migrate tasks logic to application (also for gas & water)
+	err = i.createBucketWhenNotPresent(org, bucketBattery, int64((time.Hour * 24 * 90).Seconds()))
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketBatteryHour, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketBatteryDay, 0)
+	if err != nil {
+		return err
+	}
+	err = i.createBucketWhenNotPresent(org, bucketBatteryMonth, 0)
+	if err != nil {
+		return err
+	}
+	// TODO migrate tasks logic to application (also for gas, water & battery)
 	err = i.createTaskWhenNotPresent(org,
 		"Electricity per hour",
 		"1h",
@@ -182,6 +205,7 @@ func (i *influxRepository) Initialize() error {
 	enmandomain.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: i}, nil)
 	enmandomain.GasMeterReadings.Register(&GasMeterValueChangeListener{repo: i}, nil)
 	enmandomain.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: i}, nil)
+	enmandomain.BatteryMeterReadings.Register(&BatteryMeterValueChangeListener{repo: i}, nil)
 	return nil
 }
 

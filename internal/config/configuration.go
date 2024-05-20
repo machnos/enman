@@ -12,6 +12,8 @@ type Configuration struct {
 	Http          *Http            `json:"http"`
 	Grid          *Grid            `json:"grid"`
 	Pvs           []*Pv            `json:"pvs" validate:"dive"`
+	AcLoads       []*AcLoad        `json:"ac_loads" validate:"dive"`
+	Batteries     []*Battery       `json:"batteries" validate:"dive"`
 	Persistency   *Persistency     `json:"persistency"`
 	ModbusServers []*ModbusServers `json:"modbus_servers" validate:"dive"`
 	Prices        *Prices          `json:"prices"`
@@ -22,14 +24,30 @@ type Grid struct {
 	Voltage              uint16                `json:"voltage"`
 	MaxCurrent           float32               `json:"max_current" validate:"gte=0"`
 	Phases               uint8                 `json:"phases"`
+	TargetConsumption    int                   `json:"target_consumption"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
+	Controller           *GridController       `json:"controller"`
 }
 
 type Pv struct {
 	Name                 string                `json:"name" validate:"required"`
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
+	Controller           *PvController         `json:"controller"`
+}
+
+type AcLoad struct {
+	Name                 string                `json:"name" validate:"required"`
+	Role                 string                `json:"role" validate:"required,oneof=EvCharger"`
+	PercentageFromGrid   uint8                 `json:"percentage_from_grid" validate:"gte=0,lte=100"`
+	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
+	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
+}
+
+type Battery struct {
+	Name   string         `json:"name" validate:"required"`
+	Meters []*EnergyMeter `json:"meters" validate:"dive"`
 }
 
 type EnergyMeter struct {
@@ -38,8 +56,21 @@ type EnergyMeter struct {
 	Brand        string   `json:"brand" validate:"oneof='ABB' 'Carlo Gavazzi' 'DSMR' 'Victron' ''"`
 	ModbusUnitId uint8    `json:"modbus_unit_id" validate:"required_if=Type modbus"`
 	Speed        uint32   `json:"speed"`
-	LineIndices  []uint8  `json:"line_indices" validate:"required,gte=1,lte=3"`
+	LineIndices  []uint8  `json:"line_indices" validate:"gte=0,lte=3,dive,gte=0,lte=2"`
 	Attributes   []string `json:"attributes" validate:"dive,oneof='state' 'usage' ''"`
+}
+
+type GridController struct {
+	ConnectURL string `json:"connect_url"`
+	Type       string `json:"type" validate:"required,oneof=modbus"`
+	Brand      string `json:"brand" validate:"oneof='Victron' ''"`
+	Speed      uint32 `json:"speed"`
+}
+
+type PvController struct {
+	ConnectURL string `json:"connect_url"`
+	Type       string `json:"type" validate:"required,oneof=http"`
+	Brand      string `json:"brand" validate:"oneof='Shelly' ''"`
 }
 
 type ModbusMeterSimulator struct {
@@ -113,9 +144,22 @@ func LoadConfiguration(configFile string) (*Configuration, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = gpv.New().Struct(configuration)
+	validator := gpv.New()
+	err = validator.Struct(configuration)
 	if err != nil {
 		return nil, err
 	}
 	return configuration, nil
+}
+
+func requiredIfParent(fieldValue gpv.FieldLevel) bool {
+	parent := fieldValue.Parent()
+	parentType := parent.Type().Name()
+	if parentType == "Pv" {
+		if fieldValue.Field().String() == "" {
+			return false
+		}
+	}
+	return true
+
 }

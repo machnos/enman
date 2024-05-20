@@ -21,12 +21,6 @@ const (
 	MaxPhases uint8 = 3
 )
 
-type ElectricityMeter interface {
-	EnergyMeter
-	IsElectricityMeter() bool
-	LineIndices() []uint8
-}
-
 type ElectricityUsage struct {
 	energyConsumed      [MaxPhases]float64
 	totalEnergyConsumed float64

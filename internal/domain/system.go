@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"time"
 )
 
@@ -14,9 +15,11 @@ const (
 )
 
 type System struct {
-	location *time.Location
-	grid     *Grid
-	pvs      []*Pv
+	location  *time.Location
+	grid      *Grid
+	pvs       []*Pv
+	acLoads   []*AcLoad
+	batteries []*Battery
 }
 
 func NewSystem(location *time.Location) *System {
@@ -29,29 +32,20 @@ func (s *System) Location() *time.Location {
 	return s.location
 }
 
-func (s *System) SetGrid(name string, voltage uint16, maxCurrentPerPhase float32, phases uint8) *System {
-	if s.grid != nil {
-		ElectricityMeterReadings.Deregister(&GridElectricityMeterListener{grid: s.grid})
-	}
+func (s *System) SetGrid(name string, voltage uint16, maxCurrentPerPhase float32, phases uint8, targetConsumption int, meters []EnergyMeter, controller GridController) *System {
 	s.grid = &Grid{
 		name:               name,
 		voltage:            voltage,
 		maxCurrentPerPhase: maxCurrentPerPhase,
 		phases:             phases,
+		targetConsumption:  targetConsumption,
+		meters:             meters,
+		controller:         controller,
 		electricityState:   NewElectricityState(),
 		electricityUsage:   NewElectricityUsage(),
 		gasUsage:           NewGasUsage(),
 		waterUsage:         NewWaterUsage(),
 	}
-	ElectricityMeterReadings.Register(&GridElectricityMeterListener{grid: s.grid}, func(values *ElectricityMeterValues) bool {
-		return s.grid.name == values.Name() && RoleGrid == values.Role()
-	})
-	GasMeterReadings.Register(&GridGasMeterListener{grid: s.grid}, func(values *GasMeterValues) bool {
-		return s.grid.name == values.Name() && RoleGrid == values.Role()
-	})
-	WaterMeterReadings.Register(&GridWaterMeterListener{grid: s.grid}, func(values *WaterMeterValues) bool {
-		return s.grid.name == values.Name() && RoleGrid == values.Role()
-	})
 	return s
 }
 
@@ -59,16 +53,13 @@ func (s *System) Grid() *Grid {
 	return s.grid
 }
 
-func (s *System) AddPv(name string) *System {
-	pv := &Pv{
+func (s *System) AddPv(name string, meters []EnergyMeter) *System {
+	s.pvs = append(s.pvs, &Pv{
 		name:             name,
+		meters:           meters,
 		electricityState: NewElectricityState(),
 		electricityUsage: NewElectricityUsage(),
-	}
-	ElectricityMeterReadings.Register(&PvMeterListener{pv: pv}, func(values *ElectricityMeterValues) bool {
-		return pv.name == values.Name() && RolePv == values.Role()
 	})
-	s.pvs = append(s.pvs, pv)
 	return s
 }
 
@@ -76,106 +67,46 @@ func (s *System) Pvs() []*Pv {
 	return s.pvs
 }
 
-type ElectricitySource interface {
-	Pv | Grid
-	Name() string
-	ElectricityState() *ElectricityState
-	ElectricityUsage() *ElectricityUsage
+func (s *System) AcLoads() []*AcLoad {
+	return s.acLoads
 }
 
-type Grid struct {
-	name               string
-	voltage            uint16
-	maxCurrentPerPhase float32
-	phases             uint8
-	electricityState   *ElectricityState
-	electricityUsage   *ElectricityUsage
-	gasUsage           *GasUsage
-	waterUsage         *WaterUsage
+func (s *System) AddAcLoad(name string, role EnergySourceRole, percentageFromGrid uint8, meters []EnergyMeter) *System {
+	s.acLoads = append(s.acLoads, &AcLoad{
+		name:               name,
+		role:               role,
+		percentageFromGrid: percentageFromGrid,
+		meters:             meters,
+		electricityState:   NewElectricityState(),
+		electricityUsage:   NewElectricityUsage(),
+	})
+	return s
 }
 
-func (g *Grid) Name() string {
-	return g.name
+func (s *System) Batteries() []*Battery {
+	return s.batteries
 }
 
-func (g *Grid) Voltage() uint16 {
-	return g.voltage
+func (s *System) AddBattery(name string, meters []EnergyMeter) *System {
+	s.batteries = append(s.batteries, &Battery{
+		name:         name,
+		meters:       meters,
+		batteryState: NewBatteryState(),
+	})
+	return s
 }
 
-func (g *Grid) MaxCurrentPerPhase() float32 {
-	return g.maxCurrentPerPhase
-}
-
-func (g *Grid) Phases() uint8 {
-	return g.phases
-}
-
-func (g *Grid) ElectricityState() *ElectricityState {
-	return g.electricityState
-}
-
-func (g *Grid) ElectricityUsage() *ElectricityUsage {
-	return g.electricityUsage
-}
-
-type GridElectricityMeterListener struct {
-	grid *Grid
-}
-
-func (geml *GridElectricityMeterListener) HandleEvent(values *ElectricityMeterValues) {
-	if values.ElectricityState() != nil {
-		geml.grid.electricityState.SetValues(values.ElectricityState())
+func (s *System) StartMeasuring(context context.Context) {
+	if s.grid != nil {
+		s.grid.StartMeasuring(context)
 	}
-	if values.electricityUsage != nil {
-		geml.grid.electricityUsage.SetValues(values.ElectricityUsage())
+	for _, pv := range s.Pvs() {
+		pv.StartMeasuring(context)
 	}
-}
-
-type GridGasMeterListener struct {
-	grid *Grid
-}
-
-func (ggml *GridGasMeterListener) HandleEvent(values *GasMeterValues) {
-	if values.GasUsage() != nil {
-		ggml.grid.gasUsage.SetValues(values.GasUsage())
+	for _, acLoad := range s.AcLoads() {
+		acLoad.StartMeasuring(context)
 	}
-}
-
-type GridWaterMeterListener struct {
-	grid *Grid
-}
-
-func (gwml *GridWaterMeterListener) HandleEvent(values *WaterMeterValues) {
-	if values.WaterUsage() != nil {
-		gwml.grid.waterUsage.SetValues(values.WaterUsage())
-	}
-}
-
-type Pv struct {
-	name             string
-	electricityState *ElectricityState
-	electricityUsage *ElectricityUsage
-}
-
-func (p *Pv) Name() string {
-	return p.name
-}
-
-func (p *Pv) ElectricityState() *ElectricityState {
-	return p.electricityState
-}
-
-func (p *Pv) ElectricityUsage() *ElectricityUsage {
-	return p.electricityUsage
-}
-
-type PvMeterListener struct {
-	pv *Pv
-}
-
-func (pvml *PvMeterListener) HandleEvent(values *ElectricityMeterValues) {
-	pvml.pv.electricityState.SetValues(values.ElectricityState())
-	if values.electricityUsage != nil {
-		pvml.pv.electricityUsage.SetValues(values.ElectricityUsage())
+	for _, battery := range s.Batteries() {
+		battery.StartMeasuring(context)
 	}
 }

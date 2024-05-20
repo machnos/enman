@@ -9,6 +9,7 @@ import (
 	"enman/internal/log"
 	"enman/internal/prices"
 	"fmt"
+	"golang.org/x/sync/syncmap"
 	"io"
 	"math"
 	"net/http"
@@ -159,8 +160,7 @@ type PriceImporter struct {
 	securityToken    string
 	energyProviders  []config.EnergyProvider
 	repository       domain.Repository
-	registeredEvents map[string]bool
-	eventMutex       sync.Mutex
+	registeredEvents sync.Map
 }
 
 func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, endDate time.Time) error {
@@ -238,29 +238,24 @@ func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain
 		}
 		return
 	}
-	e.eventMutex.Lock()
-	_, ok := e.registeredEvents[eventKey]
+	_, ok := e.registeredEvents.Load(eventKey)
 	if ok {
 		if log.DebugEnabled() {
 			log.Debugf("Not registering price task because it was already registered %s", eventKey)
 		}
-		e.eventMutex.Unlock()
 		return
 	}
 	if log.DebugEnabled() {
 		log.Debugf("Registering price task %s", eventKey)
 	}
-	e.registeredEvents[eventKey] = true
-	e.eventMutex.Unlock()
+	e.registeredEvents.Store(eventKey, true)
 	timer := time.NewTimer(time.Until(price.Time))
 	defer timer.Stop()
 
 	select {
 	case <-timer.C:
 		domain.ElectricityPrices.Trigger(event)
-		e.eventMutex.Lock()
-		delete(e.registeredEvents, eventKey)
-		e.eventMutex.Unlock()
+		e.registeredEvents.Delete(eventKey)
 		if log.DebugEnabled() {
 			log.Debugf("Deregistered price task because it was fired %s", eventKey)
 		}
@@ -523,6 +518,6 @@ func NewEntsoeImporter(county string, area string, securityToken string, energyP
 		securityToken:    securityToken,
 		energyProviders:  energyProviders,
 		repository:       repository,
-		registeredEvents: make(map[string]bool),
+		registeredEvents: syncmap.Map{},
 	}, nil
 }

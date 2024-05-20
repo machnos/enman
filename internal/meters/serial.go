@@ -14,7 +14,6 @@ type serialMeter struct {
 	serialPort   serial.Port
 	reader       *bufio.Reader
 	updInterval  time.Duration
-	meter        implementingEnergyMeter
 }
 
 func newSerialMeter(serialConfig *serial.Config) *serialMeter {
@@ -24,16 +23,11 @@ func newSerialMeter(serialConfig *serial.Config) *serialMeter {
 	}
 }
 
-func (sm *serialMeter) updateInterval() time.Duration {
+func (sm *serialMeter) UpdateInterval() time.Duration {
 	return sm.updInterval
 }
 
-func (sm *serialMeter) readValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, waterUsage *domain.WaterUsage) {
-	sm.meter.readValues(electricityState, electricityUsage, gasUsage, waterUsage)
-}
-
 func (sm *serialMeter) shutdown() {
-	sm.meter.shutdown()
 	if sm.serialPort != nil {
 		err := sm.serialPort.Close()
 		if err != nil && log.DebugEnabled() {
@@ -43,11 +37,7 @@ func (sm *serialMeter) shutdown() {
 	}
 }
 
-func (sm *serialMeter) enrichEvents(electricityMeterValues *domain.ElectricityMeterValues, gasMeterValues *domain.GasMeterValues, waterMeterValues *domain.WaterMeterValues) {
-	sm.meter.enrichEvents(electricityMeterValues, gasMeterValues, waterMeterValues)
-}
-
-func probeSerialMeter(name string, _ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeSerialMeter(_ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
 	if meterConfig.Speed != 0 {
 		probeBaudRates = []uint{uint(meterConfig.Speed)}
@@ -65,7 +55,7 @@ func probeSerialMeter(name string, _ domain.EnergySourceRole, meterConfig *confi
 			if log.InfoEnabled() {
 				log.Infof("Probing for DSMR meter with baud rate %d at %s", rate, meterConfig.ConnectURL)
 			}
-			meter, err := newDsmrMeter(name, serialConfig, meterConfig)
+			meter, err := newDsmrMeter(serialConfig, meterConfig)
 			if err == nil {
 				return meter
 			}

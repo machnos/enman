@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"enman/internal/config"
+	"enman/internal/controllers"
 	"enman/internal/domain"
 	"enman/internal/http"
 	"enman/internal/log"
@@ -42,10 +43,34 @@ func main() {
 
 	// Setup system
 	system := domain.NewSystem(time.Now().Location())
-	system.SetGrid(configuration.Grid.Name, configuration.Grid.Voltage, configuration.Grid.MaxCurrent, configuration.Grid.Phases)
+	system.SetGrid(configuration.Grid.Name,
+		configuration.Grid.Voltage,
+		configuration.Grid.MaxCurrent,
+		configuration.Grid.Phases,
+		configuration.Grid.TargetConsumption,
+		meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters),
+		controllers.ProbeGridController(configuration.Grid.Controller),
+	)
 	for _, pv := range configuration.Pvs {
-		system.AddPv(pv.Name)
+		system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters))
 	}
+	for _, acLoad := range configuration.AcLoads {
+		system.AddAcLoad(acLoad.Name,
+			domain.EnergySourceRole(acLoad.Role),
+			acLoad.PercentageFromGrid,
+			meters.ProbeEnergyMeters(domain.EnergySourceRole(acLoad.Role), acLoad.Meters),
+		)
+	}
+	for _, battery := range configuration.Batteries {
+		system.AddBattery(battery.Name,
+			meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters),
+		)
+	}
+	syncGroup.Go(func() error {
+		<-syncGroupContext.Done()
+		modbus.EmptyClientCache()
+		return nil
+	})
 
 	// Setup repository
 	repository := loadRepository(configuration)
@@ -54,11 +79,11 @@ func main() {
 		log.Warningf("Unable to initialize database: %s", err.Error())
 		//syscall.Exit(-1)
 	}
-	syncGroup.Go(func() error {
-		<-syncGroupContext.Done()
-		repository.Close()
-		return nil
-	})
+	//syncGroup.Go(func() error {
+	//	<-syncGroupContext.Done()
+	//	repository.Close()
+	//	return nil
+	//})
 
 	// Setup domain event listeners
 	costCalculator := domain.NewElectricityUsageCostCalculator(repository)
@@ -68,17 +93,15 @@ func main() {
 		domain.ElectricityPrices.Deregister(costCalculator)
 		return nil
 	})
-
-	// Setup energy meters
-	gridMeter := meters.ProbeEnergyMeter(configuration.Grid.Name, domain.RoleGrid, configuration.Grid.Meters)
-	if gridMeter != nil {
-		gridMeter.StartReading(syncGroupContext)
-	}
-	for _, pv := range configuration.Pvs {
-		energyMeter := meters.ProbeEnergyMeter(pv.Name, domain.RolePv, pv.Meters)
-		if energyMeter != nil {
-			energyMeter.StartReading(syncGroupContext)
-		}
+	consumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
+	if err != nil {
+		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
+	} else {
+		syncGroup.Go(func() error {
+			<-syncGroupContext.Done()
+			consumptionCalculator.Stop()
+			return nil
+		})
 	}
 
 	// Set price importers
@@ -147,7 +170,10 @@ func main() {
 			return nil
 		})
 	}
+	// Start all meters on the System.
+	system.StartMeasuring(syncGroupContext)
 
+	// Start the http server
 	httpServer, err := http.NewServer(configuration.Http, system, repository)
 	if err != nil {
 		log.Warningf("Failed to create http server: %s", err.Error())
@@ -162,6 +188,8 @@ func main() {
 	if err := syncGroup.Wait(); err != nil {
 		log.Errorf("%v", err)
 	}
+	// close repo after everything else is shutdown
+	repository.Close()
 }
 
 func loadRepository(configuration *config.Configuration) domain.Repository {
@@ -212,6 +240,28 @@ func createModbusServers(config *config.Configuration, system *domain.System) []
 						p.ElectricityUsage())
 					if simulator != nil {
 						requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
+					}
+					break
+				}
+			}
+		}
+	}
+	for _, acLoad := range config.AcLoads {
+		if acLoad.ModbusMeterSimulator != nil {
+			if acLoad.Name == "" {
+				log.Warningf("AcLoad with modbus simulator id %d has no name. The name is required for the meter simulator to work. ", acLoad.ModbusMeterSimulator.ModbusUnitId)
+				continue
+			}
+			for _, a := range system.AcLoads() {
+				if a.Name() == acLoad.Name && a.Role() == domain.EnergySourceRole(acLoad.Role) {
+					log.Infof("Adding %s energy meter simulator for AcLoad %s at unit id %d", acLoad.ModbusMeterSimulator.MeterType, acLoad.Name, acLoad.ModbusMeterSimulator.ModbusUnitId)
+					simulator := proxy.NewMeterSimulator(
+						acLoad.ModbusMeterSimulator.MeterType,
+						acLoad.ModbusMeterSimulator.ModbusUnitId,
+						a.ElectricityState(),
+						a.ElectricityUsage())
+					if simulator != nil {
+						requestHandler.AddHandler(acLoad.ModbusMeterSimulator.ModbusUnitId, simulator)
 					}
 					break
 				}

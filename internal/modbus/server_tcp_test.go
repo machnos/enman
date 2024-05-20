@@ -451,7 +451,7 @@ func TestTCPServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// write to a single valid register (with opcode 0x06)
-	err = client.WriteRegister(9, 0x0007, 0xfea1)
+	err = client.WriteRegister(9, 0x0007, 0xfea1, BIG_ENDIAN)
 	if err != nil {
 		t.Errorf("client.WriteRegister() should have succeeded, got: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestTCPServerHoldingAndInputRegisters(t *testing.T) {
 	}
 
 	// write to a single valid register (with opcode 0x06)
-	err = client.WriteRegister(9, 0x0000, 0x0c00)
+	err = client.WriteRegister(9, 0x0000, 0x0c00, BIG_ENDIAN)
 	if err != nil {
 		t.Errorf("client.WriteRegister() should have succeeded, got: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestTCPServerHoldingAndInputRegisters(t *testing.T) {
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteRegisters() should have returned ErrIllegalFunction, got: %v", err)
 	}
-	err = client.WriteRegister(2, 0x0001, 0xffff)
+	err = client.WriteRegister(2, 0x0001, 0xffff, BIG_ENDIAN)
 	if err != ErrIllegalFunction {
 		t.Errorf("client.WriteRegister() should have returned ErrIllegalFunction, got: %v", err)
 	}

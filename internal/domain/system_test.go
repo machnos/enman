@@ -10,7 +10,7 @@ func Test_SetGrid(t *testing.T) {
 	// Create a new system.
 	system := NewSystem(time.Now().Location())
 	gridName := "TestGrid"
-	system.SetGrid(gridName, 230, 25, 3)
+	system.SetGrid(gridName, 230, 25, 3, 0, nil, nil)
 
 	currentUsage := system.Grid().ElectricityUsage()
 	currentState := system.Grid().ElectricityState()
@@ -87,7 +87,7 @@ func Test_AddPv(t *testing.T) {
 	system := NewSystem(time.Now().Location())
 	pvName1 := "TestPv1"
 	pvName2 := "TestPv2"
-	system.AddPv(pvName1).AddPv(pvName2)
+	system.AddPv(pvName1, nil).AddPv(pvName2, nil)
 
 	currentUsagePv1 := system.Pvs()[0].ElectricityUsage()
 	currentStatePv1 := system.Pvs()[0].ElectricityState()
