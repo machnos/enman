@@ -3,30 +3,31 @@ package domain
 import (
 	"enman/internal/log"
 	"fmt"
+	"sync"
 	"time"
 )
 
 type ElectricityUsageCostCalculator struct {
 	repository     Repository
-	previousValues map[string]*ElectricityPriceValues
+	previousValues sync.Map
 }
 
 func NewElectricityUsageCostCalculator(repository Repository) *ElectricityUsageCostCalculator {
 	calculator := &ElectricityUsageCostCalculator{
-		repository:     repository,
-		previousValues: make(map[string]*ElectricityPriceValues),
+		repository: repository,
 	}
 	return calculator
 }
 
 func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceValues) {
 	cacheKey := fmt.Sprintf("%s", values.EnergyProviderName())
-	defer func() { e.previousValues[cacheKey] = values }()
+	defer func() { e.previousValues.Store(cacheKey, values) }()
 	var startTime time.Time
 	previousConsumptionPrice := float32(0)
 	previousFeedbackPrice := float32(0)
 	endTime := values.PriceStartingTime()
-	if value, ok := e.previousValues[cacheKey]; ok {
+	if value, ok := e.previousValues.Load(cacheKey); ok {
+		value := value.(*ElectricityPriceValues)
 		startTime = value.PriceStartingTime()
 		previousConsumptionPrice = value.ConsumptionPrice()
 		previousFeedbackPrice = value.FeedbackPrice()
