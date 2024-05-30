@@ -66,11 +66,6 @@ func main() {
 			meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters),
 		)
 	}
-	syncGroup.Go(func() error {
-		<-syncGroupContext.Done()
-		modbus.EmptyClientCache()
-		return nil
-	})
 
 	// Setup repository
 	repository := loadRepository(configuration)
@@ -79,29 +74,15 @@ func main() {
 		log.Warningf("Unable to initialize database: %s", err.Error())
 		//syscall.Exit(-1)
 	}
-	//syncGroup.Go(func() error {
-	//	<-syncGroupContext.Done()
-	//	repository.Close()
-	//	return nil
-	//})
 
 	// Setup domain event listeners
 	costCalculator := domain.NewElectricityUsageCostCalculator(repository)
 	domain.ElectricityPrices.Register(costCalculator, nil)
-	syncGroup.Go(func() error {
-		<-syncGroupContext.Done()
-		domain.ElectricityPrices.Deregister(costCalculator)
-		return nil
-	})
-	consumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
+
+	// Setup grid target consumption calculator
+	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
-	} else {
-		syncGroup.Go(func() error {
-			<-syncGroupContext.Done()
-			consumptionCalculator.Stop()
-			return nil
-		})
 	}
 
 	// Set price importers
@@ -158,17 +139,6 @@ func main() {
 			log.Infof("Modbus proxy on %s started", server.ServerUrl())
 			return nil
 		})
-		syncGroup.Go(func() error {
-			<-syncGroupContext.Done()
-			log.Infof("Shutting down modbus proxy on %s", server.ServerUrl())
-			err := server.Stop()
-			if err != nil {
-				log.Warningf("Failed to stop modbus proxy on: %s", err.Error())
-				return err
-			}
-			log.Infof("Modbus proxy on %s shutdown", server.ServerUrl())
-			return nil
-		})
 	}
 	// Start all meters on the System.
 	system.StartMeasuring(syncGroupContext)
@@ -183,13 +153,37 @@ func main() {
 	})
 	syncGroup.Go(func() error {
 		<-syncGroupContext.Done()
-		return httpServer.Shutdown(context.Background())
+		if httpServer != nil {
+			err = httpServer.Shutdown(context.Background())
+			if err != nil {
+				log.Warningf("Failed to stop http server: %s", err.Error())
+			}
+		}
+		if costCalculator != nil {
+			domain.ElectricityPrices.Deregister(costCalculator)
+		}
+		if gridTargetConsumptionCalculator != nil {
+			gridTargetConsumptionCalculator.Stop()
+		}
+		modbus.EmptyClientCache()
+		if modbusServers != nil {
+			for _, server := range modbusServers {
+				log.Infof("Shutting down modbus proxy on %s", server.ServerUrl())
+				err := server.Stop()
+				if err != nil {
+					log.Warningf("Failed to stop modbus proxy: %s", err.Error())
+				}
+				log.Infof("Modbus proxy on %s shutdown", server.ServerUrl())
+			}
+		}
+		if repository != nil {
+			repository.Close()
+		}
+		return nil
 	})
 	if err := syncGroup.Wait(); err != nil {
 		log.Errorf("%v", err)
 	}
-	// close repo after everything else is shutdown
-	repository.Close()
 }
 
 func loadRepository(configuration *config.Configuration) domain.Repository {
