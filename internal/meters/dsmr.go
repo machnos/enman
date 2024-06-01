@@ -120,13 +120,15 @@ func (d *dsmrMeter) validMeter() error {
 }
 
 func (d *dsmrMeter) UpdateValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) error {
-	if d.HasStateAttribute() {
+	if d.HasStateAttribute() && electricityState != nil {
 		electricityState.SetValues(d.electricityState)
 	}
-	if d.HasUsageAttribute() {
+	if d.HasUsageAttribute() && electricityUsage != nil {
 		electricityUsage.SetValues(d.electricityUsage)
 	}
-	gasUsage.SetValues(d.gasUsage)
+	if gasUsage != nil {
+		gasUsage.SetValues(d.gasUsage)
+	}
 	return nil
 }
 
