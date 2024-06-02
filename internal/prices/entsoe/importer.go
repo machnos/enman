@@ -233,20 +233,20 @@ func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain
 	}
 	eventKey := fmt.Sprintf("%v-%v", event.EnergyProviderName(), event.PriceStartingTime())
 	if time.Now().After(price.Time) {
-		if log.DebugEnabled() {
-			log.Debugf("Not registering price task because it was in the past %s", eventKey)
+		if log.TraceEnabled() {
+			log.Tracef("Not registering price task because it was in the past %s", eventKey)
 		}
 		return
 	}
 	_, ok := e.registeredEvents.Load(eventKey)
 	if ok {
-		if log.DebugEnabled() {
-			log.Debugf("Not registering price task because it was already registered %s", eventKey)
+		if log.TraceEnabled() {
+			log.Tracef("Not registering price task because it was already registered %s", eventKey)
 		}
 		return
 	}
-	if log.DebugEnabled() {
-		log.Debugf("Registering price task %s", eventKey)
+	if log.TraceEnabled() {
+		log.Tracef("Registering price task %s", eventKey)
 	}
 	e.registeredEvents.Store(eventKey, true)
 	timer := time.NewTimer(time.Until(price.Time))
@@ -286,7 +286,7 @@ func (e *PriceImporter) calculateProviderPrice(provider config.EnergyProvider, p
 	// consumption price
 	formula := provider.PriceModels[ix].ConsumptionFormula
 	if formula != "" {
-		value, err := arithmetic.ParseExpression(formula, map[string]float64{"entso-e": float64(price)})
+		value, err := arithmetic.ParseCalculation(formula, map[string]float64{"ENTSO-E": float64(price)})
 		if err != nil {
 			log.Warningf("Unable to calculate consumption price: %v", err)
 		} else {
@@ -296,7 +296,7 @@ func (e *PriceImporter) calculateProviderPrice(provider config.EnergyProvider, p
 	// feedback price
 	formula = provider.PriceModels[ix].FeedbackFormula
 	if formula != "" {
-		value, err := arithmetic.ParseExpression(formula, map[string]float64{"entso-e": float64(price)})
+		value, err := arithmetic.ParseCalculation(formula, map[string]float64{"ENTSO-E": float64(price)})
 		if err != nil {
 			log.Warningf("Unable to calculate feedback price: %v", err)
 		} else {

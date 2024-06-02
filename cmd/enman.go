@@ -52,7 +52,7 @@ func main() {
 		controllers.ProbeGridController(configuration.Grid.Controller),
 	)
 	for _, pv := range configuration.Pvs {
-		system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters))
+		system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters), controllers.ProbePvController(pv.Controller))
 	}
 	for _, acLoad := range configuration.AcLoads {
 		system.AddAcLoad(acLoad.Name,
@@ -84,6 +84,12 @@ func main() {
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
 	}
+
+	// Setup price based PV control
+	priceBasedPvControl := domain.NewPriceBasedPVControl(system)
+	domain.ElectricityPrices.Register(priceBasedPvControl, func(priceValues *domain.ElectricityPriceValues) bool {
+		return true
+	})
 
 	// Set price importers
 	if configuration.Prices != nil {
@@ -165,6 +171,8 @@ func main() {
 		if gridTargetConsumptionCalculator != nil {
 			gridTargetConsumptionCalculator.Stop()
 		}
+		domain.ElectricityPrices.Deregister(priceBasedPvControl)
+
 		modbus.EmptyClientCache()
 		if modbusServers != nil {
 			for _, server := range modbusServers {

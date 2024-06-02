@@ -72,7 +72,9 @@ func probeGridControllerWithClient(config *config.GridController, modbusClient *
 		if err == nil {
 			return controller
 		}
-		log.Infof("Probe failed for Victron grid controller: %v", err)
+		if log.InfoEnabled() {
+			log.Infof("Probe failed for Victron grid controller: %v", err)
+		}
 	}
 	return nil
 }

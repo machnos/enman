@@ -53,10 +53,11 @@ func (s *System) Grid() *Grid {
 	return s.grid
 }
 
-func (s *System) AddPv(name string, meters []EnergyMeter) *System {
+func (s *System) AddPv(name string, meters []EnergyMeter, controller PvController) *System {
 	s.pvs = append(s.pvs, &Pv{
 		name:             name,
 		meters:           meters,
+		controller:       controller,
 		electricityState: NewElectricityState(),
 		electricityUsage: NewElectricityUsage(),
 	})

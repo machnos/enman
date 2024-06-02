@@ -54,7 +54,6 @@ func (i *influxRepository) ElectricityUsages(
 	name string,
 	aggregate *domain.AggregateConfiguration,
 ) ([]*domain.ElectricityUsageRecord, error) {
-
 	builder := NewQueryBuilder(NewBucketQuerySource(bucketElectricity)).Append(NewRangeStatement(from, till)).
 		Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementUsage)))
 	if name != "" {

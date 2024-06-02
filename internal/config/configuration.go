@@ -68,9 +68,10 @@ type GridController struct {
 }
 
 type PvController struct {
-	ConnectURL string `json:"connect_url"`
-	Type       string `json:"type" validate:"required,oneof=http"`
-	Brand      string `json:"brand" validate:"oneof='Shelly' ''"`
+	ConnectURL     string `json:"connect_url"`
+	Type           string `json:"type" validate:"required,oneof=http"`
+	Brand          string `json:"brand" validate:"oneof='Shelly' ''"`
+	DisableFormula string `json:"disable_formula"`
 }
 
 type ModbusMeterSimulator struct {

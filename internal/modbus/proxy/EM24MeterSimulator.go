@@ -33,7 +33,6 @@ func (s *EM24MeterSimulator) HandleHoldingRegisters(req *modbus.HoldingRegisters
 	if req.IsWrite {
 		return nil, modbus.ErrIllegalFunction
 	} else {
-
 		var result = make([]uint16, req.Quantity)
 		requestAddr := req.Addr
 		resultAddr := uint16(0)

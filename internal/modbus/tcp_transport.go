@@ -2,8 +2,10 @@ package modbus
 
 import (
 	"enman/internal/log"
+	"errors"
 	"io"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -47,6 +49,15 @@ func (tt *tcpTransport) ExecuteRequest(req *pdu) (res *pdu, err error) {
 	tt.lastTxnId++
 
 	_, err = tt.socket.Write(tt.assembleMBAPFrame(tt.lastTxnId, req))
+	if errors.Is(err, syscall.EPIPE) {
+		// Broker pipe, let's try a reconnect.
+		newSocket, err2 := net.Dial(tt.socket.RemoteAddr().Network(), tt.socket.RemoteAddr().String())
+		if err2 != nil {
+			return
+		}
+		tt.socket = newSocket
+		_, err = tt.socket.Write(tt.assembleMBAPFrame(tt.lastTxnId, req))
+	}
 	if err != nil {
 		return
 	}
@@ -130,6 +141,15 @@ func (tt *tcpTransport) readMBAPFrame() (p *pdu, txnId uint16, err error) {
 	// read the MBAP header
 	rxbuf = make([]byte, mbapHeaderLength)
 	_, err = io.ReadFull(tt.socket, rxbuf)
+	if errors.Is(err, syscall.EPIPE) {
+		// Broker pipe, let's try a reconnect.
+		newSocket, err2 := net.Dial(tt.socket.RemoteAddr().Network(), tt.socket.RemoteAddr().String())
+		if err2 != nil {
+			return
+		}
+		tt.socket = newSocket
+		_, err = io.ReadFull(tt.socket, rxbuf)
+	}
 	if err != nil {
 		return
 	}

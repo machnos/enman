@@ -14,11 +14,11 @@ type victronGridController struct {
 }
 
 func newVictronGridController(modbusClient *modbus.ModbusClient) (domain.GridController, error) {
-	vgm := &victronGridController{
+	vgc := &victronGridController{
 		100,
 		modbusClient,
 	}
-	return vgm, vgm.validGridController()
+	return vgc, vgc.validGridController()
 }
 
 func (v *victronGridController) validGridController() error {

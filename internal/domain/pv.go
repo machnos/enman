@@ -8,8 +8,9 @@ import (
 )
 
 type PvController interface {
-	DisablePv()
-	EnablePv()
+	DisablePv() error
+	EnablePv() error
+	DisableFormula() string
 }
 
 type Pv struct {
@@ -17,6 +18,7 @@ type Pv struct {
 	electricityState *ElectricityState
 	electricityUsage *ElectricityUsage
 	meters           []EnergyMeter
+	controller       PvController
 	updateTicker     *time.Ticker
 }
 

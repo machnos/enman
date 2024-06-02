@@ -3,6 +3,7 @@ package arithmetic
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type number struct {
@@ -14,8 +15,12 @@ type operation struct {
 	function func(*number, *number) *number
 }
 
-func ParseExpression(expression string, variables map[string]float64) (float64, error) {
-	l := newLexer(expression)
+type comparison struct {
+	function func(*number, *number) bool
+}
+
+func ParseCalculation(calculation string, variables map[string]float64) (float64, error) {
+	l := newLexer(calculation)
 	nr, err := readNumber(l, variables)
 	if err != nil {
 		return 0, err
@@ -32,7 +37,7 @@ func ParseExpression(expression string, variables map[string]float64) (float64, 
 	formulas = append(formulas, nr)
 	formulas = append(formulas, op)
 	if !l.hasNext() {
-		return 0, fmt.Errorf("unable to parse expression: %s", expression)
+		return 0, fmt.Errorf("unable to parse calculation: %s", calculation)
 	}
 	for l.hasNext() {
 		nr, err = readNumber(l, variables)
@@ -46,7 +51,7 @@ func ParseExpression(expression string, variables map[string]float64) (float64, 
 				return 0, err
 			}
 			if op == nil {
-				return 0, fmt.Errorf("unable to parse expression: %s", expression)
+				return 0, fmt.Errorf("unable to parse calculation: %s", calculation)
 			}
 			formulas = append(formulas, op)
 		}
@@ -79,6 +84,79 @@ func ParseExpression(expression string, variables map[string]float64) (float64, 
 	return formulas[0].(*number).value, nil
 }
 
+func ParseExpression(expression string, variables map[string]float64) (bool, error) {
+	c := &comparison{}
+	comparisons := [5]string{"<=", ">=", "==", "<", ">"}
+	left := ""
+	right := ""
+loop:
+	for _, comp := range comparisons {
+		ix := strings.Index(expression, comp)
+		if ix != -1 {
+			switch comp {
+			case "<=":
+				c = &comparison{
+					func(n1 *number, n2 *number) bool {
+						return n1.value <= n2.value
+					},
+				}
+				left = expression[:ix]
+				right = expression[ix+2:]
+				break loop
+			case "<":
+				c = &comparison{
+					func(n1 *number, n2 *number) bool {
+						return n1.value < n2.value
+					},
+				}
+				left = expression[:ix]
+				right = expression[ix+1:]
+				break loop
+			case "==":
+				c = &comparison{
+					func(n1 *number, n2 *number) bool {
+						return n1.value == n2.value
+					},
+				}
+				left = expression[:ix]
+				right = expression[ix+2:]
+				break loop
+			case ">":
+				c = &comparison{
+					func(n1 *number, n2 *number) bool {
+						return n1.value > n2.value
+					},
+				}
+				left = expression[:ix]
+				right = expression[ix+1:]
+				break loop
+			case ">=":
+				c = &comparison{
+					func(n1 *number, n2 *number) bool {
+						return n1.value >= n2.value
+					},
+				}
+				left = expression[:ix]
+				right = expression[ix+2:]
+				break loop
+			}
+		}
+	}
+	if left == "" || right == "" {
+		return false, fmt.Errorf("unable to parse expression: %s", expression)
+	}
+
+	n1, err := ParseCalculation(left, variables)
+	if err != nil {
+		return false, err
+	}
+	n2, err := ParseCalculation(right, variables)
+	if err != nil {
+		return false, err
+	}
+	return c.function(&number{value: n1}, &number{value: n2}), nil
+}
+
 func readNumber(l *lexer, variables map[string]float64) (*number, error) {
 	if !l.hasNext() {
 		return nil, fmt.Errorf("empty lexer")
@@ -97,7 +175,7 @@ func readNumber(l *lexer, variables map[string]float64) (*number, error) {
 			if c == ')' {
 				nrOfOpenParenthesis--
 				if nrOfOpenParenthesis == 0 {
-					value, err := ParseExpression(subExpression, variables)
+					value, err := ParseCalculation(subExpression, variables)
 					if err != nil {
 						return nil, err
 					}
