@@ -10,7 +10,6 @@ import (
 type PvController interface {
 	DisablePv() error
 	EnablePv() error
-	DisableFormula() string
 }
 
 type Pv struct {
@@ -64,7 +63,6 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 
 	go func() {
 		var usageLastRead time.Time
-	outer:
 		for {
 			select {
 			case <-context.Done():
@@ -82,10 +80,7 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 				for _, meter := range pv.meters {
 					err := meter.UpdateValues(es, eu, nil, nil, nil)
 					if err != nil {
-						if log.DebugEnabled() {
-							log.Debugf("Failed to read pv values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
-						}
-						continue outer
+						log.Debugf("Failed to read pv values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
 					}
 				}
 				pv.electricityState.SetValues(es)

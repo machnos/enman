@@ -39,3 +39,16 @@ func (v *victronGridController) SetTargetConsumption(targetConsumption int) erro
 	}
 	return v.modbusClient.WriteRegister(v.systemUnitId, 2700, uint16(targetConsumption), modbus.BIG_ENDIAN)
 }
+
+func (v *victronGridController) GridConnected() (bool, error) {
+	uint16s, err := v.modbusClient.ReadRegisters(v.systemUnitId, 826, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+	if err != nil {
+		return false, err
+	}
+	value := int16(v.modbusClient.ValueFromUint16sResultArray(uint16s, 0, 0, 0))
+	if value == 1 {
+		return true, nil
+	} else {
+		return false, nil
+	}
+}

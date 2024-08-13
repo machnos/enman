@@ -51,8 +51,19 @@ func main() {
 		meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters),
 		controllers.ProbeGridController(configuration.Grid.Controller),
 	)
-	for _, pv := range configuration.Pvs {
-		system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters), controllers.ProbePvController(pv.Controller))
+	var pvStateController *domain.PvStateController
+	if configuration.Pvs != nil {
+		for _, pv := range configuration.Pvs.Arrays {
+			system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters), controllers.ProbePvController(pv.Controller))
+		}
+		if configuration.Pvs.PvStateController != nil {
+			pvStateController = domain.NewPvStateController(
+				system,
+				configuration.Pvs.PvStateController.DisableFormula,
+				float32(configuration.Pvs.PvStateController.BatteryCutoffPercentage),
+				float32(configuration.Pvs.PvStateController.BatteryRestartPercentage),
+			)
+		}
 	}
 	for _, acLoad := range configuration.AcLoads {
 		system.AddAcLoad(acLoad.Name,
@@ -85,12 +96,6 @@ func main() {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
 	}
 
-	// Setup price based PV control
-	priceBasedPvControl := domain.NewPriceBasedPVControl(system)
-	domain.ElectricityPrices.Register(priceBasedPvControl, func(priceValues *domain.ElectricityPriceValues) bool {
-		return true
-	})
-
 	// Set price importers
 	if configuration.Prices != nil {
 		importer, err := entsoe.NewEntsoeImporter(
@@ -110,7 +115,7 @@ func main() {
 		go func() {
 			err = importer.ImportPrices(ctx, start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
 			if err != nil {
-				log.Error(err.Error())
+				log.Errorf("Failed to import prices: %v", err.Error())
 			}
 		}()
 		ticker := time.NewTicker(1 * time.Hour)
@@ -148,6 +153,10 @@ func main() {
 	}
 	// Start all meters on the System.
 	system.StartMeasuring(syncGroupContext)
+	// Start the PV state controller
+	if pvStateController != nil {
+		pvStateController.Start(syncGroupContext)
+	}
 
 	// Start the http server
 	httpServer, err := http.NewServer(configuration.Http, system, repository)
@@ -171,8 +180,6 @@ func main() {
 		if gridTargetConsumptionCalculator != nil {
 			gridTargetConsumptionCalculator.Stop()
 		}
-		domain.ElectricityPrices.Deregister(priceBasedPvControl)
-
 		modbus.EmptyClientCache()
 		if modbusServers != nil {
 			for _, server := range modbusServers {
@@ -189,7 +196,7 @@ func main() {
 		}
 		return nil
 	})
-	if err := syncGroup.Wait(); err != nil {
+	if err = syncGroup.Wait(); err != nil {
 		log.Errorf("%v", err)
 	}
 }
@@ -226,24 +233,26 @@ func createModbusServers(config *config.Configuration, system *domain.System) []
 			requestHandler.AddHandler(config.Grid.ModbusMeterSimulator.ModbusUnitId, simulator)
 		}
 	}
-	for _, pv := range config.Pvs {
-		if pv.ModbusMeterSimulator != nil {
-			if pv.Name == "" {
-				log.Warningf("PV with modbus simulator id %d has no name. The name is required for the meter simulator to work. ", pv.ModbusMeterSimulator.ModbusUnitId)
-				continue
-			}
-			for _, p := range system.Pvs() {
-				if p.Name() == pv.Name {
-					log.Infof("Adding %s energy meter simulator for Pv %s at unit id %d", pv.ModbusMeterSimulator.MeterType, pv.Name, pv.ModbusMeterSimulator.ModbusUnitId)
-					simulator := proxy.NewMeterSimulator(
-						pv.ModbusMeterSimulator.MeterType,
-						pv.ModbusMeterSimulator.ModbusUnitId,
-						p.ElectricityState(),
-						p.ElectricityUsage())
-					if simulator != nil {
-						requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
+	if config.Pvs != nil {
+		for _, pv := range config.Pvs.Arrays {
+			if pv.ModbusMeterSimulator != nil {
+				if pv.Name == "" {
+					log.Warningf("PV with modbus simulator id %d has no name. The name is required for the meter simulator to work. ", pv.ModbusMeterSimulator.ModbusUnitId)
+					continue
+				}
+				for _, p := range system.Pvs() {
+					if p.Name() == pv.Name {
+						log.Infof("Adding %s energy meter simulator for Pv %s at unit id %d", pv.ModbusMeterSimulator.MeterType, pv.Name, pv.ModbusMeterSimulator.ModbusUnitId)
+						simulator := proxy.NewMeterSimulator(
+							pv.ModbusMeterSimulator.MeterType,
+							pv.ModbusMeterSimulator.ModbusUnitId,
+							p.ElectricityState(),
+							p.ElectricityUsage())
+						if simulator != nil {
+							requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
+						}
+						break
 					}
-					break
 				}
 			}
 		}

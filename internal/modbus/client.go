@@ -458,7 +458,7 @@ func (mc *ModbusClient) ReadDiscreteInput(unitId uint8, addr uint16) (value bool
 // Reads multiple 16-bit registers (function code 03 or 04).
 func (mc *ModbusClient) ReadRegisters(unitId uint8, addr uint16, quantity uint16, endianness Endianness, regType RegType) (values []uint16, err error) {
 	if log.TraceEnabled() {
-		log.Tracef("Start reading %d %ss of unitId %d at %s, starting at address %d", quantity, regType, unitId, mc.conf.URL, addr)
+		log.Tracef("Start reading %d %ss of unitId %d at %s, starting at address %#04x", quantity, regType, unitId, mc.conf.URL, addr)
 	}
 	var mbPayload []byte
 

@@ -63,7 +63,6 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 
 	go func() {
 		var usageLastRead time.Time
-	outer:
 		for {
 			select {
 			case <-context.Done():
@@ -81,10 +80,7 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 				for _, meter := range acl.meters {
 					err := meter.UpdateValues(es, eu, nil, nil, nil)
 					if err != nil {
-						if log.DebugEnabled() {
-							log.Debugf("Failed to read ac load values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
-						}
-						continue outer
+						log.Debugf("Failed to read ac load values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
 					}
 				}
 				acl.electricityState.SetValues(es)

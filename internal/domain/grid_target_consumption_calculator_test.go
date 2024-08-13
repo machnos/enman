@@ -51,3 +51,7 @@ func (m *MockGridController) SetTargetConsumption(targetConsumption int) error {
 	m.targetConsumption = targetConsumption
 	return nil
 }
+
+func (m *MockGridController) GridConnected() (bool, error) {
+	return true, nil
+}

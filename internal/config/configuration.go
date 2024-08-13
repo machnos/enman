@@ -11,7 +11,7 @@ type Configuration struct {
 	LogLevel      uint8            `json:"log_level"`
 	Http          *Http            `json:"http"`
 	Grid          *Grid            `json:"grid"`
-	Pvs           []*Pv            `json:"pvs" validate:"dive"`
+	Pvs           *Pvs             `json:"pvs"`
 	AcLoads       []*AcLoad        `json:"ac_loads" validate:"dive"`
 	Batteries     []*Battery       `json:"batteries" validate:"dive"`
 	Persistency   *Persistency     `json:"persistency"`
@@ -28,6 +28,11 @@ type Grid struct {
 	Meters               []*EnergyMeter        `json:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator"`
 	Controller           *GridController       `json:"controller"`
+}
+
+type Pvs struct {
+	PvStateController *PvStateController `json:"state_controller"`
+	Arrays            []*Pv              `json:"arrays" validate:"dive"`
 }
 
 type Pv struct {
@@ -68,10 +73,15 @@ type GridController struct {
 }
 
 type PvController struct {
-	ConnectURL     string `json:"connect_url"`
-	Type           string `json:"type" validate:"required,oneof=http"`
-	Brand          string `json:"brand" validate:"oneof='Shelly' ''"`
-	DisableFormula string `json:"disable_formula"`
+	ConnectURL string `json:"connect_url"`
+	Type       string `json:"type" validate:"required,oneof=http"`
+	Brand      string `json:"brand" validate:"oneof='Shelly' ''"`
+}
+
+type PvStateController struct {
+	DisableFormula           string `json:"disable_formula"`
+	BatteryCutoffPercentage  uint8  `json:"battery_cutoff_percentage" validate:"gte=0,lte=100,gtfield=BatteryRestartPercentage"`
+	BatteryRestartPercentage uint8  `json:"battery_restart_percentage" validate:"gte=0,lte=100,ltfield=BatteryCutoffPercentage"`
 }
 
 type ModbusMeterSimulator struct {

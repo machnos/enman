@@ -51,9 +51,7 @@ func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMe
 			}
 			modbusClient, clientCached, err := modbus.GetOrCreateCached(clientConfig)
 			if err != nil {
-				if log.DebugEnabled() {
-					log.Debugf("Unable to create modbus client: %v", err)
-				}
+				log.Debugf("Unable to create modbus client: %v", err)
 				continue
 			}
 			meter = probeMeterWithClient(role, meterConfig, modbusClient)
@@ -69,9 +67,7 @@ func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMe
 		}
 		modbusClient, clientCached, err := modbus.GetOrCreateCached(clientConfig)
 		if err != nil {
-			if log.DebugEnabled() {
-				log.Debugf("Unable to create modbus client: %v", err)
-			}
+			log.Debugf("Unable to create modbus client: %v", err)
 		} else {
 			meter = probeMeterWithClient(role, meterConfig, modbusClient)
 			if meter == nil && !clientCached {

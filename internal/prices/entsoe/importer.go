@@ -164,9 +164,7 @@ type PriceImporter struct {
 }
 
 func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, endDate time.Time) error {
-	if log.InfoEnabled() {
-		log.Info("Start reading energy prices from ENTSO-E")
-	}
+	log.Info("Start reading energy prices from ENTSO-E")
 	if !startDate.Before(endDate) {
 		return fmt.Errorf("start date must be before end date")
 	}
@@ -216,9 +214,7 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 			end = period.Resolution.add(start)
 		}
 	}
-	if log.InfoEnabled() {
-		log.Info("Finished reading energy prices from ENTSO-E")
-	}
+	log.Info("Finished reading energy prices from ENTSO-E")
 	return nil
 }
 
@@ -233,21 +229,15 @@ func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain
 	}
 	eventKey := fmt.Sprintf("%v-%v", event.EnergyProviderName(), event.PriceStartingTime())
 	if time.Now().After(price.Time) {
-		if log.TraceEnabled() {
-			log.Tracef("Not registering price task because it was in the past %s", eventKey)
-		}
+		log.Tracef("Not registering price task because it was in the past %s", eventKey)
 		return
 	}
 	_, ok := e.registeredEvents.Load(eventKey)
 	if ok {
-		if log.TraceEnabled() {
-			log.Tracef("Not registering price task because it was already registered %s", eventKey)
-		}
+		log.Tracef("Not registering price task because it was already registered %s", eventKey)
 		return
 	}
-	if log.TraceEnabled() {
-		log.Tracef("Registering price task %s", eventKey)
-	}
+	log.Tracef("Registering price task %s", eventKey)
 	e.registeredEvents.Store(eventKey, true)
 	timer := time.NewTimer(time.Until(price.Time))
 	defer timer.Stop()
@@ -256,9 +246,7 @@ func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain
 	case <-timer.C:
 		domain.ElectricityPrices.Trigger(event)
 		e.registeredEvents.Delete(eventKey)
-		if log.DebugEnabled() {
-			log.Debugf("Deregistered price task because it was fired %s", eventKey)
-		}
+		log.Debugf("Deregistered price task because it was fired %s", eventKey)
 		return
 	case <-ctx.Done():
 		return

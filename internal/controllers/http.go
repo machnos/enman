@@ -10,9 +10,7 @@ func probeHttpPvController(config *config.PvController) domain.PvController {
 	//var controller domain.PvController
 	if config.Brand == "Shelly" || config.Brand == "" {
 		// Shelly pv controller
-		if log.InfoEnabled() {
-			log.Infof("Probing for Shelly PV Controller at %s", config.ConnectURL)
-		}
+		log.Infof("Probing for Shelly PV Controller at %s", config.ConnectURL)
 		controller, err := newShellyPvController(config)
 		if err == nil {
 			return controller

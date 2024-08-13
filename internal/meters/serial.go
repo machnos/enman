@@ -52,9 +52,7 @@ func probeSerialMeter(_ domain.EnergySourceRole, meterConfig *config.EnergyMeter
 			StopBits: 1,
 		}
 		if meterConfig.Brand == "DSMR" || meterConfig.Brand == "" {
-			if log.InfoEnabled() {
-				log.Infof("Probing for DSMR meter with baud rate %d at %s", rate, meterConfig.ConnectURL)
-			}
+			log.Infof("Probing for DSMR meter with baud rate %d at %s", rate, meterConfig.ConnectURL)
 			meter, err := newDsmrMeter(serialConfig, meterConfig)
 			if err == nil {
 				return meter

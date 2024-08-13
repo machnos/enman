@@ -54,9 +54,7 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 				if calculator.lastSetTo != addition {
 					err := calculator.system.Grid().controller.SetTargetConsumption(addition)
 					if err != nil {
-						if log.ErrorEnabled() {
-							log.Errorf("Failed to set grid target consumption: %v", err)
-						}
+						log.Errorf("Failed to set grid target consumption: %v", err)
 					} else {
 						calculator.lastSetTo = addition
 					}
@@ -70,23 +68,17 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 func (g *GridTargetConsumptionCalculator) HandleEvent(values *ElectricityMeterValues) {
 	valid, err := values.Valid()
 	if !valid {
-		if log.WarningEnabled() {
-			log.Warningf("Ignoring electricity meter reading from '%s' for grid target consumption calculations as it is invalid: %v", values.Name(), err)
-		}
+		log.Warningf("Ignoring electricity meter reading from '%s' for grid target consumption calculations as it is invalid: %v", values.Name(), err)
 		return
 	}
 	if values.ElectricityState().TotalPower() < 0 || values.ElectricityState().TotalPower() > math.MaxInt16 {
-		if log.WarningEnabled() {
-			log.Warningf("Ignoring electricity meter reading from '%s' for grid target consumption calculations as it is > %d or < 0", values.Name(), math.MaxInt16)
-		}
+		log.Warningf("Ignoring electricity meter reading from '%s' for grid target consumption calculations as it is > %d or < 0", values.Name(), math.MaxInt16)
 		return
 	}
 	meterKey := fmt.Sprintf("%s_%s", values.Name(), values.Role())
 	value, ok := g.meterValues.Load(meterKey)
 	if !ok {
-		if log.WarningEnabled() {
-			log.Warningf("Unable to calculate grid target consumption because metervalues for '%s' not found", meterKey)
-		}
+		log.Warningf("Unable to calculate grid target consumption because metervalues for '%s' not found", meterKey)
 		return
 	}
 	data := value.(*meterData)
@@ -100,9 +92,7 @@ func (g *GridTargetConsumptionCalculator) Stop() {
 	if g.lastSetTo != g.system.Grid().targetConsumption {
 		err := g.system.Grid().controller.SetTargetConsumption(g.system.grid.TargetConsumption())
 		if err != nil {
-			if log.ErrorEnabled() {
-				log.Errorf("Failed to reset grid target consumption to initial (configured) value: %v", err)
-			}
+			log.Errorf("Failed to reset grid target consumption to initial (configured) value: %v", err)
 		} else {
 			g.lastSetTo = g.system.Grid().targetConsumption
 		}

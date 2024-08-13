@@ -48,6 +48,7 @@ func (h *DispatchingRequestHandler) HandleHoldingRegisters(req *modbus.HoldingRe
 	if !available {
 		return nil, modbus.ErrIllegalDataAddress
 	}
+	log.Tracef("Received holding request from %s for unitId %d at address %#04x and quantity %d", req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
 	return handler.HandleHoldingRegisters(req)
 }
 
@@ -56,6 +57,7 @@ func (h *DispatchingRequestHandler) HandleInputRegisters(req *modbus.InputRegist
 	if !available {
 		return nil, modbus.ErrIllegalDataAddress
 	}
+	log.Tracef("Received input request from %s for unitId %d at address %#04x and quantity %d", req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
 	return handler.HandleInputRegisters(req)
 }
 

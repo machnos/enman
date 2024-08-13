@@ -173,9 +173,7 @@ func (b *Battery) StartMeasuring(context context.Context) {
 				for _, meter := range b.meters {
 					err := meter.UpdateValues(nil, nil, nil, nil, bs)
 					if err != nil {
-						if log.DebugEnabled() {
-							log.Debugf("Failed to read battery values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
-						}
+						log.Debugf("Failed to read battery values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
 						continue outer
 					}
 				}

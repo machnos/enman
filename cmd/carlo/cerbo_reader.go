@@ -21,6 +21,7 @@ func main() {
 		syscall.Exit(-1)
 	}
 	unitIdBattery := uint8(225)
+	//unitIdVeBus := uint8(227)
 
 	uint16s, err := client.ReadRegisters(unitIdBattery, 258, 2, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 	if err != nil {
@@ -55,11 +56,23 @@ func main() {
 	}
 	fmt.Printf("Grid setpoint: %.0fw\n", client.ValueFromInt16sResultArray(uint16s, 0, 0, 0))
 
-	gridSetPoint := int16(10)
-	fmt.Printf("Setting grid setpoint to: %d\n", gridSetPoint)
-	err = client.WriteRegister(unitIdSystem, 2700, uint16(gridSetPoint), modbus.BIG_ENDIAN)
+	//gridSetPoint := int16(10)
+	//fmt.Printf("Setting grid setpoint to: %d\n", gridSetPoint)
+	//err = client.WriteRegister(unitIdSystem, 2700, uint16(gridSetPoint), modbus.BIG_ENDIAN)
+	//if err != nil {
+	//	fmt.Printf("%s", err.Error())
+	//}
+
+	//uint16s, err = client.ReadRegisters(unitIdVeBus, 64, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+	uint16s, err = client.ReadRegisters(unitIdSystem, 826, 1, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 	if err != nil {
-		fmt.Printf("%s", err.Error())
+		fmt.Printf("%v", err)
+	}
+	value := int16(client.ValueFromUint16sResultArray(uint16s, 0, 0, 0))
+	if value == 1 {
+		fmt.Println("Grid connected")
+	} else {
+		fmt.Printf("Grid lost: %d", value)
 	}
 	_ = client.Close()
 }

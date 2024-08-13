@@ -9,6 +9,7 @@ import (
 
 type GridController interface {
 	SetTargetConsumption(targetConsumption int) error
+	GridConnected() (bool, error)
 }
 
 type Grid struct {
@@ -84,7 +85,6 @@ func (g *Grid) StartMeasuring(context context.Context) {
 
 	go func() {
 		var usageLastRead time.Time
-	outer:
 		for {
 			select {
 			case <-context.Done():
@@ -109,7 +109,6 @@ func (g *Grid) StartMeasuring(context context.Context) {
 						if log.DebugEnabled() {
 							log.Debugf("Failed to read grid values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
 						}
-						continue outer
 					}
 				}
 				g.electricityState.SetValues(es)

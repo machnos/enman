@@ -49,7 +49,7 @@ func NewServer(config *config.Http, system *domain.System, repository domain.Rep
 		if !strings.HasPrefix(contextRoot, "/") {
 			contextRoot = "/" + contextRoot
 		}
-		if strings.HasSuffix(contextRoot, "/") {
+		if len(contextRoot) > 1 && strings.HasSuffix(contextRoot, "/") {
 			contextRoot = contextRoot[0 : len(contextRoot)-1]
 		}
 

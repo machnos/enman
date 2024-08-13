@@ -12,7 +12,6 @@ import (
 )
 
 type shellyPvController struct {
-	disableFormula string
 	connectUrl     string
 	client         *http.Client
 	name           string
@@ -28,9 +27,8 @@ func newShellyPvController(config *config.PvController) (domain.PvController, er
 	}
 
 	spc := &shellyPvController{
-		disableFormula: config.DisableFormula,
-		connectUrl:     url,
-		client:         http.DefaultClient,
+		connectUrl: url,
+		client:     http.DefaultClient,
 	}
 	return spc, spc.validPvController()
 }
@@ -67,9 +65,7 @@ func (s *shellyPvController) validPvController() error {
 	}
 	s.currentEnabled = result["output"].(bool)
 
-	if log.InfoEnabled() {
-		log.Infof("Detected a Shelly %s (%s) PV Controller at %s", s.model, s.name, s.connectUrl)
-	}
+	log.Infof("Detected a Shelly %s (%s) PV Controller at %s", s.model, s.name, s.connectUrl)
 	return nil
 }
 
@@ -97,16 +93,12 @@ func (s *shellyPvController) DisablePv() error {
 	if !s.currentEnabled {
 		return nil
 	}
-	if log.InfoEnabled() {
-		log.Infof("Disabling PV %s", s.name)
-	}
+	log.Infof("Disabling PV %s", s.name)
 	hasError := false
 	for i := uint8(0); i < s.nrOfSwitches; i++ {
 		_, err := s.executeGet(fmt.Sprintf("%s/rpc/Switch.Set?id=%d&on=false", s.connectUrl, i))
 		if err != nil {
-			if log.WarningEnabled() {
-				log.Warningf("Unable to disable PV switch %d on %s: %v", i, s.name, err)
-			}
+			log.Warningf("Unable to disable PV switch %d on %s: %v", i, s.name, err)
 			hasError = true
 		}
 	}
@@ -120,16 +112,12 @@ func (s *shellyPvController) EnablePv() error {
 	if s.currentEnabled {
 		return nil
 	}
-	if log.InfoEnabled() {
-		log.Infof("Enabling PV %s", s.name)
-	}
+	log.Infof("Enabling PV %s", s.name)
 	hasError := false
 	for i := uint8(0); i < s.nrOfSwitches; i++ {
 		_, err := s.executeGet(fmt.Sprintf("%s/rpc/Switch.Set?id=%d&on=true", s.connectUrl, i))
 		if err != nil {
-			if log.WarningEnabled() {
-				log.Warningf("Unable to enable PV switch %d on %s: %v", i, s.name, err)
-			}
+			log.Warningf("Unable to enable PV switch %d on %s: %v", i, s.name, err)
 			hasError = true
 		}
 	}
@@ -137,8 +125,4 @@ func (s *shellyPvController) EnablePv() error {
 		s.currentEnabled = true
 	}
 	return nil
-}
-
-func (s *shellyPvController) DisableFormula() string {
-	return s.disableFormula
 }
