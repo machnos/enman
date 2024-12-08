@@ -63,6 +63,7 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 
 	go func() {
 		var usageLastRead time.Time
+	loadLoop:
 		for {
 			select {
 			case <-context.Done():
@@ -81,6 +82,7 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 					err := meter.UpdateValues(es, eu, nil, nil, nil)
 					if err != nil {
 						log.Debugf("Failed to read pv values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
+						continue loadLoop
 					}
 				}
 				pv.electricityState.SetValues(es)

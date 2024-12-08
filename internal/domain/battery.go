@@ -160,7 +160,7 @@ func (b *Battery) StartMeasuring(context context.Context) {
 	})
 	b.updateTicker = time.NewTicker(interval)
 	go func() {
-	outer:
+	loadLoop:
 		for {
 			select {
 			case <-context.Done():
@@ -174,7 +174,7 @@ func (b *Battery) StartMeasuring(context context.Context) {
 					err := meter.UpdateValues(nil, nil, nil, nil, bs)
 					if err != nil {
 						log.Debugf("Failed to read battery values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
-						continue outer
+						continue loadLoop
 					}
 				}
 				b.batteryState.SetValues(bs)

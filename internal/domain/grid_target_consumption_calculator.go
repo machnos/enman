@@ -32,6 +32,7 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 			calculator.meterValues.Store(fmt.Sprintf("%s_%s", acLoad.Name(), acLoad.Role()), &meterData{
 				acLoad.percentageFromGrid,
 				make([]int, 0),
+				sync.Mutex{},
 			})
 			ElectricityMeterReadings.Register(calculator, func(values *ElectricityMeterValues) bool {
 				return acLoad.Name() == values.Name() && acLoad.Role() == values.Role()
@@ -109,13 +110,18 @@ func (g *GridTargetConsumptionCalculator) Stop() {
 type meterData struct {
 	percentageFromGrid uint8
 	values             []int
+	mutex              sync.Mutex
 }
 
 func (m *meterData) reset() {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	m.values = nil
 }
 
 func (m *meterData) average() int {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	total := 0
 	if len(m.values) < 1 {
 		return total

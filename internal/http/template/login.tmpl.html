@@ -1,0 +1,18 @@
+{{define "login"}}
+<main class="container pt-5">
+    <div class="m-auto pt-3" style="max-width: 20rem;">
+        <form method="post">
+            <h1 class="h3 mb-3">Please sign in</h1>
+            <div class="form-floating my-2">
+                <input type="text" class="form-control" id="username" name="username" placeholder="Username" required="required">
+                <label for="username">Username</label>
+            </div>
+            <div class="form-floating my-2">
+                <input type="password" class="form-control" id="password" name="password" placeholder="Password" required="required">
+                <label for="password">Password</label>
+            </div>
+            <input class="btn btn-primary w-100 py-2 my-2" type="submit" value="Sign in" />
+        </form>
+    </div>
+</main>
+{{end}}

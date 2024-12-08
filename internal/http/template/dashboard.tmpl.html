@@ -1,36 +1,63 @@
 {{define "dashboard"}}
-<h5>Price per provider: <select id="sel-price-providers" autofocus="autofocus"></select></h5>
-<div id="container1" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>Costs per provider: <select id="sel-costs-providers" autofocus="autofocus"></select></h5>
-<div id="container2" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>Electricity usage per provider</h5>
-<div id="container3" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>Watts per provider</h5>
-<div id="container4" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>Amps per provider</h5>
-<div id="container5" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>Watts per battery</h5>
-<div id="container6" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>Amps per battery</h5>
-<div id="container7" style="width:100%; height:400px;"></div>
-<br />
-<br />
-<h5>State of charge per battery</h5>
-<div id="container8" style="width:100%; height:400px;"></div>
-<br />
-<br />
+<style>
+    @media (prefers-color-scheme: dark) {
+        [aria-label="tip"] {
+            --plot-background: #2b3035;
+        }
+    }
+</style>
+
+<main class="container pt-5">
+<div class="w-100 m-auto pt-3">
+    <div class="row g-3 align-items-center">
+        <div class="col-auto">
+            <label for="sel-price-providers" class="col-form-label">Price per provider</label>
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-price-providers"></select>
+        </div>
+    </div>
+    <div id="container1"></div>
+    <br />
+    <br />
+    <div class="row g-3 align-items-center">
+        <div class="col-auto">
+            <label for="sel-costs-providers" class="col-form-label">Cost per provider</label>
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-costs-providers" autofocus="autofocus"></select>
+        </div>
+    </div>
+    <div id="container2"></div>
+    <br />
+    <br />
+    <label class="col-form-label">Electricity usage per provider</label>
+    <div id="container3"></div>
+    <br />
+    <br />
+    <label class="col-form-label">Watts per provider</label>
+    <div id="container4"></div>
+    <br />
+    <br />
+    <label class="col-form-label">Amps per provider</label>
+    <div id="container5"></div>
+    <br />
+    <br />
+    <label class="col-form-label">Watts per battery</label>
+    <div id="container6"></div>
+    <br />
+    <br />
+    <label class="col-form-label">Amps per battery</label>
+    <div id="container7"></div>
+    <br />
+    <br />
+    <label class="col-form-label">State of charge per battery</label>
+    <div id="container8"></div>
+    <br />
+    <br />
+</div>
+</main>
+
 <script>
 $(document).ready(function(){
     'use strict';
@@ -79,7 +106,7 @@ $(document).ready(function(){
                         Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
                         Plot.tip(markers, Plot.pointerX({x: "time", y: "value", title: function(d) {
                                 return 'Time: ' + formatDate(new Date(d.time))  + '\n Price: €' + d.value;
-                            }
+                            }, class: 'tooltipclass'
                         })),
                     ]
                 })

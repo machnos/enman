@@ -2,9 +2,26 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>EnMan - Energy Management</title>
-    {{if .Scripts}}{{range .Scripts}}
-    <script type="text/javascript" src="{{$.ContextRoot}}static/scripts/{{.}}"></script>{{end}}
+    {{if .Stylesheets}}{{range .Stylesheets}}
+    <link href="{{$.ContextRoot}}static/libraries/{{.}}" rel="stylesheet" />{{end}}
     {{end}}
+    {{if .Scripts}}{{range .Scripts}}
+    <script type="text/javascript" src="{{$.ContextRoot}}static/libraries/{{.}}"></script>{{end}}
+    {{end}}
+    <script>
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.setAttribute('data-bs-theme', 'dark');
+        }
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            document.documentElement.setAttribute('data-bs-theme', 'light');
+        }
+    </script>
 </head>
-<body>{{end}}
+<body class="{{$.BodyClass}}">
+<nav class="navbar fixed-top bg-body-tertiary">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="#">EnMan</a>
+    </div>
+</nav>{{end}}

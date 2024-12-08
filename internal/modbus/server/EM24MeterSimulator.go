@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"enman/internal/domain"
@@ -41,51 +41,51 @@ func (s *EM24MeterSimulator) HandleHoldingRegisters(req *modbus.HoldingRegisters
 			switch requestAddr {
 			case 0x0000:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(0)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(0)*10)))
 			case 0x0002:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(1)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(1)*10)))
 			case 0x0004:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(2)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Voltage(2)*10)))
 			case 0x000b:
 				copy(result[resultAddr:resultAddr+length], []uint16{0x0671})
 			case 0x000c:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(0)*1000)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(0)*1000)))
 			case 0x000e:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(1)*1000)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(1)*1000)))
 			case 0x0010:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(2)*1000)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Current(2)*1000)))
 			case 0x0012:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(0)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(0)*10)))
 			case 0x0014:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(1)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(1)*10)))
 			case 0x0016:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(2)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.Power(2)*10)))
 			case 0x0028:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.TotalPower()*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityState.TotalPower()*10)))
 			case 0x0034:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.TotalEnergyConsumed()*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.TotalEnergyConsumed()*10)))
 			case 0x0040:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(0)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(0)*10)))
 			case 0x0042:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(1)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(1)*10)))
 			case 0x0044:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(2)*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.EnergyConsumed(2)*10)))
 			case 0x004e:
 				length = 2
-				copy(result[resultAddr:resultAddr+length], s.uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.TotalEnergyProvided()*10)))
+				copy(result[resultAddr:resultAddr+length], modbus.Uint32ToUint16s(modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, uint32(s.electricityUsage.TotalEnergyProvided()*10)))
 			case 0x0302, 0x0304:
 				copy(result[resultAddr:resultAddr+length], []uint16{0x1000})
 			case 0x1002:
@@ -127,9 +127,4 @@ func (s *EM24MeterSimulator) HandleHoldingRegisters(req *modbus.HoldingRegisters
 
 func (s *EM24MeterSimulator) HandleInputRegisters(*modbus.InputRegistersRequest) ([]uint16, error) {
 	return nil, modbus.ErrIllegalFunction
-}
-
-func (s *EM24MeterSimulator) uint32ToUint16s(endianness modbus.Endianness, wordOrder modbus.WordOrder, val uint32) []uint16 {
-	bytes := modbus.Uint32ToBytes(endianness, wordOrder, val)
-	return modbus.BytesToUint16s(endianness, bytes)
 }

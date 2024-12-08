@@ -99,44 +99,56 @@ func (v *victronMeter) probeSerial(modbusUnitId uint8, modbusClient *modbus.Modb
 
 func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, _ *domain.BatteryState) error {
 	modbusClient := v.modbusClient
-	if v.HasStateAttribute() && electricityState != nil {
-		uint16s, err := modbusClient.ReadRegisters(v.modbusUnitId, 2600, 3, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
+	if electricityState != nil {
+		if v.electricityMeter.HasPowerAttribute() {
+			uint16s, err := modbusClient.ReadRegisters(v.modbusUnitId, 2600, 3, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
+			for ix := 0; ix < len(v.lineIndices); ix++ {
+				electricityState.SetPower(v.lineIndices[ix], modbusClient.ValueFromInt16sResultArray(uint16s, v.lineIndices[ix], 0, 0))
+			}
 		}
-		for ix := 0; ix < len(v.lineIndices); ix++ {
-			electricityState.SetPower(v.lineIndices[ix], modbusClient.ValueFromInt16sResultArray(uint16s, v.lineIndices[ix], 0, 0))
-		}
-		uint16s, err = modbusClient.ReadRegisters(v.modbusUnitId, 2616, 6, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
-		}
-		for ix := 0; ix < len(v.lineIndices); ix++ {
-			offset := v.lineIndices[ix] * 2
-			electricityState.SetVoltage(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+0, 10, 0))
-			electricityState.SetCurrent(v.lineIndices[ix], modbusClient.ValueFromInt16sResultArray(uint16s, offset+1, 10, 0))
+		if v.electricityMeter.HasCurrentAttribute() || v.electricityMeter.HasVoltageAttribute() {
+			uint16s, err := modbusClient.ReadRegisters(v.modbusUnitId, 2616, 6, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
+			for ix := 0; ix < len(v.lineIndices); ix++ {
+				offset := v.lineIndices[ix] * 2
+				if v.electricityMeter.HasVoltageAttribute() {
+					electricityState.SetVoltage(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+0, 10, 0))
+				}
+				if v.electricityMeter.HasCurrentAttribute() {
+					electricityState.SetCurrent(v.lineIndices[ix], modbusClient.ValueFromInt16sResultArray(uint16s, offset+1, 10, 0))
+				}
+			}
 		}
 	}
 
-	if v.HasUsageAttribute() && electricityUsage != nil {
-		uint32s, err := modbusClient.ReadUint32s(v.modbusUnitId, 2622, 3, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
-		}
-		for ix := 0; ix < len(v.lineIndices); ix++ {
-			offset := v.lineIndices[ix]
-			electricityUsage.SetEnergyConsumed(v.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, offset, 100, 0)))
-		}
-		uint32s, err = modbusClient.ReadUint32s(v.modbusUnitId, 2636, 1, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
-		}
-		if uint32s != nil {
-			// Provided energy per phase is far from correct, so we split the total energy (which seems to be correct) equally over the given phases.
-			provided := float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 100, 0))
-			providedPerPhase := provided / float64(len(v.lineIndices))
+	if electricityUsage != nil {
+		if v.electricityMeter.HasConsumptionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(v.modbusUnitId, 2622, 3, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
 			for ix := 0; ix < len(v.lineIndices); ix++ {
-				electricityUsage.SetEnergyProvided(v.lineIndices[ix], providedPerPhase)
+				offset := v.lineIndices[ix]
+				electricityUsage.SetEnergyConsumed(v.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, offset, 100, 0)))
+			}
+		}
+		if v.electricityMeter.HasProductionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(v.modbusUnitId, 2636, 1, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
+			if uint32s != nil {
+				// Provided energy per phase is far from correct, so we split the total energy (which seems to be correct) equally over the given phases.
+				provided := float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 100, 0))
+				providedPerPhase := provided / float64(len(v.lineIndices))
+				for ix := 0; ix < len(v.lineIndices); ix++ {
+					electricityUsage.SetEnergyProvided(v.lineIndices[ix], providedPerPhase)
+				}
 			}
 		}
 	}
@@ -145,19 +157,25 @@ func (v *victronMeter) readGridValues(electricityState *domain.ElectricityState,
 
 func (v *victronMeter) readPvValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, _ *domain.BatteryState) error {
 	modbusClient := v.modbusClient
-	if v.HasStateAttribute() && electricityState != nil {
+	if electricityState != nil && !(v.electricityMeter.HasVoltageAttribute() || v.electricityMeter.HasPowerAttribute() || v.electricityMeter.HasCurrentAttribute()) {
 		uint16s, err := modbusClient.ReadRegisters(v.modbusUnitId, 1027, 11, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 		if err != nil {
 			return err
 		}
 		for ix := 0; ix < len(v.lineIndices); ix++ {
 			offset := v.lineIndices[ix] * 4
-			electricityState.SetVoltage(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+0, 10, 0))
-			electricityState.SetCurrent(v.lineIndices[ix], modbusClient.ValueFromInt16sResultArray(uint16s, offset+1, 10, 0))
-			electricityState.SetPower(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+2, 0, 0))
+			if v.electricityMeter.HasVoltageAttribute() {
+				electricityState.SetVoltage(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+0, 10, 0))
+			}
+			if v.electricityMeter.HasCurrentAttribute() {
+				electricityState.SetCurrent(v.lineIndices[ix], modbusClient.ValueFromInt16sResultArray(uint16s, offset+1, 10, 0))
+			}
+			if v.electricityMeter.HasTotalPowerAttribute() {
+				electricityState.SetPower(v.lineIndices[ix], modbusClient.ValueFromUint16sResultArray(uint16s, offset+2, 0, 0))
+			}
 		}
 	}
-	if v.HasUsageAttribute() && electricityUsage != nil {
+	if electricityUsage != nil && v.electricityMeter.HasConsumptionAttribute() {
 		uint32s, err := modbusClient.ReadUint32s(v.modbusUnitId, 1046, 3, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
 		if err != nil {
 			return err

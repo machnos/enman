@@ -1,9 +1,10 @@
-package proxy
+package server
 
 import (
 	"enman/internal/domain"
 	"enman/internal/log"
 	"enman/internal/modbus"
+	"fmt"
 )
 
 type DispatchingRequestHandler struct {
@@ -11,20 +12,25 @@ type DispatchingRequestHandler struct {
 	unitIdMapping map[uint8]modbus.RequestHandler
 }
 
-func NewDispatchingRequestHandler() *DispatchingRequestHandler {
-	return &DispatchingRequestHandler{
+func NewDispatchingRequestHandler(system *domain.System) *DispatchingRequestHandler {
+	drh := &DispatchingRequestHandler{
 		unitIdMapping: make(map[uint8]modbus.RequestHandler),
 	}
+	drh.unitIdMapping[1] = newGridRequestHandler(1, system.Grid())
+
+	return drh
 }
 
-func NewMeterSimulator(meterType string, unitId uint8, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) modbus.RequestHandler {
+func NewMeterSimulator(meterType string, unitId uint8, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) (modbus.RequestHandler, error) {
+	if unitId < 100 {
+		return nil, fmt.Errorf("meter simulator must have a unit id >= 100")
+	}
 	switch meterType {
 	case "EM24":
-		return newEM24MeterSimulator(unitId, electricityState, electricityUsage)
+		return newEM24MeterSimulator(unitId, electricityState, electricityUsage), nil
 	default:
-		log.Warningf("Unknown meter simulator type '%s'", meterType)
+		return nil, fmt.Errorf("unknown meter simulator type '%s'", meterType)
 	}
-	return nil
 }
 
 func (h *DispatchingRequestHandler) HandleCoils(req *modbus.CoilsRequest) ([]bool, error) {

@@ -21,7 +21,7 @@ func main() {
 		syscall.Exit(-1)
 	}
 	unitIdBattery := uint8(225)
-	//unitIdVeBus := uint8(227)
+	unitIdVeBus := uint8(227)
 
 	uint16s, err := client.ReadRegisters(unitIdBattery, 258, 2, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 	if err != nil {
@@ -41,6 +41,19 @@ func main() {
 		return
 	}
 	fmt.Printf("SoC: %.0f%%\n", client.ValueFromUint16sResultArray(uint16s, 0, 10, 0))
+
+	uint32s, err := client.ReadUint32s(unitIdVeBus, 76, 9, modbus.BIG_ENDIAN, modbus.HIGH_WORD_FIRST, modbus.INPUT_REGISTER)
+	if err != nil {
+		println(err.Error())
+		return
+	}
+	fmt.Printf("Charged from AC-in 1: %.2fkWh\n", client.ValueFromInt32sResultArray(uint32s, 0, 100, 0))
+	fmt.Printf("Charged from AC-in 2: %.2fkWh\n", client.ValueFromInt32sResultArray(uint32s, 2, 100, 0))
+	fmt.Printf("Charged from Load: %.2fkWh\n", client.ValueFromInt32sResultArray(uint32s, 8, 100, 0))
+
+	fmt.Printf("Discharged to AC-in 1: %.2fkWh\n", client.ValueFromInt32sResultArray(uint32s, 5, 100, 0))
+	fmt.Printf("Discharged to AC-in 2: %.2fkWh\n", client.ValueFromInt32sResultArray(uint32s, 6, 100, 0))
+	fmt.Printf("Discharged to Load: %.2fkWh\n", client.ValueFromInt32sResultArray(uint32s, 7, 100, 0))
 
 	uint16s, err = client.ReadRegisters(unitIdBattery, 261, 2, modbus.BIG_ENDIAN, modbus.INPUT_REGISTER)
 	if err != nil {

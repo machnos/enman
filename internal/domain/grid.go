@@ -57,6 +57,12 @@ func (g *Grid) ElectricityState() *ElectricityState {
 func (g *Grid) ElectricityUsage() *ElectricityUsage {
 	return g.electricityUsage
 }
+func (g *Grid) GasUsage() *GasUsage {
+	return g.gasUsage
+}
+func (g *Grid) WaterUsage() *WaterUsage {
+	return g.waterUsage
+}
 
 func (g *Grid) StartMeasuring(context context.Context) {
 	if g.updateTicker != nil {
@@ -85,6 +91,7 @@ func (g *Grid) StartMeasuring(context context.Context) {
 
 	go func() {
 		var usageLastRead time.Time
+	loadLoop:
 		for {
 			select {
 			case <-context.Done():
@@ -106,9 +113,8 @@ func (g *Grid) StartMeasuring(context context.Context) {
 				for _, meter := range g.meters {
 					err := meter.UpdateValues(es, eu, gu, wu, nil)
 					if err != nil {
-						if log.DebugEnabled() {
-							log.Debugf("Failed to read grid values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
-						}
+						log.Debugf("Failed to read grid values from energy meter with brand %s, model %s and serial %s: %s", meter.Brand(), meter.Model(), meter.Serial(), err)
+						continue loadLoop
 					}
 				}
 				g.electricityState.SetValues(es)

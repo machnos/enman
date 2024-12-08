@@ -94,6 +94,11 @@ func Uint32ToBytes(endianness Endianness, wordOrder WordOrder, in uint32) (out [
 	return
 }
 
+func Uint32ToUint16s(endianness Endianness, wordOrder WordOrder, val uint32) []uint16 {
+	bytes := Uint32ToBytes(endianness, wordOrder, val)
+	return BytesToUint16s(endianness, bytes)
+}
+
 func bytesToFloat32s(endianness Endianness, wordOrder WordOrder, in []byte) (out []float32) {
 	var u32s []uint32
 

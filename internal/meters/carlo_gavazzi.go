@@ -258,27 +258,33 @@ func (c *carloGavazziMeter) readEm24Values(electricityState *domain.ElectricityS
 		return err
 	}
 
-	if c.HasUsageAttribute() && electricityUsage != nil {
+	if electricityUsage != nil {
 		modbusClient := c.modbusClient
 		if len(c.lineIndices) == 3 {
 			// Only set totals when all line indices are configured
-			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x003e, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+			if c.electricityMeter.HasTotalConsumptionAttribute() {
+				uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x003e, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+				if err != nil {
+					return err
+				}
+				electricityUsage.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
+			}
+			if c.electricityMeter.HasConsumptionAttribute() {
+				uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x005c, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+				if err != nil {
+					return err
+				}
+				electricityUsage.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
+			}
+		}
+		if c.electricityMeter.HasConsumptionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0046, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
 			if err != nil {
 				return err
 			}
-			electricityUsage.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
-			uint32s, err = modbusClient.ReadUint32s(c.modbusUnitId, 0x005c, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-			if err != nil {
-				return err
+			for ix := 0; ix < len(c.lineIndices); ix++ {
+				electricityUsage.SetEnergyConsumed(c.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0)))
 			}
-			electricityUsage.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
-		}
-		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0046, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
-		}
-		for ix := 0; ix < len(c.lineIndices); ix++ {
-			electricityUsage.SetEnergyConsumed(c.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0)))
 		}
 	}
 	return nil
@@ -290,18 +296,22 @@ func (c *carloGavazziMeter) readEx100SeriesValues(electricityState *domain.Elect
 		return err
 	}
 
-	if c.HasUsageAttribute() && electricityUsage != nil {
+	if electricityUsage != nil {
 		modbusClient := c.modbusClient
-		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0010, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
+		if c.electricityMeter.HasConsumptionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0010, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
+			electricityUsage.SetEnergyConsumed(c.lineIndices[0], float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
 		}
-		electricityUsage.SetEnergyConsumed(c.lineIndices[0], float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
-		uint32s, err = modbusClient.ReadUint32s(c.modbusUnitId, 0x0020, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
+		if c.electricityMeter.HasProductionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0020, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
+			electricityUsage.SetEnergyProvided(c.lineIndices[0], float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
 		}
-		electricityUsage.SetEnergyProvided(c.lineIndices[0], float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
 	}
 	return nil
 }
@@ -311,16 +321,18 @@ func (c *carloGavazziMeter) readEx300SeriesValues(electricityState *domain.Elect
 	if err != nil {
 		return err
 	}
-	if c.HasUsageAttribute() && electricityUsage != nil {
+	if electricityUsage != nil {
 		modbusClient := c.modbusClient
 		if len(c.lineIndices) == 3 {
 			// Only set totals when all line indices are configured
-			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0034, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-			if err != nil {
-				return err
+			if c.electricityMeter.HasTotalConsumptionAttribute() {
+				uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0034, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+				if err != nil {
+					return err
+				}
+				electricityUsage.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
 			}
-			electricityUsage.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
-			if !strings.HasPrefix(c.model, "ET") {
+			if !strings.HasPrefix(c.model, "ET") && c.electricityMeter.HasTotalProductionAttribute() {
 				values, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x004e, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
 				if err != nil {
 					return err
@@ -328,15 +340,16 @@ func (c *carloGavazziMeter) readEx300SeriesValues(electricityState *domain.Elect
 				electricityUsage.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(values, 0, 10, 0)))
 			}
 		}
-
-		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0040, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
+		if c.electricityMeter.HasConsumptionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0040, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+			if err != nil {
+				return err
+			}
+			for ix := 0; ix < len(c.lineIndices); ix++ {
+				electricityUsage.SetEnergyConsumed(c.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0)))
+			}
 		}
-		for ix := 0; ix < len(c.lineIndices); ix++ {
-			electricityUsage.SetEnergyConsumed(c.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0)))
-		}
-		if strings.HasPrefix(c.model, "ET") {
+		if strings.HasPrefix(c.model, "ET") && c.electricityMeter.HasProductionAttribute() {
 			values, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0060, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
 			if err != nil {
 				return err
@@ -354,83 +367,101 @@ func (c *carloGavazziMeter) readEM530andEM540Values(electricityState *domain.Ele
 	if err != nil {
 		return err
 	}
-	if c.HasUsageAttribute() && electricityUsage != nil {
+	if electricityUsage != nil {
 		modbusClient := c.modbusClient
 		if len(c.lineIndices) == 3 {
 			// Only set totals when all line indices are configured
-			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0034, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+			if c.electricityMeter.HasTotalConsumptionAttribute() {
+				uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0034, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+				if err != nil {
+					return err
+				}
+				electricityUsage.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
+			}
+			if c.electricityMeter.HasTotalProductionAttribute() {
+				uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x004e, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+				if err != nil {
+					return err
+				}
+				electricityUsage.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
+			}
+		}
+		if c.electricityMeter.HasConsumptionAttribute() {
+			uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0040, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
 			if err != nil {
 				return err
 			}
-			electricityUsage.SetTotalEnergyConsumed(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
-			uint32s, err = modbusClient.ReadUint32s(c.modbusUnitId, 0x004e, 1, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-			if err != nil {
-				return err
+			for ix := 0; ix < len(c.lineIndices); ix++ {
+				electricityUsage.SetEnergyConsumed(c.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0)))
 			}
-			electricityUsage.SetTotalEnergyProvided(float64(modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0)))
-		}
-		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0040, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-		if err != nil {
-			return err
-		}
-		for ix := 0; ix < len(c.lineIndices); ix++ {
-			electricityUsage.SetEnergyConsumed(c.lineIndices[ix], float64(modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0)))
 		}
 	}
 	return nil
 }
 
 func (c *carloGavazziMeter) readGenericSinglePhaseState(electricityState *domain.ElectricityState) error {
-	if !c.HasStateAttribute() || electricityState == nil {
+	if electricityState == nil || !(c.electricityMeter.HasVoltageAttribute() || c.electricityMeter.HasPowerAttribute() || c.electricityMeter.HasCurrentAttribute()) {
 		return nil
 	}
 	modbusClient := c.modbusClient
+
 	uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0000, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
 	if err != nil {
 		return err
 	}
-	electricityState.SetVoltage(c.lineIndices[0], modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0))
-	// First set the power, because on some meters we need to flip the current sign based on power
-	electricityState.SetPower(c.lineIndices[0], modbusClient.ValueFromInt32sResultArray(uint32s, 2, 10, 0))
-
-	current := modbusClient.ValueFromInt32sResultArray(uint32s, 1, 1000, 0)
-	if electricityState.Power(c.lineIndices[0]) < 0 && current > 0 {
-		current = current * -1
+	if c.electricityMeter.HasVoltageAttribute() {
+		electricityState.SetVoltage(c.lineIndices[0], modbusClient.ValueFromUint32sResultArray(uint32s, 0, 10, 0))
 	}
-	electricityState.SetCurrent(c.lineIndices[0], current)
+	if c.electricityMeter.HasPowerAttribute() {
+		// First set the power, because on some meters we need to flip the current sign based on power
+		electricityState.SetPower(c.lineIndices[0], modbusClient.ValueFromInt32sResultArray(uint32s, 2, 10, 0))
+	}
+	if c.electricityMeter.HasCurrentAttribute() {
+		current := modbusClient.ValueFromInt32sResultArray(uint32s, 1, 1000, 0)
+		if electricityState.Power(c.lineIndices[0]) < 0 && current > 0 {
+			current = current * -1
+		}
+		electricityState.SetCurrent(c.lineIndices[0], current)
+	}
 	return nil
 }
 
 func (c *carloGavazziMeter) readGenericThreePhaseState(electricityState *domain.ElectricityState) error {
-	if !c.HasStateAttribute() || electricityState == nil {
+	if electricityState == nil {
 		return nil
 	}
 	modbusClient := c.modbusClient
-	uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0000, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-	if err != nil {
-		return err
-	}
-	for ix := 0; ix < len(c.lineIndices); ix++ {
-		electricityState.SetVoltage(c.lineIndices[ix], modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0))
-	}
-	uint32s, err = modbusClient.ReadUint32s(c.modbusUnitId, 0x0012, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-	if err != nil {
-		return err
-	}
-	for ix := 0; ix < len(c.lineIndices); ix++ {
-		// First set the power, because on some meters we need to flip the current sign based on power
-		electricityState.SetPower(c.lineIndices[ix], modbusClient.ValueFromInt32sResultArray(uint32s, c.lineIndices[ix], 10, 0))
-	}
-	uint32s, err = modbusClient.ReadUint32s(c.modbusUnitId, 0x000c, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
-	if err != nil {
-		return err
-	}
-	for ix := 0; ix < len(c.lineIndices); ix++ {
-		current := modbusClient.ValueFromInt32sResultArray(uint32s, c.lineIndices[ix], 1000, 0)
-		if electricityState.Power(c.lineIndices[ix]) < 0 && current > 0 {
-			current = current * -1
+	if c.electricityMeter.HasVoltageAttribute() {
+		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0000, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+		if err != nil {
+			return err
 		}
-		electricityState.SetCurrent(c.lineIndices[ix], current)
+		for ix := 0; ix < len(c.lineIndices); ix++ {
+			electricityState.SetVoltage(c.lineIndices[ix], modbusClient.ValueFromUint32sResultArray(uint32s, c.lineIndices[ix], 10, 0))
+		}
+	}
+	if c.electricityMeter.HasPowerAttribute() {
+		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x0012, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+		if err != nil {
+			return err
+		}
+		for ix := 0; ix < len(c.lineIndices); ix++ {
+			// First set the power, because on some meters we need to flip the current sign based on power
+			electricityState.SetPower(c.lineIndices[ix], modbusClient.ValueFromInt32sResultArray(uint32s, c.lineIndices[ix], 10, 0))
+		}
+	}
+	if c.electricityMeter.HasCurrentAttribute() {
+		uint32s, err := modbusClient.ReadUint32s(c.modbusUnitId, 0x000c, 3, modbus.BIG_ENDIAN, modbus.LOW_WORD_FIRST, modbus.INPUT_REGISTER)
+		if err != nil {
+			return err
+		}
+		for ix := 0; ix < len(c.lineIndices); ix++ {
+			current := modbusClient.ValueFromInt32sResultArray(uint32s, c.lineIndices[ix], 1000, 0)
+			if electricityState.Power(c.lineIndices[ix]) < 0 && current > 0 {
+				current = current * -1
+			}
+			electricityState.SetCurrent(c.lineIndices[ix], current)
+		}
 	}
 	return nil
 }

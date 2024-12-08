@@ -9,7 +9,7 @@ import (
 	"enman/internal/log"
 	"enman/internal/meters"
 	"enman/internal/modbus"
-	"enman/internal/modbus/proxy"
+	"enman/internal/modbus/server"
 	"enman/internal/persistency/influx"
 	"enman/internal/persistency/noop"
 	"enman/internal/prices/entsoe"
@@ -28,17 +28,17 @@ func main() {
 	syncGroup, syncGroupContext := errgroup.WithContext(ctx)
 
 	// Parse command line parameters.
-	configFile := *flag.String("config-file", "config.json", "Full path to the configuration file")
+	configFile := flag.String("config-file", "enman.yaml", "Full path to the configuration file")
 	flag.Parse()
 
 	// Load configuration
-	configuration, err := config.LoadConfiguration(configFile)
+	configuration, err := config.LoadConfiguration(*configFile)
 	if err != nil {
 		log.Fatalf("Unable to load configuration file: %s", err.Error())
 		syscall.Exit(-1)
 	}
-	if configuration.LogLevel != 0 {
-		log.ActiveLevel = log.Level(configuration.LogLevel)
+	if configuration.Log != nil && configuration.Log.Level != 0 {
+		log.ActiveLevel = log.Level(configuration.Log.Level)
 	}
 
 	// Setup system
@@ -138,16 +138,16 @@ func main() {
 		}()
 	}
 
-	modbusServers := createModbusServers(configuration, system)
+	modbusServers, _ := createModbusServers(configuration, system)
 	for _, server := range modbusServers {
 		syncGroup.Go(func() error {
-			log.Infof("Starting modbus proxy on %s", server.ServerUrl())
+			log.Infof("Starting modbus server on %s", server.ServerUrl())
 			err = server.Start()
 			if err != nil {
-				log.Errorf("Failed to start modbus proxy server: %s", err.Error())
+				log.Errorf("Failed to start modbus server server: %s", err.Error())
 				return err
 			}
-			log.Infof("Modbus proxy on %s started", server.ServerUrl())
+			log.Infof("Modbus server on %s started", server.ServerUrl())
 			return nil
 		})
 	}
@@ -183,12 +183,12 @@ func main() {
 		modbus.EmptyClientCache()
 		if modbusServers != nil {
 			for _, server := range modbusServers {
-				log.Infof("Shutting down modbus proxy on %s", server.ServerUrl())
+				log.Infof("Shutting down modbus server on %s", server.ServerUrl())
 				err := server.Stop()
 				if err != nil {
-					log.Warningf("Failed to stop modbus proxy: %s", err.Error())
+					log.Warningf("Failed to stop modbus server: %s", err.Error())
 				}
-				log.Infof("Modbus proxy on %s shutdown", server.ServerUrl())
+				log.Infof("Modbus server on %s shutdown", server.ServerUrl())
 			}
 		}
 		if repository != nil {
@@ -216,22 +216,23 @@ func loadRepository(configuration *config.Configuration) domain.Repository {
 	return repository
 }
 
-func createModbusServers(config *config.Configuration, system *domain.System) []*modbus.ModbusServer {
+func createModbusServers(config *config.Configuration, system *domain.System) ([]*modbus.ModbusServer, error) {
 	if config.ModbusServers == nil {
-		return nil
+		return nil, nil
 	}
 	var servers []*modbus.ModbusServer
-	requestHandler := proxy.NewDispatchingRequestHandler()
+	requestHandler := server.NewDispatchingRequestHandler(system)
 	if system.Grid() != nil && config.Grid.ModbusMeterSimulator != nil {
-		simulator := proxy.NewMeterSimulator(
+		simulator, err := server.NewMeterSimulator(
 			config.Grid.ModbusMeterSimulator.MeterType,
 			config.Grid.ModbusMeterSimulator.ModbusUnitId,
 			system.Grid().ElectricityState(),
 			system.Grid().ElectricityUsage())
-		if simulator != nil {
-			log.Infof("Adding %s energy meter simulator for Grid %s at unit id %d", config.Grid.ModbusMeterSimulator.MeterType, config.Grid.Name, config.Grid.ModbusMeterSimulator.ModbusUnitId)
-			requestHandler.AddHandler(config.Grid.ModbusMeterSimulator.ModbusUnitId, simulator)
+		if err != nil {
+			return nil, err
 		}
+		log.Infof("Adding %s energy meter simulator for Grid %s at unit id %d", config.Grid.ModbusMeterSimulator.MeterType, config.Grid.Name, config.Grid.ModbusMeterSimulator.ModbusUnitId)
+		requestHandler.AddHandler(config.Grid.ModbusMeterSimulator.ModbusUnitId, simulator)
 	}
 	if config.Pvs != nil {
 		for _, pv := range config.Pvs.Arrays {
@@ -242,15 +243,16 @@ func createModbusServers(config *config.Configuration, system *domain.System) []
 				}
 				for _, p := range system.Pvs() {
 					if p.Name() == pv.Name {
-						log.Infof("Adding %s energy meter simulator for Pv %s at unit id %d", pv.ModbusMeterSimulator.MeterType, pv.Name, pv.ModbusMeterSimulator.ModbusUnitId)
-						simulator := proxy.NewMeterSimulator(
+						simulator, err := server.NewMeterSimulator(
 							pv.ModbusMeterSimulator.MeterType,
 							pv.ModbusMeterSimulator.ModbusUnitId,
 							p.ElectricityState(),
 							p.ElectricityUsage())
-						if simulator != nil {
-							requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
+						if err != nil {
+							return nil, err
 						}
+						log.Infof("Adding %s energy meter simulator for Pv %s at unit id %d", pv.ModbusMeterSimulator.MeterType, pv.Name, pv.ModbusMeterSimulator.ModbusUnitId)
+						requestHandler.AddHandler(pv.ModbusMeterSimulator.ModbusUnitId, simulator)
 						break
 					}
 				}
@@ -265,15 +267,16 @@ func createModbusServers(config *config.Configuration, system *domain.System) []
 			}
 			for _, a := range system.AcLoads() {
 				if a.Name() == acLoad.Name && a.Role() == domain.EnergySourceRole(acLoad.Role) {
-					log.Infof("Adding %s energy meter simulator for AcLoad %s at unit id %d", acLoad.ModbusMeterSimulator.MeterType, acLoad.Name, acLoad.ModbusMeterSimulator.ModbusUnitId)
-					simulator := proxy.NewMeterSimulator(
+					simulator, err := server.NewMeterSimulator(
 						acLoad.ModbusMeterSimulator.MeterType,
 						acLoad.ModbusMeterSimulator.ModbusUnitId,
 						a.ElectricityState(),
 						a.ElectricityUsage())
-					if simulator != nil {
-						requestHandler.AddHandler(acLoad.ModbusMeterSimulator.ModbusUnitId, simulator)
+					if err != nil {
+						return nil, err
 					}
+					log.Infof("Adding %s energy meter simulator for AcLoad %s at unit id %d", acLoad.ModbusMeterSimulator.MeterType, acLoad.Name, acLoad.ModbusMeterSimulator.ModbusUnitId)
+					requestHandler.AddHandler(acLoad.ModbusMeterSimulator.ModbusUnitId, simulator)
 					break
 				}
 			}
@@ -290,10 +293,10 @@ func createModbusServers(config *config.Configuration, system *domain.System) []
 			MaxClients: uint(modbusProxy.MaxClients),
 		}, requestHandler)
 		if err != nil {
-			log.Errorf("Failed to create modbus proxy server: %s", err.Error())
+			log.Errorf("Failed to create modbus server server: %s", err.Error())
 			continue
 		}
 		servers = append(servers, server)
 	}
-	return servers
+	return servers, nil
 }

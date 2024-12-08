@@ -1,2 +1,5 @@
-{{define "footer"}}</body>
-</html>{{end}}
+{{define "footer"}}
+  {{if .Scripts}}{{range .Scripts}}
+  <script type="text/javascript" src="{{$.ContextRoot}}static/libraries/{{.}}"></script>{{end}}
+  {{end}}
+</body></html>{{end}}

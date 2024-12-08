@@ -130,7 +130,7 @@ type publicationMarketDocument struct {
 		CurrencyUnitName     string     `xml:"currency_Unit.name"`
 		PriceMeasureUnitName energyUnit `xml:"price_Measure_Unit.name"`
 		CurveType            string     `xml:"curveType"`
-		Period               struct {
+		Period               []struct {
 			Text         string `xml:",chardata"`
 			TimeInterval struct {
 				Text  string `xml:",chardata"`
@@ -188,31 +188,32 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 	}
 	for i := 0; i < len(doc.TimeSeries); i++ {
 		units := doc.TimeSeries[i].PriceMeasureUnitName
-		period := doc.TimeSeries[i].Period
-		start, _ := time.Parse("2006-01-02T15:04Z07", period.TimeInterval.Start)
-		interval, _ := period.Resolution.toDuration()
-		end := period.Resolution.add(start)
-		for j := 0; j < len(doc.TimeSeries[i].Period.Point); j++ {
-			point := doc.TimeSeries[i].Period.Point[j]
-			price := point.PriceAmount * units.toKwhFactor()
-			entsoePrice := &domain.EnergyPrice{
-				Time:             start,
-				ConsumptionPrice: price,
-				FeedbackPrice:    price,
-				Provider:         "ENTSO-E",
-			}
-			e.repository.StoreEnergyPrice(entsoePrice)
-			go e.firePriceChangedEvent(ctx, entsoePrice, interval)
-			for k := 0; k < len(e.energyProviders); k++ {
-				energyPrice := e.calculateProviderPrice(e.energyProviders[k], price, start)
-				if energyPrice != nil {
-					e.repository.StoreEnergyPrice(energyPrice)
-					go e.firePriceChangedEvent(ctx, energyPrice, interval)
+		for j := 0; j < len(doc.TimeSeries[i].Period); j++ {
+			period := doc.TimeSeries[i].Period[j]
+			start, _ := time.Parse("2006-01-02T15:04Z07", period.TimeInterval.Start)
+			interval, _ := period.Resolution.toDuration()
+			for k := 0; k < len(period.Point); k++ {
+				point := period.Point[k]
+				price := point.PriceAmount * units.toKwhFactor()
+				pointStart := start.Add(interval * time.Duration(point.Position-1))
+				entsoePrice := &domain.EnergyPrice{
+					Time:             pointStart,
+					ConsumptionPrice: price,
+					FeedbackPrice:    price,
+					Provider:         "ENTSO-E",
+				}
+				e.repository.StoreEnergyPrice(entsoePrice)
+				go e.firePriceChangedEvent(ctx, entsoePrice, interval)
+				for l := 0; l < len(e.energyProviders); l++ {
+					energyPrice := e.calculateProviderPrice(e.energyProviders[l], price, pointStart)
+					if energyPrice != nil {
+						e.repository.StoreEnergyPrice(energyPrice)
+						go e.firePriceChangedEvent(ctx, energyPrice, interval)
+					}
 				}
 			}
-			start = end
-			end = period.Resolution.add(start)
 		}
+
 	}
 	log.Info("Finished reading energy prices from ENTSO-E")
 	return nil

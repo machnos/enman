@@ -49,10 +49,16 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceVal
 	if err != nil {
 		log.Errorf("Unable to determine start usage: %s", err.Error())
 		return
+	} else if startUsage == nil {
+		log.Warning("Unable to determine start usage")
+		return
 	}
 	endUsage, err := e.repository.ElectricityUsageAtTime(endTime, "", RoleGrid, LessOrEqual)
 	if err != nil {
 		log.Errorf("Unable to determine end usage: %s", err.Error())
+		return
+	} else if endUsage == nil {
+		log.Warning("Unable to determine end usage")
 		return
 	}
 	valuesEvent := NewElectricityCostsValues().
