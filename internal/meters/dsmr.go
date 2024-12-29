@@ -75,7 +75,7 @@ func (d *dsmrMeter) validMeter() error {
 			d.startUpdateLoop()
 			found = true
 		} else if strings.HasPrefix(line, "0-0:96.1.0") {
-			d.serial = d.stringValueFromObisLine(line)
+			d.serial, _ = d.stringValueFromObisLine(line)
 		} else if strings.HasPrefix(line, "1-0:52.7.0") {
 			if d.phases < 2 {
 				d.phases = 2
@@ -85,25 +85,25 @@ func (d *dsmrMeter) validMeter() error {
 				d.phases = 3
 			}
 		} else if strings.HasPrefix(line, "0-1:24.1.0") {
-			mbusDevice := d.stringValueFromObisLine(line)
+			mbusDevice, _ := d.stringValueFromObisLine(line)
 			switch mbusDevice {
 			case "003":
 				d.gasMeterReferenceChannelPrefix = "0-1"
 			}
 		} else if strings.HasPrefix(line, "0-2:24.1.0") {
-			mbusDevice := d.stringValueFromObisLine(line)
+			mbusDevice, _ := d.stringValueFromObisLine(line)
 			switch mbusDevice {
 			case "003":
 				d.gasMeterReferenceChannelPrefix = "0-2"
 			}
 		} else if strings.HasPrefix(line, "0-3:24.1.0") {
-			mbusDevice := d.stringValueFromObisLine(line)
+			mbusDevice, _ := d.stringValueFromObisLine(line)
 			switch mbusDevice {
 			case "003":
 				d.gasMeterReferenceChannelPrefix = "0-3"
 			}
 		} else if strings.HasPrefix(line, "0-4:24.1.0") {
-			mbusDevice := d.stringValueFromObisLine(line)
+			mbusDevice, _ := d.stringValueFromObisLine(line)
 			switch mbusDevice {
 			case "003":
 				d.gasMeterReferenceChannelPrefix = "0-4"
@@ -163,25 +163,36 @@ func (d *dsmrMeter) Shutdown() {
 }
 
 func (d *dsmrMeter) float32ValueFromObisLine(obisLine string) float32 {
-	return float32(d.float64ValueFromObisLine(obisLine))
-}
-
-func (d *dsmrMeter) float64ValueFromObisLine(obisLine string) float64 {
-	// TODO waarde kan soms unparsable zijn, bijv 1-0:31.7.0(kW)
-	value := d.stringValueFromObisLine(obisLine)
-	float, err := strconv.ParseFloat(value, 64)
+	f64, err := d.float64ValueFromObisLine(obisLine)
 	if err != nil {
 		return 0
 	}
-	return math.Ceil(float*1000) / 1000
+	return float32(f64)
 }
 
-func (d *dsmrMeter) stringValueFromObisLine(obisLine string) string {
+func (d *dsmrMeter) float64ValueFromObisLine(obisLine string) (float64, error) {
+	value, err := d.stringValueFromObisLine(obisLine)
+	if err != nil {
+		return 0, err
+	}
+	float, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	return math.Ceil(float*1000) / 1000, nil
+}
+
+func (d *dsmrMeter) stringValueFromObisLine(obisLine string) (string, error) {
+	var startIx = strings.Index(obisLine, "(")
+	var endIx = strings.Index(obisLine, ")")
+	if startIx == -1 || endIx == -1 {
+		return "", fmt.Errorf("unable to parse obis line '%s'", obisLine)
+	}
 	value := obisLine[strings.Index(obisLine, "(")+1 : strings.Index(obisLine, ")")]
 	if strings.Index(value, "*") != -1 {
 		value = value[0:strings.Index(value, "*")]
 	}
-	return value
+	return value, nil
 }
 
 func (d *dsmrMeter) startUpdateLoop() {
@@ -209,13 +220,25 @@ func (d *dsmrMeter) startUpdateLoop() {
 				for _, line := range lines {
 					line = strings.TrimSpace(line)
 					if strings.HasPrefix(line, "1-0:1.8.1") {
-						totalEnergyConsumed += d.float64ValueFromObisLine(line)
+						f64, err := d.float64ValueFromObisLine(line)
+						if err == nil {
+							totalEnergyConsumed += f64
+						}
 					} else if strings.HasPrefix(line, "1-0:1.8.2") {
-						totalEnergyConsumed += d.float64ValueFromObisLine(line)
+						f64, err := d.float64ValueFromObisLine(line)
+						if err == nil {
+							totalEnergyConsumed += f64
+						}
 					} else if strings.HasPrefix(line, "1-0:2.8.1") {
-						totalEnergyProvided += d.float64ValueFromObisLine(line)
+						f64, err := d.float64ValueFromObisLine(line)
+						if err == nil {
+							totalEnergyProvided += f64
+						}
 					} else if strings.HasPrefix(line, "1-0:2.8.2") {
-						totalEnergyProvided += d.float64ValueFromObisLine(line)
+						f64, err := d.float64ValueFromObisLine(line)
+						if err == nil {
+							totalEnergyProvided += f64
+						}
 					}
 					if strings.HasPrefix(line, "1-0:32.7.0") {
 						d.electricityState.SetVoltage(0, d.float32ValueFromObisLine(line))

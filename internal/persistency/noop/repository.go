@@ -21,7 +21,7 @@ func (r *Repository) ElectricityUsageAtTime(_ time.Time, _ string, _ domain.Ener
 func (r *Repository) ElectricityStates(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.ElectricityStateRecord, error) {
 	return nil, nil
 }
-func (r *Repository) ElectricityCosts(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.ElectricityCostRecord, error) {
+func (r *Repository) ElectricityCosts(_ time.Time, _ time.Time, _ string, _ *domain.AggregateConfiguration) ([]*domain.ElectricityCostsRecord, error) {
 	return nil, nil
 }
 func (r *Repository) EnergyPriceProviderNames(_ time.Time, _ time.Time) ([]string, error) {
@@ -33,7 +33,8 @@ func (r *Repository) EnergyPrices(_ time.Time, _ time.Time, _ string) ([]*domain
 func (r *Repository) EnergyPriceAtTime(_ time.Time, _ string, _ domain.MatchType) (*domain.EnergyPrice, error) {
 	return nil, nil
 }
-func (r *Repository) StoreEnergyPrice(_ *domain.EnergyPrice) {
+func (r *Repository) StoreEnergyPrice(_ *domain.EnergyPrice) error {
+	return nil
 }
 func (r *Repository) GasSourceNames(_ time.Time, _ time.Time) ([]string, error) {
 	return nil, nil

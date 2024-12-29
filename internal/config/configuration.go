@@ -26,7 +26,7 @@ type Log struct {
 }
 
 type Grid struct {
-	Name                 string                `json:"name" yaml:"name" json:"required"`
+	Name                 string                `json:"name" yaml:"name" json:"required" validate:"required,max=50"`
 	Voltage              uint16                `json:"voltage" yaml:"voltage"`
 	MaxCurrent           float32               `json:"max_current" yaml:"max_current" validate:"gte=0"`
 	Phases               uint8                 `json:"phases" yaml:"phases"`
@@ -42,14 +42,14 @@ type Pvs struct {
 }
 
 type Pv struct {
-	Name                 string                `json:"name" yaml:"name" validate:"required"`
+	Name                 string                `json:"name" yaml:"name" validate:"required,max=50"`
 	Meters               []*EnergyMeter        `json:"meters" yaml:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator" yaml:"modbus_meter_simulator"`
 	Controller           *PvController         `json:"controller" yaml:"controller"`
 }
 
 type AcLoad struct {
-	Name                 string                `json:"name" yaml:"name" validate:"required"`
+	Name                 string                `json:"name" yaml:"name" validate:"required,max=50"`
 	Role                 string                `json:"role" yaml:"role" validate:"required,oneof=EvCharger"`
 	PercentageFromGrid   uint8                 `json:"percentage_from_grid" yaml:"percentage_from_grid" validate:"gte=0,lte=100"`
 	Meters               []*EnergyMeter        `json:"meters" yaml:"meters" validate:"dive"`
@@ -57,18 +57,19 @@ type AcLoad struct {
 }
 
 type Battery struct {
-	Name   string         `json:"name" yaml:"name" validate:"required"`
+	Name   string         `json:"name" yaml:"name" validate:"required,max=50"`
 	Meters []*EnergyMeter `json:"meters" yaml:"meters" validate:"dive"`
 }
 
 type EnergyMeter struct {
-	ConnectURL   string   `json:"connect_url" yaml:"connect_url"`
-	Type         string   `json:"type" yaml:"type" validate:"required,oneof=modbus serial"`
-	Brand        string   `json:"brand" yaml:"brand" validate:"oneof='ABB' 'Carlo Gavazzi' 'DSMR' 'Victron' ''"`
-	ModbusUnitId uint8    `json:"modbus_unit_id" yaml:"modbus_unit_id" validate:"required_if=Type modbus"`
-	Speed        uint32   `json:"speed" yaml:"speed"`
-	LineIndices  []uint8  `json:"line_indices" yaml:"line_indices" validate:"gte=0,lte=3,dive,gte=0,lte=2"`
-	Attributes   []string `json:"attributes" yaml:"attributes" validate:"dive,oneof='state' 'current' 'total_current' 'power' 'total_power' 'voltage' 'usage' 'consumption' 'total_consumption' 'production' 'total_production' ''"`
+	ConnectURL         string   `json:"connect_url" yaml:"connect_url"`
+	Type               string   `json:"type" yaml:"type" validate:"required,oneof=modbus serial"`
+	Brand              string   `json:"brand" yaml:"brand" validate:"oneof='ABB' 'Carlo Gavazzi' 'DSMR' 'Victron' ''"`
+	ModbusUnitId       uint8    `json:"modbus_unit_id" yaml:"modbus_unit_id" validate:"required_if=Type modbus"`
+	Speed              uint32   `json:"speed" yaml:"speed"`
+	LineIndices        []uint8  `json:"line_indices" yaml:"line_indices" validate:"gte=0,lte=3,dive,gte=0,lte=2"`
+	Attributes         []string `json:"attributes" yaml:"attributes" validate:"dive,oneof='state' 'current' 'total_current' 'power' 'total_power' 'voltage' 'usage' 'consumption' 'total_consumption' 'production' 'total_production' ''"`
+	FailStartupOnError bool     `json:"fail_startup_on_error" yaml:"fail_startup_on_error"`
 }
 
 type GridController struct {
@@ -96,12 +97,17 @@ type ModbusMeterSimulator struct {
 }
 
 type Persistency struct {
-	Influx *Influx `json:"influx" yaml:"influx"`
+	Influx    *Influx    `json:"influx" yaml:"influx"`
+	Timescale *Timescale `json:"timescale" yaml:"timescale"`
 }
 
 type Influx struct {
 	ServerUrl string `json:"server_url" yaml:"server_url" validate:"url"`
 	Token     string `json:"token" yaml:"token" validate:"required"`
+}
+
+type Timescale struct {
+	ConnectionString string `json:"connection_string" yaml:"connection_string" validate:"url"`
 }
 
 type ModbusServer struct {
@@ -126,8 +132,8 @@ type Entsoe struct {
 }
 
 type EnergyProvider struct {
-	Name        string       `json:"name" validate:"required"`
-	PriceModels []PriceModel `json:"price_models" validate:"dive"`
+	Name        string       `json:"name" yaml:"name" validate:"required"`
+	PriceModels []PriceModel `json:"price_models" yaml:"price_models" validate:"dive"`
 }
 
 type PriceModel struct {

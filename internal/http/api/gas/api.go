@@ -1,4 +1,4 @@
-package battery
+package gas
 
 import (
 	"enman/internal/domain"
@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	errorCodeBatteryRoot            = "-battery"
+	errorCodeBatteryRoot            = "-gas"
 	errorCodeStartDateParseError    = errorCodeBatteryRoot + "-01"
 	errorCodeEndDateParseError      = errorCodeBatteryRoot + "-02"
 	errorCodeEndDateBeforeStartDate = errorCodeBatteryRoot + "-03"
-	errorCodeUnableToLoadStates     = errorCodeBatteryRoot + "-04"
+	errorCodeUnableToLoadUsages     = errorCodeBatteryRoot + "-04"
 	errorCodeUnableToLoadSources    = errorCodeBatteryRoot + "-05"
 )
 
@@ -39,7 +39,7 @@ func (b *Api) sources(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	sources, err := b.Repository.ElectricitySourceNames(startTime, endTime)
+	sources, err := b.Repository.GasSourceNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		b.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSources, err.Error())
@@ -49,36 +49,32 @@ func (b *Api) sources(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (b *Api) states(w http.ResponseWriter, r *http.Request) {
-	type stateResponse struct {
-		Time    time.Time `json:"time"`
-		Current float32   `json:"current"`
-		Voltage float32   `json:"voltage"`
-		Power   float32   `json:"power"`
-		SoC     float32   `json:"soc"`
-		SoH     float32   `json:"soh"`
+func (b *Api) usages(w http.ResponseWriter, r *http.Request) {
+	type usageResponse struct {
+		Time        time.Time `json:"time"`
+		GasConsumed float64   `json:"gas_consumed"`
 	}
-	type stateSerie struct {
+	type usageSerie struct {
 		Role   string          `json:"role"`
-		States []stateResponse `json:"states"`
+		Usages []usageResponse `json:"usages"`
 	}
-	type batteryStatesResponse struct {
-		States map[string]*stateSerie `json:"states"`
+	type gasUsagesResponse struct {
+		Usages map[string]*usageSerie `json:"usages"`
 	}
-	rsp := batteryStatesResponse{
-		States: make(map[string]*stateSerie),
+	rsp := gasUsagesResponse{
+		Usages: make(map[string]*usageSerie),
 	}
 	startTime, endTime, success := b.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
 	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitMinute,
+		WindowUnit:   domain.WindowUnitHour,
 		WindowAmount: 1,
-		Function:     domain.Mean{},
+		Function:     domain.Min{},
 		CreateEmpty:  false,
 	}
-	states, err := b.Repository.BatteryStates(
+	usages, err := b.Repository.GasUsages(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
@@ -87,20 +83,16 @@ func (b *Api) states(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Error(err.Error())
-		b.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadStates, err.Error())
+		b.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadUsages, err.Error())
 		return
 	}
-	for _, state := range states {
-		if rsp.States[state.Name] == nil {
-			rsp.States[state.Name] = &stateSerie{Role: state.Role}
+	for _, usage := range usages {
+		if rsp.Usages[usage.Name] == nil {
+			rsp.Usages[usage.Name] = &usageSerie{Role: usage.Role}
 		}
-		rsp.States[state.Name].States = append(rsp.States[state.Name].States, stateResponse{
-			Time:    state.Time,
-			Current: state.Current(),
-			Voltage: state.Voltage(),
-			Power:   state.Power(),
-			SoC:     state.SoC(),
-			SoH:     state.SoH(),
+		rsp.Usages[usage.Name].Usages = append(rsp.Usages[usage.Name].Usages, usageResponse{
+			Time:        usage.Time,
+			GasConsumed: usage.GasConsumed(),
 		})
 	}
 	render.JSON(w, r, rsp)
@@ -111,10 +103,10 @@ func (b *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router)
 		r.Use(middleware.AllowContentType("application/json"))
 		r.Get(fmt.Sprintf("/sources/{start:%s}", b.TimePattern), b.sources)
 		r.Get(fmt.Sprintf("/sources/{start:%s}/{end:%s}", b.TimePattern, b.TimePattern), b.sources)
-		r.Get(fmt.Sprintf("/states/{start:%s}", b.TimePattern), b.states)
-		r.Get(fmt.Sprintf("/states/{start:%s}/{end:%s}", b.TimePattern, b.TimePattern), b.states)
-		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}", b.TimePattern), b.states)
-		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}/{end:%s}", b.TimePattern, b.TimePattern), b.states)
+		r.Get(fmt.Sprintf("/usages/{start:%s}", b.TimePattern), b.usages)
+		r.Get(fmt.Sprintf("/usages/{start:%s}/{end:%s}", b.TimePattern, b.TimePattern), b.usages)
+		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}", b.TimePattern), b.usages)
+		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}/{end:%s}", b.TimePattern, b.TimePattern), b.usages)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

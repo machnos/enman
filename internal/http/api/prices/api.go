@@ -21,16 +21,16 @@ const (
 	errorCodeUnableToLoadProviders  = errorCodePricesRoot + "-05"
 )
 
-type PricesApi struct {
+type Api struct {
 	*api.BaseApi
 }
 
-func NewPricesApi(system *domain.System, repository domain.Repository) *PricesApi {
-	return &PricesApi{
+func NewApi(system *domain.System, repository domain.Repository) *Api {
+	return &Api{
 		api.NewBaseApi(system, repository),
 	}
 }
-func (p *PricesApi) prices(w http.ResponseWriter, r *http.Request) {
+func (p *Api) prices(w http.ResponseWriter, r *http.Request) {
 	type pricesResponsePrice struct {
 		Time             time.Time `json:"time"`
 		ConsumptionPrice float32   `json:"consumption_price"`
@@ -58,7 +58,7 @@ func (p *PricesApi) prices(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (p *PricesApi) providers(w http.ResponseWriter, r *http.Request) {
+func (p *Api) providers(w http.ResponseWriter, r *http.Request) {
 	rsp := struct {
 		Providers []string `json:"providers"`
 		Grid      string   `json:"grid"`
@@ -78,7 +78,7 @@ func (p *PricesApi) providers(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (p *PricesApi) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
+func (p *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
 	return func(r chi.Router) {
 		r.Use(middleware.AllowContentType("application/json"))
 		r.Get(fmt.Sprintf("/{start:%s}", p.TimePattern), p.prices)

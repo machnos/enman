@@ -3,6 +3,7 @@ package meters
 import (
 	"enman/internal/config"
 	"enman/internal/domain"
+	"fmt"
 )
 
 type energyMeter struct {
@@ -29,15 +30,17 @@ func newEnergyMeter(brand string) *energyMeter {
 	}
 }
 
-func ProbeEnergyMeters(role domain.EnergySourceRole, meterConfigs []*config.EnergyMeter) []domain.EnergyMeter {
+func ProbeEnergyMeters(role domain.EnergySourceRole, meterConfigs []*config.EnergyMeter) ([]domain.EnergyMeter, error) {
 	meters := make([]domain.EnergyMeter, 0)
 	for _, meterConfig := range meterConfigs {
 		meter := probeEnergyMeter(role, meterConfig)
 		if meter != nil {
 			meters = append(meters, meter)
+		} else if meterConfig.FailStartupOnError {
+			return nil, fmt.Errorf("unable to detect modbus energy meter in role %s at url '%s'", role, meterConfig.ConnectURL)
 		}
 	}
-	return meters
+	return meters, nil
 }
 
 func probeEnergyMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {

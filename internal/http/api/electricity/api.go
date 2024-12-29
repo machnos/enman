@@ -23,17 +23,17 @@ const (
 	errorCodeUnableToLoadSources    = errorCodeElectricityRoot + "-07"
 )
 
-type ElectricityApi struct {
+type Api struct {
 	*api.BaseApi
 }
 
-func NewElectricityApi(system *domain.System, repository domain.Repository) *ElectricityApi {
-	return &ElectricityApi{
+func NewApi(system *domain.System, repository domain.Repository) *Api {
+	return &Api{
 		api.NewBaseApi(system, repository),
 	}
 }
 
-func (e *ElectricityApi) sources(w http.ResponseWriter, r *http.Request) {
+func (e *Api) sources(w http.ResponseWriter, r *http.Request) {
 	rsp := struct {
 		Sources []string `json:"sources"`
 	}{}
@@ -51,7 +51,7 @@ func (e *ElectricityApi) sources(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (e *ElectricityApi) usage(w http.ResponseWriter, r *http.Request) {
+func (e *Api) usage(w http.ResponseWriter, r *http.Request) {
 	type usageResponse struct {
 		Time                time.Time `json:"time"`
 		TotalEnergyConsumed float64   `json:"total_energy_consumed"`
@@ -74,7 +74,7 @@ func (e *ElectricityApi) usage(w http.ResponseWriter, r *http.Request) {
 	aggregate := &domain.AggregateConfiguration{
 		WindowUnit:   domain.WindowUnitHour,
 		WindowAmount: 1,
-		Function:     domain.Max{},
+		Function:     domain.Min{},
 		CreateEmpty:  false,
 	}
 	usages, err := e.Repository.ElectricityUsages(
@@ -101,7 +101,7 @@ func (e *ElectricityApi) usage(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (e *ElectricityApi) states(w http.ResponseWriter, r *http.Request) {
+func (e *Api) states(w http.ResponseWriter, r *http.Request) {
 	type LineValues struct {
 		L1 float32 `json:"l1"`
 		L2 float32 `json:"l2"`
@@ -175,7 +175,7 @@ func (e *ElectricityApi) states(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (e *ElectricityApi) costs(w http.ResponseWriter, r *http.Request) {
+func (e *Api) costs(w http.ResponseWriter, r *http.Request) {
 	type costResponse struct {
 		Time              time.Time `json:"time"`
 		ConsumptionCosts  float32   `json:"consumption_costs"`
@@ -225,7 +225,7 @@ func (e *ElectricityApi) costs(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (e *ElectricityApi) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
+func (e *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
 	return func(r chi.Router) {
 		r.Use(middleware.AllowContentType("application/json"))
 		r.Get(fmt.Sprintf("/sources/{start:%s}", e.TimePattern), e.sources)

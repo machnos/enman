@@ -8,6 +8,7 @@ import (
 	"enman/internal/http/api"
 	"enman/internal/http/api/battery"
 	"enman/internal/http/api/electricity"
+	"enman/internal/http/api/gas"
 	"enman/internal/http/api/prices"
 	"enman/internal/log"
 	"fmt"
@@ -98,9 +99,10 @@ func NewServer(config *config.Http, system *domain.System, repository domain.Rep
 		})
 		r.Get("/static/*", s.staticResource)
 		r.Route("/api", api.NewBaseApi(system, repository).Router(map[string]func(r chi.Router){
-			"/electricity": electricity.NewElectricityApi(system, repository).Router(nil),
-			"/battery":     battery.NewBatteryApi(system, repository).Router(nil),
-			"/prices":      prices.NewPricesApi(system, repository).Router(nil),
+			"/electricity": electricity.NewApi(system, repository).Router(nil),
+			"/battery":     battery.NewApi(system, repository).Router(nil),
+			"/gas":         gas.NewApi(system, repository).Router(nil),
+			"/prices":      prices.NewApi(system, repository).Router(nil),
 		}))
 	})
 

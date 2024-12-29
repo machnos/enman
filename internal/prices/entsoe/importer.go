@@ -202,12 +202,18 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 					FeedbackPrice:    price,
 					Provider:         "ENTSO-E",
 				}
-				e.repository.StoreEnergyPrice(entsoePrice)
+				err = e.repository.StoreEnergyPrice(entsoePrice)
+				if err != nil && log.WarningEnabled() {
+					log.Warningf("failed to store energy price: %v", err)
+				}
 				go e.firePriceChangedEvent(ctx, entsoePrice, interval)
 				for l := 0; l < len(e.energyProviders); l++ {
 					energyPrice := e.calculateProviderPrice(e.energyProviders[l], price, pointStart)
 					if energyPrice != nil {
-						e.repository.StoreEnergyPrice(energyPrice)
+						err = e.repository.StoreEnergyPrice(energyPrice)
+						if err != nil && log.WarningEnabled() {
+							log.Warningf("failed to store energy price: %v", err)
+						}
 						go e.firePriceChangedEvent(ctx, energyPrice, interval)
 					}
 				}

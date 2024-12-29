@@ -168,7 +168,7 @@ func (i *influxRepository) ElectricityCosts(
 	till time.Time,
 	name string,
 	aggregate *domain.AggregateConfiguration,
-) ([]*domain.ElectricityCostRecord, error) {
+) ([]*domain.ElectricityCostsRecord, error) {
 	builder := NewQueryBuilder(NewBucketQuerySource(bucketElectricity)).Append(NewRangeStatement(from, till)).
 		Append(NewFilterStatement(NewFilterFunction("_measurement", Equals, measurementCosts)))
 	if name != "" {
@@ -185,9 +185,9 @@ func (i *influxRepository) ElectricityCosts(
 	if err != nil {
 		return nil, err
 	}
-	costs := make([]*domain.ElectricityCostRecord, 0)
+	costs := make([]*domain.ElectricityCostsRecord, 0)
 	for result.Next() {
-		cost := &domain.ElectricityCostRecord{
+		cost := &domain.ElectricityCostsRecord{
 			Time:                   result.Record().Time(),
 			Name:                   result.Record().ValueByKey(tagName).(string),
 			ConsumptionCosts:       float32(result.Record().ValueByKey(bucketElectricityFieldConsumptionCosts).(float64)),

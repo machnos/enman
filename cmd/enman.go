@@ -12,6 +12,7 @@ import (
 	"enman/internal/modbus/server"
 	"enman/internal/persistency/influx"
 	"enman/internal/persistency/noop"
+	"enman/internal/persistency/timescale"
 	"enman/internal/prices/entsoe"
 	"flag"
 	"golang.org/x/sync/errgroup"
@@ -43,18 +44,28 @@ func main() {
 
 	// Setup system
 	system := domain.NewSystem(time.Now().Location())
+	energyMeters, err := meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters)
+	if err != nil {
+		log.Fatalf("unable to probe grid meter: %s", err.Error())
+		syscall.Exit(-1)
+	}
 	system.SetGrid(configuration.Grid.Name,
 		configuration.Grid.Voltage,
 		configuration.Grid.MaxCurrent,
 		configuration.Grid.Phases,
 		configuration.Grid.TargetConsumption,
-		meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters),
+		energyMeters,
 		controllers.ProbeGridController(configuration.Grid.Controller),
 	)
 	var pvStateController *domain.PvStateController
 	if configuration.Pvs != nil {
 		for _, pv := range configuration.Pvs.Arrays {
-			system.AddPv(pv.Name, meters.ProbeEnergyMeters(domain.RolePv, pv.Meters), controllers.ProbePvController(pv.Controller))
+			energyMeters, err = meters.ProbeEnergyMeters(domain.RolePv, pv.Meters)
+			if err != nil {
+				log.Fatalf("unable to probe pv meter: %s", err.Error())
+				syscall.Exit(-1)
+			}
+			system.AddPv(pv.Name, energyMeters, controllers.ProbePvController(pv.Controller))
 		}
 		if configuration.Pvs.PvStateController != nil {
 			pvStateController = domain.NewPvStateController(
@@ -66,15 +77,25 @@ func main() {
 		}
 	}
 	for _, acLoad := range configuration.AcLoads {
+		energyMeters, err = meters.ProbeEnergyMeters(domain.EnergySourceRole(acLoad.Role), acLoad.Meters)
+		if err != nil {
+			log.Fatalf("unable to probe ac load meter: %s", err.Error())
+			syscall.Exit(-1)
+		}
 		system.AddAcLoad(acLoad.Name,
 			domain.EnergySourceRole(acLoad.Role),
 			acLoad.PercentageFromGrid,
-			meters.ProbeEnergyMeters(domain.EnergySourceRole(acLoad.Role), acLoad.Meters),
+			energyMeters,
 		)
 	}
 	for _, battery := range configuration.Batteries {
+		energyMeters, err = meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters)
+		if err != nil {
+			log.Fatalf("unable to probe battery meter: %s", err.Error())
+			syscall.Exit(-1)
+		}
 		system.AddBattery(battery.Name,
-			meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters),
+			energyMeters,
 		)
 	}
 
@@ -82,8 +103,8 @@ func main() {
 	repository := loadRepository(configuration)
 	err = repository.Initialize()
 	if err != nil {
-		log.Warningf("Unable to initialize database: %s", err.Error())
-		//syscall.Exit(-1)
+		log.Fatalf("Unable to initialize database: %s", err.Error())
+		syscall.Exit(-1)
 	}
 
 	// Setup domain event listeners
@@ -139,15 +160,15 @@ func main() {
 	}
 
 	modbusServers, _ := createModbusServers(configuration, system)
-	for _, server := range modbusServers {
+	for _, modbusServer := range modbusServers {
 		syncGroup.Go(func() error {
-			log.Infof("Starting modbus server on %s", server.ServerUrl())
-			err = server.Start()
+			log.Infof("Starting modbus server on %s", modbusServer.ServerUrl())
+			err = modbusServer.Start()
 			if err != nil {
 				log.Errorf("Failed to start modbus server server: %s", err.Error())
 				return err
 			}
-			log.Infof("Modbus server on %s started", server.ServerUrl())
+			log.Infof("Modbus server on %s started", modbusServer.ServerUrl())
 			return nil
 		})
 	}
@@ -202,18 +223,20 @@ func main() {
 }
 
 func loadRepository(configuration *config.Configuration) domain.Repository {
-	var repository domain.Repository
 	if configuration.Persistency != nil {
 		if configuration.Persistency.Influx != nil {
 			influxConfig := configuration.Persistency.Influx
-			repository = influx.NewInfluxRepository(influxConfig.ServerUrl, influxConfig.Token)
+			return influx.NewInfluxRepository(influxConfig.ServerUrl, influxConfig.Token)
+		} else if configuration.Persistency.Timescale != nil {
+			repository, err := timescale.NewTimescaleRepository(configuration.Persistency.Timescale.ConnectionString)
+			if err == nil {
+				return repository
+			}
+			log.Warningf("Unable to create timescale repository: %s", err.Error())
 		}
 	}
-	if repository == nil {
-		log.Warning("Persistency not configured. Energy measurements will not be stored.")
-		repository = noop.NewNoopRepository()
-	}
-	return repository
+	log.Warning("Persistency not or not correctly configured. Energy measurements will not be stored!")
+	return noop.NewNoopRepository()
 }
 
 func createModbusServers(config *config.Configuration, system *domain.System) ([]*modbus.ModbusServer, error) {

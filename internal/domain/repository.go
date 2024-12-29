@@ -34,12 +34,12 @@ type Repository interface {
 	ElectricityUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*ElectricityUsageRecord, error)
 	ElectricityUsageAtTime(moment time.Time, sourceName string, role EnergySourceRole, timeMatchType MatchType) (*ElectricityUsageRecord, error)
 	ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*ElectricityStateRecord, error)
-	ElectricityCosts(from time.Time, till time.Time, providerName string, aggregate *AggregateConfiguration) ([]*ElectricityCostRecord, error)
+	ElectricityCosts(from time.Time, till time.Time, providerName string, aggregate *AggregateConfiguration) ([]*ElectricityCostsRecord, error)
 
 	EnergyPriceProviderNames(from time.Time, till time.Time) ([]string, error)
 	EnergyPrices(from time.Time, till time.Time, providerName string) ([]*EnergyPrice, error)
 	EnergyPriceAtTime(moment time.Time, providerName string, timeMatchType MatchType) (*EnergyPrice, error)
-	StoreEnergyPrice(price *EnergyPrice)
+	StoreEnergyPrice(price *EnergyPrice) error
 
 	GasSourceNames(from time.Time, till time.Time) ([]string, error)
 	GasUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*GasUsageRecord, error)
@@ -202,7 +202,7 @@ type BatteryStateRecord struct {
 	*BatteryState
 }
 
-type ElectricityCostRecord struct {
+type ElectricityCostsRecord struct {
 	Time                   time.Time
 	Name                   string
 	ConsumptionCosts       float32

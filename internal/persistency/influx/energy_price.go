@@ -90,7 +90,7 @@ func (i *influxRepository) EnergyPriceAtTime(moment time.Time, providerName stri
 	return i.NewEnergyPriceFromRecord(result.Record()), nil
 }
 
-func (i *influxRepository) StoreEnergyPrice(price *domain.EnergyPrice) {
+func (i *influxRepository) StoreEnergyPrice(price *domain.EnergyPrice) error {
 	fields := map[string]interface{}{
 		bucketPricesFieldConsumptionPrice: math.Ceil(float64(price.ConsumptionPrice)*100000) / 100000,
 		bucketPricesFieldFeedbackPrice:    math.Ceil(float64(price.FeedbackPrice)*100000) / 100000,
@@ -104,6 +104,7 @@ func (i *influxRepository) StoreEnergyPrice(price *domain.EnergyPrice) {
 		fields,
 		price.Time)
 	i.writeApis[bucketPrices].WritePoint(point)
+	return nil
 }
 
 func (i *influxRepository) NewEnergyPriceFromRecord(record *query.FluxRecord) *domain.EnergyPrice {

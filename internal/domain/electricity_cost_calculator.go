@@ -2,7 +2,6 @@ package domain
 
 import (
 	"enman/internal/log"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -20,17 +19,17 @@ func NewElectricityUsageCostCalculator(repository Repository) *ElectricityUsageC
 }
 
 func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceValues) {
-	cacheKey := fmt.Sprintf("%s", values.EnergyProviderName())
+	cacheKey := values.EnergyProviderName()
 	defer func() { e.previousValues.Store(cacheKey, values) }()
 	var startTime time.Time
 	previousConsumptionPrice := float32(0)
 	previousFeedbackPrice := float32(0)
 	endTime := values.PriceStartingTime()
 	if value, ok := e.previousValues.Load(cacheKey); ok {
-		value := value.(*ElectricityPriceValues)
-		startTime = value.PriceStartingTime()
-		previousConsumptionPrice = value.ConsumptionPrice()
-		previousFeedbackPrice = value.FeedbackPrice()
+		previousValue := value.(*ElectricityPriceValues)
+		startTime = previousValue.PriceStartingTime()
+		previousConsumptionPrice = previousValue.ConsumptionPrice()
+		previousFeedbackPrice = previousValue.FeedbackPrice()
 	} else {
 		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), LessOrEqual)
 		if err != nil {

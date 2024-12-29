@@ -39,20 +39,23 @@
     <div id="container4"></div>
     <br />
     <br />
-    <label class="col-form-label">Amps per provider</label>
+    <label class="col-form-label">Watts per battery</label>
     <div id="container5"></div>
     <br />
     <br />
-    <label class="col-form-label">Watts per battery</label>
+    <label class="col-form-label">State of charge per battery</label>
     <div id="container6"></div>
     <br />
     <br />
-    <label class="col-form-label">Amps per battery</label>
+    <div class="row g-3 align-items-center">
+        <div class="col-auto">
+            <label for="sel-gas-providers" class="col-form-label">Gas usage per provider</label>
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-gas-providers"></select>
+        </div>
+    </div>
     <div id="container7"></div>
-    <br />
-    <br />
-    <label class="col-form-label">State of charge per battery</label>
-    <div id="container8"></div>
     <br />
     <br />
 </div>
@@ -199,6 +202,82 @@ $(document).ready(function(){
         });
     });
 
+    $('#sel-gas-providers').on('change', function (event) {
+        event.preventDefault();
+        const selectedProvider = $(this).val();
+
+        $.ajax({
+            url: "{{$.ContextRoot}}api/gas/" + selectedProvider + "/usages/" + yesterday.toISOString().split('T')[0],
+        }).done(function (data) {
+            if (data && data.usages) {
+                let markers = [];
+                $.each(data.usages, function (source, usageSerie) {
+                    let lastIterationConsumed;
+                    let lastDate
+                    $.each(usageSerie.usages, function(i, usage) {
+                        if (lastIterationConsumed) {
+                            markers.push({
+                                time: lastDate,
+                                value: (usage.gas_consumed - lastIterationConsumed),
+                                provider: source
+                            });
+                        }
+                        lastIterationConsumed = usage.gas_consumed;
+                        lastDate = Date.parse(usage.time);
+                    });
+                });
+                const graph = Plot.plot({
+                    x: {
+                        type: "time",
+                        interval: "hour",
+                    },
+                    y: {
+                        label: "Usage in m3"
+                    },
+                    grid: true,
+                    width: "1200",
+                    color: {
+                        legend: true,
+                        scheme: "gnbu",
+                    },
+                    marks: [
+                        Plot.ruleY([0]),
+                        Plot.axisX({
+                            ticks: "day",
+                            tickSize: 28,
+                            tickPadding: -9,
+                            tickFormat: " %A",
+                            textAnchor: "start"
+                        }),
+                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
+                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.tip(markers, Plot.pointerX({
+                            x: "time", y: "value", title: function (d) {
+                                return 'Time: ' + formatDate(new Date(d.time)) + '\n Usage: ' + d.value.toFixed(3) + ' m3';
+                            }
+                        })),
+                    ]
+                })
+
+                function formatDate(date) {
+                    let hour = date.getHours();
+                    let endHour = hour + 1
+                    hour = hour < 10 ? ('0' + hour) : hour;
+                    let minutes = date.getMinutes()
+                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                    if (endHour >= 24) {
+                        endHour = 0
+                    }
+                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
+                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                }
+
+                $('#container7').empty().append(graph);
+            }
+        });
+    });
+
+
     $.ajax({
         url: "{{$.ContextRoot}}api/prices/providers/" + yesterday.toISOString().split('T')[0],
     }).done(function(data) {
@@ -217,6 +296,23 @@ $(document).ready(function(){
         });
         $priceProviders.trigger("change");
         $costsProviders.trigger("change");
+    });
+
+    $.ajax({
+        url: "{{$.ContextRoot}}api/gas/sources/" + yesterday.toISOString().split('T')[0],
+    }).done(function(data) {
+        if (!data || !data.sources) {
+            return;
+        }
+        const $gasProviders = $('#sel-gas-providers');
+        $(data.sources).each(function (index, source) {
+            const $option = $('<option>').attr('value', source).text(source)
+            if (data.grid && source === data.grid) {
+                $option.attr('selected', 'selected')
+            }
+            $gasProviders.append($option.clone());
+        });
+        $gasProviders.trigger("change");
     });
 
     $.ajax({
@@ -356,46 +452,6 @@ $(document).ready(function(){
                 ]
             });
             $('#container4').append(graph);
-
-            graph = Plot.plot({
-                x: {
-                    type: "time",
-                    label: "Time"
-                },
-                y: {
-                    label: "Ampere"
-                },
-                grid: true,
-                width: "1200",
-                color: {
-                    scheme: "blues",
-                    legend: true
-                },
-                marks: [
-                    Plot.line(currentMarkers, {
-                        x: "time",
-                        y: "value",
-                        stroke: "provider",
-                        strokeWidth: 2,
-                        // curve: "natural",
-                        // marker: "circle",
-                    }),
-                    Plot.ruleY([0]),
-                    Plot.tip(currentMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
-                            function formatDate(date) {
-                                let hour = date.getHours();
-                                hour = hour < 10 ? ('0' + hour) : hour;
-                                let minutes = date.getMinutes()
-                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                                let seconds = date.getSeconds()
-                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
-                                return hour + ':' + minutes + ':' + seconds;
-                            }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'A';
-                        }})),
-                ]
-            });
-            $('#container5').append(graph);
         }
     });
 
@@ -469,47 +525,7 @@ $(document).ready(function(){
                         }})),
                 ]
             });
-            $('#container6').append(graph);
-
-            graph = Plot.plot({
-                x: {
-                    type: "time",
-                    label: "Time"
-                },
-                y: {
-                    label: "Amps"
-                },
-                grid: true,
-                width: "1200",
-                color: {
-                    scheme: "blues",
-                    legend: true
-                },
-                marks: [
-                    Plot.line(currentMarkers, {
-                        x: "time",
-                        y: "value",
-                        stroke: "provider",
-                        strokeWidth: 2,
-                        // curve: "natural",
-                        // marker: "circle",
-                    }),
-                    Plot.ruleY([0]),
-                    Plot.tip(currentMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
-                            function formatDate(date) {
-                                let hour = date.getHours();
-                                hour = hour < 10 ? ('0' + hour) : hour;
-                                let minutes = date.getMinutes()
-                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                                let seconds = date.getSeconds()
-                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
-                                return hour + ':' + minutes + ':' + seconds;
-                            }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'Amps';
-                        }})),
-                ]
-            });
-            $('#container7').append(graph);
+            $('#container5').append(graph);
 
             graph = Plot.plot({
                 x: {
@@ -549,8 +565,7 @@ $(document).ready(function(){
                         }})),
                 ]
             });
-            $('#container8').append(graph);
-
+            $('#container6').append(graph);
         }
     });
 
