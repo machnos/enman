@@ -97,13 +97,7 @@ type ModbusMeterSimulator struct {
 }
 
 type Persistency struct {
-	Influx    *Influx    `json:"influx" yaml:"influx"`
 	Timescale *Timescale `json:"timescale" yaml:"timescale"`
-}
-
-type Influx struct {
-	ServerUrl string `json:"server_url" yaml:"server_url" validate:"url"`
-	Token     string `json:"token" yaml:"token" validate:"required"`
 }
 
 type Timescale struct {

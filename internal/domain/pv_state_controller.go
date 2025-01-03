@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"enman/internal/domain/arithmetic"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"strings"
 	"time"
@@ -61,13 +62,13 @@ func (p *PvStateController) detectGridBasedPvProduction() {
 	// If all the batteries are over the disable threshold SoC we consider oversupply impossible.
 	allOverThreshold := true
 	for _, battery := range p.system.Batteries() {
-		if battery.BatteryState().SoC() < p.batteryRestartPercentage {
+		if battery.State().SoC() < p.batteryRestartPercentage {
 			if !p.gridBasedEnabled {
 				log.Infof("Grid is lost but battery below %.0f SoC detected. Pv production based on grid connection will be enabled.", p.batteryRestartPercentage)
 			}
 			p.gridBasedEnabled = true
 			return
-		} else if battery.BatteryState().SoC() < p.batteryCutoffPercentage {
+		} else if battery.State().SoC() < p.batteryCutoffPercentage {
 			allOverThreshold = false
 			break
 		}
@@ -87,7 +88,7 @@ func (p *PvStateController) Start(context context.Context) {
 	if p.updateTicker != nil {
 		return
 	}
-	ElectricityPrices.Register(p.priceBasedPVControl, func(priceValues *ElectricityPriceValues) bool {
+	events.ElectricityPrices.Register(p.priceBasedPVControl, func(priceValues *events.ElectricityPriceValues) bool {
 		return true
 	})
 	if p.system.Grid().controller == nil {
@@ -102,7 +103,7 @@ func (p *PvStateController) Start(context context.Context) {
 			select {
 			case <-context.Done():
 				p.updateTicker.Stop()
-				ElectricityPrices.Deregister(p.priceBasedPVControl)
+				events.ElectricityPrices.Deregister(p.priceBasedPVControl)
 				return
 			case _ = <-p.updateTicker.C:
 				p.detectGridBasedPvProduction()
@@ -137,7 +138,7 @@ func newPriceBasedPVControl(controller *PvStateController) *priceBasedPVControl 
 	}
 }
 
-func (pbc *priceBasedPVControl) HandleEvent(values *ElectricityPriceValues) {
+func (pbc *priceBasedPVControl) HandleEvent(values *events.ElectricityPriceValues) {
 	if pbc.disableFormula == "" {
 		return
 	}

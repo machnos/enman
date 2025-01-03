@@ -2,6 +2,11 @@ package domain
 
 import (
 	"context"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/events"
+	"enman/internal/domain/gas"
+	"enman/internal/domain/water"
 	"enman/internal/log"
 	"sort"
 	"time"
@@ -20,10 +25,10 @@ type Grid struct {
 	targetConsumption  int
 	meters             []EnergyMeter
 	controller         GridController
-	electricityState   *ElectricityState
-	electricityUsage   *ElectricityUsage
-	gasUsage           *GasUsage
-	waterUsage         *WaterUsage
+	electricityState   *electricity.State
+	electricityUsage   *electricity.Usage
+	gasUsage           *gas.Usage
+	waterUsage         *water.Usage
 	updateTicker       *time.Ticker
 }
 
@@ -31,8 +36,8 @@ func (g *Grid) Name() string {
 	return g.name
 }
 
-func (g *Grid) Role() EnergySourceRole {
-	return RoleGrid
+func (g *Grid) Role() constants.EnergySourceRole {
+	return constants.EnergySourceRoleGrid
 }
 
 func (g *Grid) Voltage() uint16 {
@@ -51,16 +56,16 @@ func (g *Grid) TargetConsumption() int {
 	return g.targetConsumption
 }
 
-func (g *Grid) ElectricityState() *ElectricityState {
+func (g *Grid) ElectricityState() *electricity.State {
 	return g.electricityState
 }
-func (g *Grid) ElectricityUsage() *ElectricityUsage {
+func (g *Grid) ElectricityUsage() *electricity.Usage {
 	return g.electricityUsage
 }
-func (g *Grid) GasUsage() *GasUsage {
+func (g *Grid) GasUsage() *gas.Usage {
 	return g.gasUsage
 }
-func (g *Grid) WaterUsage() *WaterUsage {
+func (g *Grid) WaterUsage() *water.Usage {
 	return g.waterUsage
 }
 
@@ -78,7 +83,7 @@ func (g *Grid) StartMeasuring(context context.Context) {
 		if meter.UpdateInterval() > interval {
 			interval = meter.UpdateInterval()
 		}
-		electricityMeter, ok := meter.(ElectricityMeter)
+		electricityMeter, ok := meter.(electricity.Meter)
 		if ok {
 			meterPhases += electricityMeter.Phases()
 			readLineIndices = append(readLineIndices, electricityMeter.LineIndices()...)
@@ -100,15 +105,15 @@ func (g *Grid) StartMeasuring(context context.Context) {
 				}
 				return
 			case _ = <-g.updateTicker.C:
-				es := NewElectricityState()
-				var eu *ElectricityUsage = nil
-				var gu *GasUsage = nil
-				var wu *WaterUsage = nil
-				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricityMeterUsageUpdateInterval) {
+				es := electricity.NewState()
+				var eu *electricity.Usage = nil
+				var gu *gas.Usage = nil
+				var wu *water.Usage = nil
+				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricity.MeterUsageUpdateInterval) {
 					usageLastRead = time.Now()
-					eu = NewElectricityUsage()
-					gu = NewGasUsage()
-					wu = NewWaterUsage()
+					eu = electricity.NewUsage()
+					gu = gas.NewUsage()
+					wu = water.NewUsage()
 				}
 				for _, meter := range g.meters {
 					err := meter.UpdateValues(es, eu, gu, wu, nil)
@@ -122,30 +127,30 @@ func (g *Grid) StartMeasuring(context context.Context) {
 					g.electricityUsage.SetValues(eu)
 				}
 				if !es.IsZero() || (eu != nil && !eu.IsZero()) {
-					electricityMeterValues := NewElectricityMeterValues().
+					electricityMeterValues := events.NewElectricityMeterValues().
 						SetName(g.Name()).
 						SetRole(g.Role()).
-						SetElectricityState(es).
-						SetElectricityUsage(eu).
+						SetState(es).
+						SetUsage(eu).
 						SetMeterPhases(meterPhases).
 						SetReadLineIndices(readLineIndices)
-					ElectricityMeterReadings.Trigger(electricityMeterValues)
+					events.ElectricityMeterReadings.Trigger(electricityMeterValues)
 				}
 				if gu != nil && !gu.IsZero() {
 					g.gasUsage.SetValues(gu)
-					gasMeterValues := NewGasMeterValues().
+					gasMeterValues := events.NewGasMeterValues().
 						SetName(g.Name()).
 						SetRole(g.Role()).
-						SetGasUsage(gu)
-					GasMeterReadings.Trigger(gasMeterValues)
+						SetUsage(gu)
+					events.GasMeterReadings.Trigger(gasMeterValues)
 				}
 				if wu != nil && !wu.IsZero() {
 					g.waterUsage.SetValues(wu)
-					waterMeterValues := NewWaterMeterValues().
+					waterMeterValues := events.NewWaterMeterValues().
 						SetName(g.Name()).
 						SetRole(g.Role()).
-						SetWaterUsage(wu)
-					WaterMeterReadings.Trigger(waterMeterValues)
+						SetUsage(wu)
+					events.WaterMeterReadings.Trigger(waterMeterValues)
 				}
 			}
 		}

@@ -3,6 +3,9 @@ package timescale
 import (
 	"context"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/events"
+	"enman/internal/domain/gas"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -68,7 +71,7 @@ func (t *timescaleRepository) GasSourceNames(from time.Time, till time.Time) ([]
 	return names, nil
 }
 
-func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.GasUsageRecord, error) {
+func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.GasUsagesRecord, error) {
 	tdUsages := t.tableDefinitions[tableGasUsages]
 	tdSources := t.tableDefinitions[tableGasSources]
 
@@ -81,7 +84,7 @@ func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceNa
 	statement, err := sql.NewSelect(tdUsages.Name).
 		WithColumns(aggregateColumn).
 		WithColumns(sql.NewColumns(tdSources.TablePrefixedColumnNames()...)...).
-		WithColumns(sql.NewColumnsWithFunction(t.toPostgresqlAggregateFunction(aggregate.Function), tdUsages.TablePrefixedColumnNames()[2:]...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), tdUsages.TablePrefixedColumnNames()[2:]...)...).
 		WithFilter(filter).
 		WithJoin(sql.NewJoin(tdSources.Name, sql.Inner, tdUsages.TablePrefixedColumn("gas_source"), tdSources.TablePrefixedColumn("name"))).
 		GroupBy(aggregateColumn, sql.NewColumnWithName(tdSources.TablePrefixedColumn("name"))).
@@ -96,18 +99,18 @@ func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceNa
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.GasUsageRecord, 0)
+	usages := make([]*domain.GasUsagesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		usages = append(usages, t.rowValuesToGasUsageRecord(values))
+		usages = append(usages, t.rowValuesToGasUsagesRecord(aggregate, values))
 	}
 	return usages, nil
 }
 
-func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string, role domain.EnergySourceRole, timeMatchType domain.MatchType) (*domain.GasUsageRecord, error) {
+func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.GasUsageRecord, error) {
 	tdUsages := t.tableDefinitions[tableGasUsages]
 	tdSources := t.tableDefinitions[tableGasSources]
 
@@ -159,12 +162,29 @@ func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string
 
 func (t *timescaleRepository) rowValuesToGasUsageRecord(values []any) *domain.GasUsageRecord {
 	gasUsage := &domain.GasUsageRecord{
-		Time:     values[0].(time.Time),
-		Name:     values[1].(string),
-		Role:     values[2].(string),
-		GasUsage: domain.NewGasUsage(),
+		Time:  values[0].(time.Time),
+		Name:  values[1].(string),
+		Role:  values[2].(string),
+		Usage: gas.NewUsage(),
 	}
 	gasUsage.SetGasConsumed(values[3].(float64))
+	return gasUsage
+}
+
+func (t *timescaleRepository) rowValuesToGasUsagesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.GasUsagesRecord {
+	gasUsage := &domain.GasUsagesRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Role:      values[2].(string),
+		Usages:    map[domain.AggregateFunction]*gas.Usage{},
+	}
+	nrOfFields := 1
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		gu := gas.NewUsage()
+		gu.SetGasConsumed(values[(ix*nrOfFields)+3].(float64))
+		gasUsage.Usages[aggregateFunction] = gu
+	}
 	return gasUsage
 }
 
@@ -172,14 +192,14 @@ type GasMeterValueChangeListener struct {
 	repo *timescaleRepository
 }
 
-func (gmvcl *GasMeterValueChangeListener) HandleEvent(values *domain.GasMeterValues) {
+func (gmvcl *GasMeterValueChangeListener) HandleEvent(values *events.GasMeterValues) {
 	valid, err := values.Valid()
 	if !valid {
 		if log.WarningEnabled() {
 			log.Warningf("Not storing gas meter reading from '%s' as it is invalid: %v", values.Name(), err)
 		}
 	}
-	if values.GasUsage() == nil || values.GasUsage().IsZero() {
+	if values.Usage() == nil || values.Usage().IsZero() {
 		// No usable values in event.
 		return
 	}
@@ -187,7 +207,7 @@ func (gmvcl *GasMeterValueChangeListener) HandleEvent(values *domain.GasMeterVal
 	fields := make([]any, len(gmvcl.repo.tableDefinitions[tableGasUsages].Columns))
 	fields[0] = values.EventTime()
 	fields[1] = values.Name()
-	fields[2] = values.GasUsage().GasConsumed()
+	fields[2] = values.Usage().GasConsumed()
 	_, err = gmvcl.repo.dbPool.Exec(context.Background(), gmvcl.repo.insertQueries[tableGasUsages], fields...)
 	if err != nil {
 		if log.WarningEnabled() {

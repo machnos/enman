@@ -64,6 +64,9 @@
 <script>
 $(document).ready(function(){
     'use strict';
+    const aggregateFunctionMean = "mean";
+    const aggregateFunctionMin = "min";
+    const aggregateFunctionMax = "max";
 
     const today = new Date();
     let tomorrow = new Date();
@@ -139,15 +142,15 @@ $(document).ready(function(){
         $.ajax({
             url: "{{$.ContextRoot}}api/electricity/" + selectedProvider + "/costs/" + yesterday.toISOString().split('T')[0],
         }).done(function (data) {
-            if (data && data.costs) {
+            if (data && data.sources) {
                 let markers = [];
-                $.each(data.costs, function (series, costs) {
-                    $.each(costs, function (i, cost) {
+                $.each(data.sources, function (source, buckets) {
+                    $.each(buckets, function (i, bucket) {
                         markers.push({
-                            // cost.time is the endtime of the calculation. So shift the marker 1 hour to the left.
-                            time: Date.parse(cost.time) - 3600000,
-                            value: cost.net_costs,
-                            provider: series
+                            start_time: Date.parse(bucket.start_time),
+                            end_time: Date.parse(bucket.end_time),
+                            value: bucket.net_costs,
+                            provider: source
                         });
                     });
                 });
@@ -175,26 +178,25 @@ $(document).ready(function(){
                             textAnchor: "start"
                         }),
                         Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
-                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.rectY(markers, {x: "start_time", y: "value", z: "provider", interval: "hour", fill: "value"}),
                         Plot.tip(markers, Plot.pointerX({
-                            x: "time", y: "value", title: function (d) {
-                                return 'Time: ' + formatDate(new Date(d.time)) + '\n Costs: €' + d.value;
+                            x: "start_time", y: "value", title: function (d) {
+                                return 'Time: ' + formatDate(new Date(d.start_time), new Date(d.end_time)) + '\n Costs: €' + d.value;
                             }
                         })),
                     ]
                 })
 
-                function formatDate(date) {
-                    let hour = date.getHours();
-                    let endHour = hour + 1
-                    hour = hour < 10 ? ('0' + hour) : hour;
-                    let minutes = date.getMinutes()
-                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                    if (endHour >= 24) {
-                        endHour = 0
-                    }
+                function formatDate(startDate, endDate) {
+                    let startHour = startDate.getHours();
+                    let startMinutes = startDate.getMinutes()
+                    let endHour = endDate.getHours();
+                    let endMinutes = endDate.getMinutes()
+                    startHour = startHour < 10 ? ('0' + startHour) : startHour;
+                    startMinutes = startMinutes < 10 ? ('0' + startMinutes) : startMinutes;
                     endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                    endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                    return startHour + ':' + startMinutes + '-' + endHour + ':' + endMinutes;
                 }
 
                 $('#container2').empty().append(graph);
@@ -207,23 +209,18 @@ $(document).ready(function(){
         const selectedProvider = $(this).val();
 
         $.ajax({
-            url: "{{$.ContextRoot}}api/gas/" + selectedProvider + "/usages/" + yesterday.toISOString().split('T')[0],
+            url: "{{$.ContextRoot}}api/gas/" + selectedProvider + "/usages/" + yesterday.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMin + "," + aggregateFunctionMax,
         }).done(function (data) {
-            if (data && data.usages) {
+            if (data && data.sources) {
                 let markers = [];
-                $.each(data.usages, function (source, usageSerie) {
-                    let lastIterationConsumed;
-                    let lastDate
-                    $.each(usageSerie.usages, function(i, usage) {
-                        if (lastIterationConsumed) {
-                            markers.push({
-                                time: lastDate,
-                                value: (usage.gas_consumed - lastIterationConsumed),
-                                provider: source
-                            });
-                        }
-                        lastIterationConsumed = usage.gas_consumed;
-                        lastDate = Date.parse(usage.time);
+                $.each(data.sources, function (source, serie) {
+                    $.each(serie.buckets, function(i, bucket) {
+                        markers.push({
+                            start_time: Date.parse(bucket.start_time),
+                            end_time: Date.parse(bucket.end_time),
+                            value: (bucket.usages[aggregateFunctionMax].gas_consumed - bucket.usages[aggregateFunctionMin].gas_consumed),
+                            provider: source
+                        });
                     });
                 });
                 const graph = Plot.plot({
@@ -250,26 +247,25 @@ $(document).ready(function(){
                             textAnchor: "start"
                         }),
                         Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
-                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.rectY(markers, {x: "start_time", y: "value", z: "provider", interval: "hour", fill: "value"}),
                         Plot.tip(markers, Plot.pointerX({
-                            x: "time", y: "value", title: function (d) {
-                                return 'Time: ' + formatDate(new Date(d.time)) + '\n Usage: ' + d.value.toFixed(3) + ' m3';
+                            x: "start_time", y: "value", title: function (d) {
+                                return 'Time: ' + formatDate(new Date(d.start_time), new Date(d.end_time)) + '\n Usage: ' + d.value.toFixed(3) + ' m3';
                             }
                         })),
                     ]
                 })
 
-                function formatDate(date) {
-                    let hour = date.getHours();
-                    let endHour = hour + 1
-                    hour = hour < 10 ? ('0' + hour) : hour;
-                    let minutes = date.getMinutes()
-                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                    if (endHour >= 24) {
-                        endHour = 0
-                    }
+                function formatDate(startDate, endDate) {
+                    let startHour = startDate.getHours();
+                    let startMinutes = startDate.getMinutes()
+                    let endHour = endDate.getHours();
+                    let endMinutes = endDate.getMinutes()
+                    startHour = startHour < 10 ? ('0' + startHour) : startHour;
+                    startMinutes = startMinutes < 10 ? ('0' + startMinutes) : startMinutes;
                     endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                    endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                    return startHour + ':' + startMinutes + '-' + endHour + ':' + endMinutes;
                 }
 
                 $('#container7').empty().append(graph);
@@ -316,32 +312,24 @@ $(document).ready(function(){
     });
 
     $.ajax({
-        url: "{{$.ContextRoot}}api/electricity/usages/" + today.toISOString().split('T')[0],
+        url: "{{$.ContextRoot}}api/electricity/usages/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMin + "," + aggregateFunctionMax,
     }).done(function(data) {
-        if (data && data.usages) {
+        if (data && data.sources) {
             let markers = [];
-            $.each(data.usages, function(series, usageSerie) {
-                let lastIterationConsumed;
-                let lastIterationProvided;
-                let lastDate
-                $.each(usageSerie.usages, function(i, usage) {
-                    if (lastIterationConsumed) {
-                        markers.push({
-                            time: lastDate,
-                            value: (usage.total_energy_consumed - lastIterationConsumed),
-                            provider: series + " - Consumed"
-                        });
-                    }
-                    lastIterationConsumed = usage.total_energy_consumed;
-                    if (lastIterationProvided) {
-                        markers.push({
-                            time: lastDate,
-                            value: (lastIterationProvided - usage.total_energy_provided),
-                            provider: series + " - Provided"
-                        });
-                    }
-                    lastIterationProvided = usage.total_energy_provided;
-                    lastDate = Date.parse(usage.time);
+            $.each(data.sources, function(source, serie) {
+                $.each(serie.buckets, function(i, bucket) {
+                    markers.push({
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.usages[aggregateFunctionMax].total_energy_consumed - bucket.usages[aggregateFunctionMin].total_energy_consumed),
+                        provider: source + " - Consumed"
+                    });
+                    markers.push({
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.usages[aggregateFunctionMax].total_energy_provided - bucket.usages[aggregateFunctionMin].total_energy_provided),
+                        provider: source + " - Provided"
+                    });
                 });
             });
             const graph = Plot.plot({
@@ -360,7 +348,7 @@ $(document).ready(function(){
                 },
                 marks: [
                     Plot.line(markers, {
-                        x: "time",
+                        x: "start_time",
                         y: "value",
                         stroke: "provider",
                         strokeWidth: 2,
@@ -368,20 +356,8 @@ $(document).ready(function(){
                         marker: "circle",
                     }),
                     Plot.ruleY([0]),
-                    Plot.tip(markers, Plot.pointerX({x: "time", y: "value", title: function(d) {
-                            function formatDate(date) {
-                                let hour = date.getHours();
-                                let endHour = hour + 1
-                                hour = hour < 10 ? ('0' + hour) : hour;
-                                let minutes = date.getMinutes()
-                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                                if (endHour >= 24) {
-                                    endHour = 0
-                                }
-                                endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                                return hour + ':' + minutes + '-' + endHour + ':' + minutes;
-                            }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'kWh';
+                    Plot.tip(markers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
+                            return d.provider + '\nTime: ' + formatDate(new Date(d.start_time), new Date(d.end_time))  + '\n ' + d.value.toFixed(2) + 'kWh';
                         }})),
                 ]
             });
@@ -389,27 +365,35 @@ $(document).ready(function(){
             // const domain = color.domain;
             // const range = color.range;
 
+            function formatDate(startDate, endDate) {
+                let startHour = startDate.getHours();
+                let startMinutes = startDate.getMinutes()
+                let endHour = endDate.getHours();
+                let endMinutes = endDate.getMinutes()
+                startHour = startHour < 10 ? ('0' + startHour) : startHour;
+                startMinutes = startMinutes < 10 ? ('0' + startMinutes) : startMinutes;
+                endHour = endHour < 10 ? ('0' + endHour) : endHour;
+                endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                return startHour + ':' + startMinutes + '-' + endHour + ':' + endMinutes;
+            }
+
+
             $('#container3').append(graph);
         }
     });
 
     $.ajax({
-        url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0],
+        url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean,
     }).done(function(data) {
-        if (data && data.states) {
-            let currentMarkers = [];
+        if (data && data.sources) {
             let powerMarkers = [];
-            $.each(data.states, function(series, stateSerie) {
-                $.each(stateSerie.states, function(i, state) {
-                    currentMarkers.push({
-                        time: Date.parse(state.time),
-                        value: (state.total_current),
-                        provider: series
-                    });
+            $.each(data.sources, function(source, serie) {
+                $.each(serie.buckets, function(i, bucket) {
                     powerMarkers.push({
-                        time: Date.parse(state.time),
-                        value: (state.total_power),
-                        provider: series
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.states[aggregateFunctionMean].total_power),
+                        provider: source
                     });
                 });
             });
@@ -429,7 +413,7 @@ $(document).ready(function(){
                 },
                 marks: [
                     Plot.line(powerMarkers, {
-                        x: "time",
+                        x: "start_time",
                         y: "value",
                         stroke: "provider",
                         strokeWidth: 2,
@@ -437,7 +421,7 @@ $(document).ready(function(){
                         // marker: "circle",
                     }),
                     Plot.ruleY([0]),
-                    Plot.tip(powerMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                    Plot.tip(powerMarkers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
                             function formatDate(date) {
                                 let hour = date.getHours();
                                 hour = hour < 10 ? ('0' + hour) : hour;
@@ -447,7 +431,7 @@ $(document).ready(function(){
                                 seconds = seconds < 10 ? ('0' + seconds) : seconds;
                                 return hour + ':' + minutes + ':' + seconds;
                             }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'W';
+                            return d.provider + '\nTime: ' + formatDate(new Date(d.start_time))  + '\n ' + d.value.toFixed(2) + 'W';
                         }})),
                 ]
             });
@@ -456,37 +440,42 @@ $(document).ready(function(){
     });
 
     $.ajax({
-        url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0],
+        url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean,
     }).done(function(data) {
-        if (data && data.states) {
+        if (data && data.sources) {
             let currentMarkers = [];
             let powerMarkers = [];
             let voltageMarkers = [];
             let socMarkers = [];
-            $.each(data.states, function(series, stateSerie) {
-                $.each(stateSerie.states, function(i, state) {
+            $.each(data.sources, function(source, serie) {
+                $.each(serie.buckets, function(i, bucket) {
                     currentMarkers.push({
-                        time: Date.parse(state.time),
-                        value: (state.current),
-                        provider: series
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.states[aggregateFunctionMean].current),
+                        provider: source
                     });
                     powerMarkers.push({
-                        time: Date.parse(state.time),
-                        value: (state.power),
-                        provider: series
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.states[aggregateFunctionMean].power),
+                        provider: source
                     });
                     voltageMarkers.push({
-                        time: Date.parse(state.time),
-                        value: (state.voltage),
-                        provider: series
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.states[aggregateFunctionMean].voltage),
+                        provider: source
                     });
                     socMarkers.push({
-                        time: Date.parse(state.time),
-                        value: (state.soc),
-                        provider: series
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: (bucket.states[aggregateFunctionMean].soc),
+                        provider: source
                     });
                 });
             });
+
             let graph = Plot.plot({
                 x: {
                     type: "time",
@@ -503,7 +492,7 @@ $(document).ready(function(){
                 },
                 marks: [
                     Plot.line(powerMarkers, {
-                        x: "time",
+                        x: "start_time",
                         y: "value",
                         stroke: "provider",
                         strokeWidth: 2,
@@ -511,7 +500,7 @@ $(document).ready(function(){
                         // marker: "circle",
                     }),
                     Plot.ruleY([0]),
-                    Plot.tip(powerMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                    Plot.tip(powerMarkers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
                             function formatDate(date) {
                                 let hour = date.getHours();
                                 hour = hour < 10 ? ('0' + hour) : hour;
@@ -521,7 +510,7 @@ $(document).ready(function(){
                                 seconds = seconds < 10 ? ('0' + seconds) : seconds;
                                 return hour + ':' + minutes + ':' + seconds;
                             }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + 'W';
+                            return d.provider + '\nTime: ' + formatDate(new Date(d.start_time))  + '\n ' + d.value.toFixed(2) + 'W';
                         }})),
                 ]
             });
@@ -543,7 +532,7 @@ $(document).ready(function(){
                 },
                 marks: [
                     Plot.line(socMarkers, {
-                        x: "time",
+                        x: "start_time",
                         y: "value",
                         stroke: "provider",
                         strokeWidth: 2,
@@ -551,7 +540,7 @@ $(document).ready(function(){
                         // marker: "circle",
                     }),
                     Plot.ruleY([0]),
-                    Plot.tip(socMarkers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                    Plot.tip(socMarkers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
                             function formatDate(date) {
                                 let hour = date.getHours();
                                 hour = hour < 10 ? ('0' + hour) : hour;
@@ -561,7 +550,7 @@ $(document).ready(function(){
                                 seconds = seconds < 10 ? ('0' + seconds) : seconds;
                                 return hour + ':' + minutes + ':' + seconds;
                             }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.time))  + '\n ' + d.value.toFixed(2) + '%';
+                            return d.provider + '\nTime: ' + formatDate(new Date(d.start_time))  + '\n ' + d.value.toFixed(2) + '%';
                         }})),
                 ]
             });

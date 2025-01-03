@@ -3,6 +3,9 @@ package timescale
 import (
 	"context"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -118,7 +121,7 @@ func (t *timescaleRepository) ElectricityUsages(
 	till time.Time,
 	sourceName string,
 	aggregate *domain.AggregateConfiguration,
-) ([]*domain.ElectricityUsageRecord, error) {
+) ([]*domain.ElectricityUsagesRecord, error) {
 	tdUsages := t.tableDefinitions[tableElectricityUsages]
 	tdSources := t.tableDefinitions[tableElectricitySources]
 
@@ -130,7 +133,7 @@ func (t *timescaleRepository) ElectricityUsages(
 	statement, err := sql.NewSelect(tableElectricityUsages).
 		WithColumns(aggregateColumn).
 		WithColumns(sql.NewColumns(t.tableDefinitions[tableElectricitySources].TablePrefixedColumnNames()...)...).
-		WithColumns(sql.NewColumnsWithFunction(t.toPostgresqlAggregateFunction(aggregate.Function), t.tableDefinitions[tableElectricityUsages].TablePrefixedColumnNames()[2:]...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), t.tableDefinitions[tableElectricityUsages].TablePrefixedColumnNames()[2:]...)...).
 		WithFilter(filter).
 		WithJoin(sql.NewJoin(tableElectricitySources, sql.Inner, tdUsages.TablePrefixedColumn("electricity_source"), tdSources.TablePrefixedColumn("name"))).
 		GroupBy(aggregateColumn, sql.NewColumnWithName(tdSources.TablePrefixedColumn("name"))).
@@ -145,18 +148,18 @@ func (t *timescaleRepository) ElectricityUsages(
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.ElectricityUsageRecord, 0)
+	usages := make([]*domain.ElectricityUsagesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		usages = append(usages, t.rowValuesToElectricityUsageRecord(values))
+		usages = append(usages, t.rowValuesToElectricityUsagesRecord(aggregate, values))
 	}
 	return usages, nil
 }
 
-func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceName string, role domain.EnergySourceRole, timeMatchType domain.MatchType) (*domain.ElectricityUsageRecord, error) {
+func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.ElectricityUsageRecord, error) {
 	tdUsages := t.tableDefinitions[tableElectricityUsages]
 	tdSources := t.tableDefinitions[tableElectricitySources]
 
@@ -206,7 +209,7 @@ func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceNam
 	return t.rowValuesToElectricityUsageRecord(values), nil
 }
 
-func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.ElectricityStateRecord, error) {
+func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.ElectricityStatesRecord, error) {
 	tdStates := t.tableDefinitions[tableElectricityStates]
 	tdSources := t.tableDefinitions[tableElectricitySources]
 
@@ -219,7 +222,7 @@ func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, 
 	statement, err := sql.NewSelect(tdStates.Name).
 		WithColumns(aggregateColumn).
 		WithColumns(sql.NewColumns(tdSources.TablePrefixedColumnNames()...)...).
-		WithColumns(sql.NewColumnsWithFunction(t.toPostgresqlAggregateFunction(aggregate.Function), tdStates.TablePrefixedColumnNames()[2:]...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), tdStates.TablePrefixedColumnNames()[2:]...)...).
 		WithFilter(filter).
 		WithJoin(sql.NewJoin(tdSources.Name, sql.Inner, tdStates.TablePrefixedColumn("electricity_source"), tdSources.TablePrefixedColumn("name"))).
 		GroupBy(aggregateColumn, sql.NewColumnWithName(tdSources.TablePrefixedColumn("name"))).
@@ -233,13 +236,13 @@ func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, 
 	}
 	defer rows.Close()
 
-	states := make([]*domain.ElectricityStateRecord, 0)
+	states := make([]*domain.ElectricityStatesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		states = append(states, t.rowValuesToElectricityStateRecord(values))
+		states = append(states, t.rowValuesToElectricityStatesRecord(aggregate, values))
 	}
 	return states, nil
 }
@@ -256,7 +259,7 @@ func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, p
 	statement, err := sql.NewSelect(tdCosts.Name).
 		WithColumns(aggregateColumn).
 		WithColumns(sql.NewColumns(tdProviders.TablePrefixedColumnNames()...)...).
-		WithColumns(sql.NewColumnsWithFunction(t.toPostgresqlAggregateFunction(aggregate.Function), tdCosts.TablePrefixedColumnNames()[2:]...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), tdCosts.TablePrefixedColumnNames()[2:]...)...).
 		WithFilter(filter).
 		WithJoin(sql.NewJoin(tdProviders.Name, sql.Inner, tdCosts.TablePrefixedColumn("electricity_provider"), tdProviders.TablePrefixedColumn("name"))).
 		GroupBy(aggregateColumn, sql.NewColumnWithName(tdProviders.TablePrefixedColumn("name"))).
@@ -277,45 +280,74 @@ func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, p
 		if err != nil {
 			return nil, err
 		}
-		usages = append(usages, t.rowValuesToElectricityCostsRecord(values))
+		usages = append(usages, t.rowValuesToElectricityCostsRecord(aggregate, values))
 	}
 	return usages, nil
 }
 
 func (t *timescaleRepository) rowValuesToElectricityUsageRecord(values []any) *domain.ElectricityUsageRecord {
 	electricityUsage := &domain.ElectricityUsageRecord{
-		Time:             values[0].(time.Time),
-		Name:             values[1].(string),
-		Role:             values[2].(string),
-		ElectricityUsage: domain.NewElectricityUsage(),
+		Time:  values[0].(time.Time),
+		Name:  values[1].(string),
+		Role:  values[2].(string),
+		Usage: electricity.NewUsage(),
 	}
-	electricityUsage.ElectricityUsage.SetTotalEnergyConsumed(values[3].(float64))
-	electricityUsage.ElectricityUsage.SetTotalEnergyProvided(values[4].(float64))
-	for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
+	electricityUsage.Usage.SetTotalEnergyConsumed(values[3].(float64))
+	electricityUsage.Usage.SetTotalEnergyProvided(values[4].(float64))
+	for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
 		electricityUsage.SetEnergyConsumed(lineIx, values[5+lineIx].(float64))
-		electricityUsage.SetEnergyProvided(lineIx, values[5+domain.MaxPhases+lineIx].(float64))
+		electricityUsage.SetEnergyProvided(lineIx, values[5+electricity.MaxPhases+lineIx].(float64))
 	}
 	return electricityUsage
 }
 
-func (t *timescaleRepository) rowValuesToElectricityStateRecord(values []any) *domain.ElectricityStateRecord {
-	electricityUsage := &domain.ElectricityStateRecord{
-		Time:             values[0].(time.Time),
-		Name:             values[1].(string),
-		Role:             values[2].(string),
-		ElectricityState: domain.NewElectricityState(),
+func (t *timescaleRepository) rowValuesToElectricityUsagesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityUsagesRecord {
+	electricityUsage := &domain.ElectricityUsagesRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Role:      values[2].(string),
+		Usages:    make(map[domain.AggregateFunction]*electricity.Usage),
 	}
-	for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
-		electricityUsage.SetCurrent(lineIx, float32(values[5+lineIx].(float64)))
-		electricityUsage.SetPower(lineIx, float32(values[5+domain.MaxPhases+lineIx].(float64)))
-		electricityUsage.SetVoltage(lineIx, float32(values[5+domain.MaxPhases+domain.MaxPhases+lineIx].(float64)))
+	nrOfFields := 2 + (int(electricity.MaxPhases) * 2)
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		eu := electricity.NewUsage()
+		eu.SetTotalEnergyConsumed(values[(ix*nrOfFields)+3].(float64))
+		eu.SetTotalEnergyProvided(values[(ix*nrOfFields)+4].(float64))
+		for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
+			eu.SetEnergyConsumed(lineIx, values[(ix*nrOfFields)+5+int(lineIx)].(float64))
+			eu.SetEnergyProvided(lineIx, values[(ix*nrOfFields)+5+int(electricity.MaxPhases+lineIx)].(float64))
+		}
+		electricityUsage.Usages[aggregateFunction] = eu
 	}
 	return electricityUsage
 }
 
-func (t *timescaleRepository) rowValuesToElectricityCostsRecord(values []any) *domain.ElectricityCostsRecord {
+func (t *timescaleRepository) rowValuesToElectricityStatesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityStatesRecord {
+	electricityStates := &domain.ElectricityStatesRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Role:      values[2].(string),
+		States:    make(map[domain.AggregateFunction]*electricity.State),
+	}
+	nrOfFields := int(electricity.MaxPhases) * 3
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		es := electricity.NewState()
+		for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
+			es.SetCurrent(lineIx, float32(values[(ix*nrOfFields)+5+int(lineIx)].(float64)))
+			es.SetPower(lineIx, float32(values[(ix*nrOfFields)+int(5+electricity.MaxPhases+lineIx)].(float64)))
+			es.SetVoltage(lineIx, float32(values[(ix*nrOfFields)+int(5+electricity.MaxPhases+electricity.MaxPhases+lineIx)].(float64)))
+		}
+		electricityStates.States[aggregateFunction] = es
+	}
+	return electricityStates
+}
+
+func (t *timescaleRepository) rowValuesToElectricityCostsRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityCostsRecord {
 	return &domain.ElectricityCostsRecord{
-		Time:                   values[0].(time.Time),
+		StartTime:              values[0].(time.Time),
+		EndTime:                t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:                   values[1].(string),
 		ConsumptionEnergy:      float32(values[2].(float64)),
 		ConsumptionPricePerKwh: float32(values[3].(float64)),
@@ -330,29 +362,29 @@ type ElectricityMeterValueChangeListener struct {
 	repo *timescaleRepository
 }
 
-func (emvcl *ElectricityMeterValueChangeListener) HandleEvent(values *domain.ElectricityMeterValues) {
+func (emvcl *ElectricityMeterValueChangeListener) HandleEvent(values *events.ElectricityMeterValues) {
 	valid, err := values.Valid()
 	if !valid {
 		if log.WarningEnabled() {
 			log.Warningf("not storing electricity meter reading from '%s' as it is invalid: %v", values.Name(), err)
 		}
 	}
-	if values.ElectricityState() == nil && values.ElectricityUsage() == nil {
+	if values.State() == nil && values.Usage() == nil {
 		// No usable values in event.
 		return
 	}
-	if values.ElectricityState() != nil {
+	if values.State() != nil {
 		emvcl.repo.registerElectricitySource(values.Name(), string(values.Role()))
 		fields := make([]any, len(emvcl.repo.tableDefinitions[tableElectricityStates].Columns))
 		fields[0] = values.EventTime()
 		fields[1] = values.Name()
-		fields[2] = values.ElectricityState().TotalCurrent()
-		fields[3] = values.ElectricityState().TotalPower()
+		fields[2] = values.State().TotalCurrent()
+		fields[3] = values.State().TotalPower()
 
-		for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
-			fields[4+lineIx] = values.ElectricityState().Current(lineIx)
-			fields[4+domain.MaxPhases+lineIx] = values.ElectricityState().Power(lineIx)
-			fields[4+domain.MaxPhases+domain.MaxPhases+lineIx] = values.ElectricityState().Voltage(lineIx)
+		for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
+			fields[4+lineIx] = values.State().Current(lineIx)
+			fields[4+electricity.MaxPhases+lineIx] = values.State().Power(lineIx)
+			fields[4+electricity.MaxPhases+electricity.MaxPhases+lineIx] = values.State().Voltage(lineIx)
 		}
 		_, err = emvcl.repo.dbPool.Exec(context.Background(), emvcl.repo.insertQueries[tableElectricityStates], fields...)
 		if err != nil {
@@ -361,17 +393,17 @@ func (emvcl *ElectricityMeterValueChangeListener) HandleEvent(values *domain.Ele
 			}
 		}
 	}
-	if values.ElectricityUsage() != nil {
+	if values.Usage() != nil {
 		emvcl.repo.registerElectricitySource(values.Name(), string(values.Role()))
 		fields := make([]any, len(emvcl.repo.tableDefinitions[tableElectricityUsages].Columns))
 		fields[0] = values.EventTime()
 		fields[1] = values.Name()
-		fields[2] = values.ElectricityUsage().TotalEnergyConsumed()
-		fields[3] = values.ElectricityUsage().TotalEnergyProvided()
+		fields[2] = values.Usage().TotalEnergyConsumed()
+		fields[3] = values.Usage().TotalEnergyProvided()
 
-		for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
-			fields[4+lineIx] = values.ElectricityUsage().EnergyConsumed(lineIx)
-			fields[4+domain.MaxPhases+lineIx] = values.ElectricityUsage().EnergyProvided(lineIx)
+		for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
+			fields[4+lineIx] = values.Usage().EnergyConsumed(lineIx)
+			fields[4+electricity.MaxPhases+lineIx] = values.Usage().EnergyProvided(lineIx)
 		}
 		_, err = emvcl.repo.dbPool.Exec(context.Background(), emvcl.repo.insertQueries[tableElectricityUsages], fields...)
 		if err != nil {
@@ -386,9 +418,9 @@ type ElectricityCostsValueChangeListener struct {
 	repo *timescaleRepository
 }
 
-func (ecvcl *ElectricityCostsValueChangeListener) HandleEvent(values *domain.ElectricityCostsValues) {
+func (ecvcl *ElectricityCostsValueChangeListener) HandleEvent(values *events.ElectricityCostsValues) {
 	fields := make([]any, len(ecvcl.repo.tableDefinitions[tableElectricityCosts].Columns))
-	fields[0] = values.EventTime()
+	fields[0] = values.StartTime()
 	fields[1] = values.EnergyProviderName()
 	fields[2] = values.ConsumptionEnergy()
 	fields[3] = values.ConsumptionPricePerKwh()
@@ -421,7 +453,7 @@ func (t *timescaleRepository) registerElectricitySource(name string, role string
 
 func (t *timescaleRepository) columnDefinitionPerPhase(columnName string, sqlType string, nullable bool) []*sql.ColumnDefinition {
 	result := make([]*sql.ColumnDefinition, 0)
-	for lineIx := uint8(0); lineIx < domain.MaxPhases; lineIx++ {
+	for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
 		result = append(result, &sql.ColumnDefinition{
 			Name:     fmt.Sprintf("%s_l%d", columnName, lineIx+1),
 			SqlType:  sqlType,

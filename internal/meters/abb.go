@@ -3,6 +3,10 @@ package meters
 import (
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/battery"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/gas"
+	"enman/internal/domain/water"
 	"enman/internal/log"
 	"enman/internal/modbus"
 	"fmt"
@@ -12,7 +16,7 @@ type abbMeter struct {
 	*energyMeter
 	*electricityMeter
 	*modbusMeter
-	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage) error
+	readModbusValues func(*electricity.State, *electricity.Usage) error
 }
 
 func newAbbMeter(modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
@@ -28,7 +32,7 @@ func newAbbMeter(modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMe
 	return abb, abb.validMeter()
 }
 
-func (a *abbMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) error {
+func (a *abbMeter) UpdateValues(state *electricity.State, usage *electricity.Usage, _ *gas.Usage, _ *water.Usage, _ *battery.State) error {
 	return a.readModbusValues(state, usage)
 }
 func (a *abbMeter) Shutdown() {
@@ -62,7 +66,7 @@ func (a *abbMeter) validMeter() error {
 	return nil
 }
 
-func (a *abbMeter) readSinglePhaseValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) error {
+func (a *abbMeter) readSinglePhaseValues(electricityState *electricity.State, electricityUsage *electricity.Usage) error {
 	modbusClient := a.modbusClient
 	if electricityState != nil {
 		if a.electricityMeter.HasVoltageAttribute() {
@@ -102,7 +106,7 @@ func (a *abbMeter) readSinglePhaseValues(electricityState *domain.ElectricitySta
 	return nil
 }
 
-func (a *abbMeter) readThreePhaseValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) error {
+func (a *abbMeter) readThreePhaseValues(electricityState *electricity.State, electricityUsage *electricity.Usage) error {
 	modbusClient := a.modbusClient
 	if electricityState != nil {
 		if a.electricityMeter.HasVoltageAttribute() {

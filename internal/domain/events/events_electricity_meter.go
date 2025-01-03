@@ -1,12 +1,10 @@
-package domain
+package events
 
 import (
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
 	"errors"
 	"time"
-)
-
-const (
-	electricityMeterUsageUpdateInterval = time.Second * 10
 )
 
 var ElectricityMeterReadings = genericEventHandler[ElectricityMeterValueChangeListener, *ElectricityMeterValues]{
@@ -18,13 +16,13 @@ type ElectricityMeterValueChangeListener interface {
 }
 
 type ElectricityMeterValues struct {
-	eventTime        time.Time
-	name             string
-	role             EnergySourceRole
-	meterPhases      uint8
-	readLineIndices  []uint8
-	electricityUsage *ElectricityUsage
-	electricityState *ElectricityState
+	eventTime       time.Time
+	name            string
+	role            constants.EnergySourceRole
+	meterPhases     uint8
+	readLineIndices []uint8
+	state           *electricity.State
+	usage           *electricity.Usage
 }
 
 func NewElectricityMeterValues() *ElectricityMeterValues {
@@ -46,12 +44,12 @@ func (emv *ElectricityMeterValues) Name() string {
 	return emv.name
 }
 
-func (emv *ElectricityMeterValues) SetRole(role EnergySourceRole) *ElectricityMeterValues {
+func (emv *ElectricityMeterValues) SetRole(role constants.EnergySourceRole) *ElectricityMeterValues {
 	emv.role = role
 	return emv
 }
 
-func (emv *ElectricityMeterValues) Role() EnergySourceRole {
+func (emv *ElectricityMeterValues) Role() constants.EnergySourceRole {
 	return emv.role
 }
 
@@ -73,32 +71,32 @@ func (emv *ElectricityMeterValues) ReadLineIndices() []uint8 {
 	return emv.readLineIndices
 }
 
-func (emv *ElectricityMeterValues) SetElectricityState(electricityState *ElectricityState) *ElectricityMeterValues {
-	emv.electricityState = electricityState
+func (emv *ElectricityMeterValues) SetState(state *electricity.State) *ElectricityMeterValues {
+	emv.state = state
 	return emv
 }
 
-func (emv *ElectricityMeterValues) ElectricityState() *ElectricityState {
-	return emv.electricityState
+func (emv *ElectricityMeterValues) State() *electricity.State {
+	return emv.state
 }
 
-func (emv *ElectricityMeterValues) SetElectricityUsage(electricityUsage *ElectricityUsage) *ElectricityMeterValues {
-	emv.electricityUsage = electricityUsage
+func (emv *ElectricityMeterValues) SetUsage(usage *electricity.Usage) *ElectricityMeterValues {
+	emv.usage = usage
 	return emv
 }
 
-func (emv *ElectricityMeterValues) ElectricityUsage() *ElectricityUsage {
-	return emv.electricityUsage
+func (emv *ElectricityMeterValues) Usage() *electricity.Usage {
+	return emv.usage
 }
 
 func (emv *ElectricityMeterValues) Valid() (bool, error) {
 	var result error
-	if emv.electricityState != nil {
-		_, err := emv.electricityState.Valid()
+	if emv.state != nil {
+		_, err := emv.state.Valid()
 		result = errors.Join(result, err)
 	}
-	if emv.electricityUsage != nil {
-		_, err := emv.electricityUsage.Valid()
+	if emv.usage != nil {
+		_, err := emv.usage.Valid()
 		result = errors.Join(result, err)
 	}
 	return result == nil, result

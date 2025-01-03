@@ -2,6 +2,7 @@ package server
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/electricity"
 	"enman/internal/log"
 	"enman/internal/modbus"
 	"fmt"
@@ -21,7 +22,7 @@ func NewDispatchingRequestHandler(system *domain.System) *DispatchingRequestHand
 	return drh
 }
 
-func NewMeterSimulator(meterType string, unitId uint8, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) (modbus.RequestHandler, error) {
+func NewMeterSimulator(meterType string, unitId uint8, electricityState *electricity.State, electricityUsage *electricity.Usage) (modbus.RequestHandler, error) {
 	if unitId < 100 {
 		return nil, fmt.Errorf("meter simulator must have a unit id >= 100")
 	}

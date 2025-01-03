@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/battery"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/gas"
+	"enman/internal/domain/water"
 	"enman/internal/log"
 	"enman/internal/modbus"
 	"fmt"
@@ -20,7 +24,7 @@ type carloGavazziMeter struct {
 	*energyMeter
 	*electricityMeter
 	*modbusMeter
-	readModbusValues func(*domain.ElectricityState, *domain.ElectricityUsage) error
+	readModbusValues func(*electricity.State, *electricity.Usage) error
 }
 
 func newCarloGavazziMeter(modbusClient *modbus.ModbusClient, meterConfig *config.EnergyMeter) (domain.EnergyMeter, error) {
@@ -36,7 +40,7 @@ func newCarloGavazziMeter(modbusClient *modbus.ModbusClient, meterConfig *config
 	return cg, cg.validMeter()
 }
 
-func (c *carloGavazziMeter) UpdateValues(state *domain.ElectricityState, usage *domain.ElectricityUsage, _ *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) error {
+func (c *carloGavazziMeter) UpdateValues(state *electricity.State, usage *electricity.Usage, _ *gas.Usage, _ *water.Usage, _ *battery.State) error {
 	return c.readModbusValues(state, usage)
 }
 
@@ -252,7 +256,7 @@ func (c *carloGavazziMeter) readEM24Serial(modbusUnitId uint8, modbusClient *mod
 	return strings.Trim(b.String(), "0")
 }
 
-func (c *carloGavazziMeter) readEm24Values(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) error {
+func (c *carloGavazziMeter) readEm24Values(electricityState *electricity.State, electricityUsage *electricity.Usage) error {
 	err := c.readGenericThreePhaseState(electricityState)
 	if err != nil {
 		return err
@@ -290,7 +294,7 @@ func (c *carloGavazziMeter) readEm24Values(electricityState *domain.ElectricityS
 	return nil
 }
 
-func (c *carloGavazziMeter) readEx100SeriesValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) error {
+func (c *carloGavazziMeter) readEx100SeriesValues(electricityState *electricity.State, electricityUsage *electricity.Usage) error {
 	err := c.readGenericSinglePhaseState(electricityState)
 	if err != nil {
 		return err
@@ -316,7 +320,7 @@ func (c *carloGavazziMeter) readEx100SeriesValues(electricityState *domain.Elect
 	return nil
 }
 
-func (c *carloGavazziMeter) readEx300SeriesValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) error {
+func (c *carloGavazziMeter) readEx300SeriesValues(electricityState *electricity.State, electricityUsage *electricity.Usage) error {
 	err := c.readGenericThreePhaseState(electricityState)
 	if err != nil {
 		return err
@@ -362,7 +366,7 @@ func (c *carloGavazziMeter) readEx300SeriesValues(electricityState *domain.Elect
 	return nil
 }
 
-func (c *carloGavazziMeter) readEM530andEM540Values(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) error {
+func (c *carloGavazziMeter) readEM530andEM540Values(electricityState *electricity.State, electricityUsage *electricity.Usage) error {
 	err := c.readGenericThreePhaseState(electricityState)
 	if err != nil {
 		return err
@@ -399,7 +403,7 @@ func (c *carloGavazziMeter) readEM530andEM540Values(electricityState *domain.Ele
 	return nil
 }
 
-func (c *carloGavazziMeter) readGenericSinglePhaseState(electricityState *domain.ElectricityState) error {
+func (c *carloGavazziMeter) readGenericSinglePhaseState(electricityState *electricity.State) error {
 	if electricityState == nil || !(c.electricityMeter.HasVoltageAttribute() || c.electricityMeter.HasPowerAttribute() || c.electricityMeter.HasCurrentAttribute()) {
 		return nil
 	}
@@ -426,7 +430,7 @@ func (c *carloGavazziMeter) readGenericSinglePhaseState(electricityState *domain
 	return nil
 }
 
-func (c *carloGavazziMeter) readGenericThreePhaseState(electricityState *domain.ElectricityState) error {
+func (c *carloGavazziMeter) readGenericThreePhaseState(electricityState *electricity.State) error {
 	if electricityState == nil {
 		return nil
 	}

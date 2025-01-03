@@ -5,6 +5,10 @@ import (
 	"context"
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/battery"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/gas"
+	"enman/internal/domain/water"
 	"enman/internal/log"
 	"enman/internal/serial"
 	"fmt"
@@ -23,9 +27,9 @@ type dsmrMeter struct {
 	runContext                     context.Context
 	cancelFunc                     context.CancelFunc
 	shutdownWaitGroup              sync.WaitGroup
-	electricityState               *domain.ElectricityState
-	electricityUsage               *domain.ElectricityUsage
-	gasUsage                       *domain.GasUsage
+	electricityState               *electricity.State
+	electricityUsage               *electricity.Usage
+	gasUsage                       *gas.Usage
 	gasMeterReferenceChannelPrefix string
 	mbusClientValue                *regexp.Regexp
 }
@@ -40,9 +44,9 @@ func newDsmrMeter(serialConfig *serial.Config, meterConfig *config.EnergyMeter) 
 		electricityMeter: elMe,
 		gasMeter:         gaMe,
 		serialMeter:      seMe,
-		electricityState: domain.NewElectricityState(),
-		electricityUsage: domain.NewElectricityUsage(),
-		gasUsage:         domain.NewGasUsage(),
+		electricityState: electricity.NewState(),
+		electricityUsage: electricity.NewUsage(),
+		gasUsage:         gas.NewUsage(),
 	}
 	return dsmr, dsmr.validMeter()
 }
@@ -119,7 +123,7 @@ func (d *dsmrMeter) validMeter() error {
 	return fmt.Errorf("%s grid meter not found at %s", d.Brand(), d.serialConfig.Address)
 }
 
-func (d *dsmrMeter) UpdateValues(electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage, gasUsage *domain.GasUsage, _ *domain.WaterUsage, _ *domain.BatteryState) error {
+func (d *dsmrMeter) UpdateValues(electricityState *electricity.State, electricityUsage *electricity.Usage, gasUsage *gas.Usage, _ *water.Usage, _ *battery.State) error {
 	if electricityState != nil {
 		for ix := uint8(0); ix < uint8(len(d.lineIndices)); ix++ {
 			if d.electricityMeter.HasCurrentAttribute() {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
 	"enman/internal/log"
 	"enman/internal/serial"
 	"time"
@@ -37,7 +38,7 @@ func (sm *serialMeter) shutdown() {
 	}
 }
 
-func probeSerialMeter(_ domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeSerialMeter(_ constants.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
 	if meterConfig.Speed != 0 {
 		probeBaudRates = []uint{uint(meterConfig.Speed)}

@@ -2,6 +2,9 @@ package domain
 
 import (
 	"context"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"sort"
 	"time"
@@ -9,10 +12,10 @@ import (
 
 type AcLoad struct {
 	name               string
-	role               EnergySourceRole
+	role               constants.EnergySourceRole
 	percentageFromGrid uint8
-	electricityState   *ElectricityState
-	electricityUsage   *ElectricityUsage
+	state              *electricity.State
+	usage              *electricity.Usage
 	meters             []EnergyMeter
 	updateTicker       *time.Ticker
 }
@@ -21,7 +24,7 @@ func (acl *AcLoad) Name() string {
 	return acl.name
 }
 
-func (acl *AcLoad) Role() EnergySourceRole {
+func (acl *AcLoad) Role() constants.EnergySourceRole {
 	return acl.role
 }
 
@@ -29,12 +32,12 @@ func (acl *AcLoad) PercentageFromGrid() uint8 {
 	return acl.percentageFromGrid
 }
 
-func (acl *AcLoad) ElectricityState() *ElectricityState {
-	return acl.electricityState
+func (acl *AcLoad) State() *electricity.State {
+	return acl.state
 }
 
-func (acl *AcLoad) ElectricityUsage() *ElectricityUsage {
-	return acl.electricityUsage
+func (acl *AcLoad) Usage() *electricity.Usage {
+	return acl.usage
 }
 
 func (acl *AcLoad) StartMeasuring(context context.Context) {
@@ -50,7 +53,7 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 		if meter.UpdateInterval() > interval {
 			interval = meter.UpdateInterval()
 		}
-		electricityMeter, ok := meter.(ElectricityMeter)
+		electricityMeter, ok := meter.(electricity.Meter)
 		if ok {
 			meterPhases += electricityMeter.Phases()
 			readLineIndices = append(readLineIndices, electricityMeter.LineIndices()...)
@@ -72,11 +75,11 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 				}
 				return
 			case _ = <-acl.updateTicker.C:
-				es := NewElectricityState()
-				var eu *ElectricityUsage = nil
-				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricityMeterUsageUpdateInterval) {
+				es := electricity.NewState()
+				var eu *electricity.Usage = nil
+				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricity.MeterUsageUpdateInterval) {
 					usageLastRead = time.Now()
-					eu = NewElectricityUsage()
+					eu = electricity.NewUsage()
 				}
 				for _, meter := range acl.meters {
 					err := meter.UpdateValues(es, eu, nil, nil, nil)
@@ -85,19 +88,19 @@ func (acl *AcLoad) StartMeasuring(context context.Context) {
 						continue loadLoop
 					}
 				}
-				acl.electricityState.SetValues(es)
+				acl.state.SetValues(es)
 				if eu != nil && !eu.IsZero() {
-					acl.electricityUsage.SetValues(eu)
+					acl.usage.SetValues(eu)
 				}
 				if !es.IsZero() || (eu != nil && !eu.IsZero()) {
-					electricityMeterValues := NewElectricityMeterValues().
+					electricityMeterValues := events.NewElectricityMeterValues().
 						SetName(acl.Name()).
 						SetRole(acl.Role()).
-						SetElectricityState(es).
-						SetElectricityUsage(eu).
+						SetState(es).
+						SetUsage(eu).
 						SetMeterPhases(meterPhases).
 						SetReadLineIndices(readLineIndices)
-					ElectricityMeterReadings.Trigger(electricityMeterValues)
+					events.ElectricityMeterReadings.Trigger(electricityMeterValues)
 				}
 			}
 		}

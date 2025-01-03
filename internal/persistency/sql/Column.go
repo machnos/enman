@@ -38,13 +38,19 @@ func NewColumn(name string, as string, columnFunction func(string) string) *Colu
 }
 
 func NewColumns(names ...string) []*Column {
-	return NewColumnsWithFunction(nil, names...)
+	columns := make([]*Column, 0)
+	for _, name := range names {
+		columns = append(columns, NewColumn(name, "", nil))
+	}
+	return columns
 }
 
-func NewColumnsWithFunction(columnFunction func(string) string, names ...string) []*Column {
-	columns := make([]*Column, len(names))
-	for ix, name := range names {
-		columns[ix] = NewColumn(name, "", columnFunction)
+func NewColumnsWithFunctions(columnFunctions []func(string) string, names ...string) []*Column {
+	columns := make([]*Column, 0)
+	for _, columnFunction := range columnFunctions {
+		for _, name := range names {
+			columns = append(columns, NewColumn(name, "", columnFunction))
+		}
 	}
 	return columns
 }

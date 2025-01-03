@@ -3,6 +3,9 @@ package timescale
 import (
 	"context"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/events"
+	"enman/internal/domain/water"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -68,7 +71,7 @@ func (t *timescaleRepository) WaterSourceNames(from time.Time, till time.Time) (
 	return names, nil
 }
 
-func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.WaterUsageRecord, error) {
+func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.WaterUsagesRecord, error) {
 	tdUsages := t.tableDefinitions[tableWaterUsages]
 	tdSources := t.tableDefinitions[tableWaterSources]
 
@@ -81,7 +84,7 @@ func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, source
 	statement, err := sql.NewSelect(tdUsages.Name).
 		WithColumns(aggregateColumn).
 		WithColumns(sql.NewColumns(tdSources.TablePrefixedColumnNames()...)...).
-		WithColumns(sql.NewColumnsWithFunction(t.toPostgresqlAggregateFunction(aggregate.Function), tdUsages.TablePrefixedColumnNames()[2:]...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), tdUsages.TablePrefixedColumnNames()[2:]...)...).
 		WithFilter(filter).
 		WithJoin(sql.NewJoin(tdSources.Name, sql.Inner, tdUsages.TablePrefixedColumn("water_source"), tdSources.TablePrefixedColumn("name"))).
 		GroupBy(aggregateColumn, sql.NewColumnWithName(tdSources.TablePrefixedColumn("name"))).
@@ -96,18 +99,18 @@ func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, source
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.WaterUsageRecord, 0)
+	usages := make([]*domain.WaterUsagesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		usages = append(usages, t.rowValuesToWaterUsageRecord(values))
+		usages = append(usages, t.rowValuesToWaterUsagesRecord(aggregate, values))
 	}
 	return usages, nil
 }
 
-func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName string, role domain.EnergySourceRole, timeMatchType domain.MatchType) (*domain.WaterUsageRecord, error) {
+func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.WaterUsageRecord, error) {
 	tdUsages := t.tableDefinitions[tableWaterUsages]
 	tdSources := t.tableDefinitions[tableWaterSources]
 
@@ -159,12 +162,29 @@ func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName stri
 
 func (t *timescaleRepository) rowValuesToWaterUsageRecord(values []any) *domain.WaterUsageRecord {
 	waterUsage := &domain.WaterUsageRecord{
-		Time:       values[0].(time.Time),
-		Name:       values[1].(string),
-		Role:       values[2].(string),
-		WaterUsage: domain.NewWaterUsage(),
+		Time:  values[0].(time.Time),
+		Name:  values[1].(string),
+		Role:  values[2].(string),
+		Usage: water.NewUsage(),
 	}
 	waterUsage.SetWaterConsumed(values[3].(float64))
+	return waterUsage
+}
+
+func (t *timescaleRepository) rowValuesToWaterUsagesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.WaterUsagesRecord {
+	waterUsage := &domain.WaterUsagesRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Role:      values[2].(string),
+		Usages:    make(map[domain.AggregateFunction]*water.Usage),
+	}
+	nrOfFields := 1
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		wu := water.NewUsage()
+		wu.SetWaterConsumed(values[(ix*nrOfFields)+3].(float64))
+		waterUsage.Usages[aggregateFunction] = wu
+	}
 	return waterUsage
 }
 
@@ -172,14 +192,14 @@ type WaterMeterValueChangeListener struct {
 	repo *timescaleRepository
 }
 
-func (wmvcl *WaterMeterValueChangeListener) HandleEvent(values *domain.WaterMeterValues) {
+func (wmvcl *WaterMeterValueChangeListener) HandleEvent(values *events.WaterMeterValues) {
 	valid, err := values.Valid()
 	if !valid {
 		if log.WarningEnabled() {
 			log.Warningf("Not storing water meter reading from '%s' as it is invalid: %v", values.Name(), err)
 		}
 	}
-	if values.WaterUsage() == nil || values.WaterUsage().IsZero() {
+	if values.Usage() == nil || values.Usage().IsZero() {
 		// No usable values in event.
 		return
 	}
@@ -187,7 +207,7 @@ func (wmvcl *WaterMeterValueChangeListener) HandleEvent(values *domain.WaterMete
 	fields := make([]any, len(wmvcl.repo.tableDefinitions[tableWaterUsages].Columns))
 	fields[0] = values.EventTime()
 	fields[1] = values.Name()
-	fields[2] = values.WaterUsage().WaterConsumed()
+	fields[2] = values.Usage().WaterConsumed()
 	_, err = wmvcl.repo.dbPool.Exec(context.Background(), wmvcl.repo.insertQueries[tableWaterUsages], fields...)
 	if err != nil {
 		if log.WarningEnabled() {

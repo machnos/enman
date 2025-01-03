@@ -1,4 +1,4 @@
-package domain
+package electricity
 
 import (
 	"reflect"
@@ -24,7 +24,7 @@ func TestElectricityState_Current(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				current: tt.fields.current,
 			}
 			if got := es.Current(tt.args.lineIx); got != tt.want {
@@ -52,7 +52,7 @@ func TestElectricityState_MarshalJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := State{
 				current: tt.fields.current,
 				power:   tt.fields.power,
 				voltage: tt.fields.voltage,
@@ -88,7 +88,7 @@ func TestElectricityState_Power(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				power: tt.fields.power,
 			}
 			if got := es.Power(tt.args.lineIx); got != tt.want {
@@ -98,7 +98,7 @@ func TestElectricityState_Power(t *testing.T) {
 	}
 }
 
-func TestElectricityState_SetCurrent(t *testing.T) {
+func TestState_SetCurrent(t *testing.T) {
 	type fields struct {
 		current [MaxPhases]float32
 	}
@@ -110,15 +110,15 @@ func TestElectricityState_SetCurrent(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityState
+		want   *State
 	}{
-		{"Test set current phase 1", fields{current: [3]float32{}}, args{lineIx: 0, current: 16}, NewElectricityState().SetCurrent(0, 16)},
-		{"Test set current phase 2", fields{current: [3]float32{}}, args{lineIx: 1, current: 32}, NewElectricityState().SetCurrent(1, 32)},
-		{"Test set current phase 3", fields{current: [3]float32{}}, args{lineIx: 2, current: 64}, NewElectricityState().SetCurrent(2, 64)},
+		{"Test set current phase 1", fields{current: [3]float32{}}, args{lineIx: 0, current: 16}, NewState().SetCurrent(0, 16)},
+		{"Test set current phase 2", fields{current: [3]float32{}}, args{lineIx: 1, current: 32}, NewState().SetCurrent(1, 32)},
+		{"Test set current phase 3", fields{current: [3]float32{}}, args{lineIx: 2, current: 64}, NewState().SetCurrent(2, 64)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				current: tt.fields.current,
 			}
 			if got := es.SetCurrent(tt.args.lineIx, tt.args.current); !reflect.DeepEqual(got, tt.want) {
@@ -140,15 +140,15 @@ func TestElectricityState_SetPower(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityState
+		want   *State
 	}{
-		{"Test set power phase 1", fields{power: [3]float32{}}, args{lineIx: 0, power: 1600}, NewElectricityState().SetPower(0, 1600)},
-		{"Test set power phase 2", fields{power: [3]float32{}}, args{lineIx: 1, power: 1200}, NewElectricityState().SetPower(1, 1200)},
-		{"Test set power phase 3", fields{power: [3]float32{}}, args{lineIx: 2, power: 5000}, NewElectricityState().SetPower(2, 5000)},
+		{"Test set power phase 1", fields{power: [3]float32{}}, args{lineIx: 0, power: 1600}, NewState().SetPower(0, 1600)},
+		{"Test set power phase 2", fields{power: [3]float32{}}, args{lineIx: 1, power: 1200}, NewState().SetPower(1, 1200)},
+		{"Test set power phase 3", fields{power: [3]float32{}}, args{lineIx: 2, power: 5000}, NewState().SetPower(2, 5000)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				power: tt.fields.power,
 			}
 			if got := es.SetPower(tt.args.lineIx, tt.args.power); !reflect.DeepEqual(got, tt.want) {
@@ -170,15 +170,15 @@ func TestElectricityState_SetVoltage(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityState
+		want   *State
 	}{
-		{"Test set voltage phase 1", fields{voltage: [3]float32{}}, args{lineIx: 0, voltage: 110}, NewElectricityState().SetVoltage(0, 110)},
-		{"Test set voltage phase 2", fields{voltage: [3]float32{}}, args{lineIx: 1, voltage: 230}, NewElectricityState().SetVoltage(1, 230)},
-		{"Test set voltage phase 3", fields{voltage: [3]float32{}}, args{lineIx: 2, voltage: 400}, NewElectricityState().SetVoltage(2, 400)},
+		{"Test set voltage phase 1", fields{voltage: [3]float32{}}, args{lineIx: 0, voltage: 110}, NewState().SetVoltage(0, 110)},
+		{"Test set voltage phase 2", fields{voltage: [3]float32{}}, args{lineIx: 1, voltage: 230}, NewState().SetVoltage(1, 230)},
+		{"Test set voltage phase 3", fields{voltage: [3]float32{}}, args{lineIx: 2, voltage: 400}, NewState().SetVoltage(2, 400)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				voltage: tt.fields.voltage,
 			}
 			if got := es.SetVoltage(tt.args.lineIx, tt.args.voltage); !reflect.DeepEqual(got, tt.want) {
@@ -201,7 +201,7 @@ func TestElectricityState_TotalCurrent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				current: tt.fields.current,
 			}
 			if got := es.TotalCurrent(); got != tt.want {
@@ -224,7 +224,7 @@ func TestElectricityState_TotalPower(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				power: tt.fields.power,
 			}
 			if got := es.TotalPower(); got != tt.want {
@@ -251,7 +251,7 @@ func TestElectricityState_Valid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				power:   tt.fields.power,
 				voltage: tt.fields.voltage,
 			}
@@ -286,7 +286,7 @@ func TestElectricityState_Voltage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			es := &ElectricityState{
+			es := &State{
 				voltage: tt.fields.voltage,
 			}
 			if got := es.Voltage(tt.args.lineIx); got != tt.want {
@@ -315,7 +315,7 @@ func TestElectricityUsage_EnergyConsumed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyConsumed: tt.fields.energyConsumed,
 			}
 			if got := eu.EnergyConsumed(tt.args.lineIx); got != tt.want {
@@ -344,7 +344,7 @@ func TestElectricityUsage_EnergyProvided(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyProvided: tt.fields.energyProvided,
 			}
 			if got := eu.EnergyProvided(tt.args.lineIx); got != tt.want {
@@ -372,7 +372,7 @@ func TestElectricityUsage_MarshalJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyConsumed:      tt.fields.energyConsumed,
 				totalEnergyConsumed: tt.fields.totalEnergyConsumed,
 				energyProvided:      tt.fields.energyProvided,
@@ -402,15 +402,15 @@ func TestElectricityUsage_SetEnergyConsumed(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityUsage
+		want   *Usage
 	}{
-		{"Test set energy consumed phase 1", fields{energyConsumed: [3]float64{}}, args{lineIx: 0, energyConsumed: 1000}, NewElectricityUsage().SetEnergyConsumed(0, 1000)},
-		{"Test set energy consumed phase 2", fields{energyConsumed: [3]float64{}}, args{lineIx: 1, energyConsumed: 2000}, NewElectricityUsage().SetEnergyConsumed(1, 2000)},
-		{"Test set energy consumed phase 3", fields{energyConsumed: [3]float64{}}, args{lineIx: 2, energyConsumed: 3000}, NewElectricityUsage().SetEnergyConsumed(2, 3000)},
+		{"Test set energy consumed phase 1", fields{energyConsumed: [3]float64{}}, args{lineIx: 0, energyConsumed: 1000}, NewUsage().SetEnergyConsumed(0, 1000)},
+		{"Test set energy consumed phase 2", fields{energyConsumed: [3]float64{}}, args{lineIx: 1, energyConsumed: 2000}, NewUsage().SetEnergyConsumed(1, 2000)},
+		{"Test set energy consumed phase 3", fields{energyConsumed: [3]float64{}}, args{lineIx: 2, energyConsumed: 3000}, NewUsage().SetEnergyConsumed(2, 3000)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyConsumed: tt.fields.energyConsumed,
 			}
 			if got := eu.SetEnergyConsumed(tt.args.lineIx, tt.args.energyConsumed); !reflect.DeepEqual(got, tt.want) {
@@ -432,15 +432,15 @@ func TestElectricityUsage_SetEnergyProvided(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityUsage
+		want   *Usage
 	}{
-		{"Test set energy provided phase 1", fields{energyProvided: [3]float64{}}, args{lineIx: 0, energyProvided: 1000}, NewElectricityUsage().SetEnergyProvided(0, 1000)},
-		{"Test set energy provided phase 2", fields{energyProvided: [3]float64{}}, args{lineIx: 1, energyProvided: 2000}, NewElectricityUsage().SetEnergyProvided(1, 2000)},
-		{"Test set energy provided phase 3", fields{energyProvided: [3]float64{}}, args{lineIx: 2, energyProvided: 3000}, NewElectricityUsage().SetEnergyProvided(2, 3000)},
+		{"Test set energy provided phase 1", fields{energyProvided: [3]float64{}}, args{lineIx: 0, energyProvided: 1000}, NewUsage().SetEnergyProvided(0, 1000)},
+		{"Test set energy provided phase 2", fields{energyProvided: [3]float64{}}, args{lineIx: 1, energyProvided: 2000}, NewUsage().SetEnergyProvided(1, 2000)},
+		{"Test set energy provided phase 3", fields{energyProvided: [3]float64{}}, args{lineIx: 2, energyProvided: 3000}, NewUsage().SetEnergyProvided(2, 3000)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyProvided: tt.fields.energyProvided,
 			}
 			if got := eu.SetEnergyProvided(tt.args.lineIx, tt.args.energyProvided); !reflect.DeepEqual(got, tt.want) {
@@ -461,13 +461,13 @@ func TestElectricityUsage_SetTotalEnergyConsumed(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityUsage
+		want   *Usage
 	}{
-		{"Test set total energy consumed", fields{totalEnergyConsumed: 2500}, args{totalEnergyConsumed: 2500}, NewElectricityUsage().SetTotalEnergyConsumed(2500)},
+		{"Test set total energy consumed", fields{totalEnergyConsumed: 2500}, args{totalEnergyConsumed: 2500}, NewUsage().SetTotalEnergyConsumed(2500)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				totalEnergyConsumed: tt.fields.totalEnergyConsumed,
 			}
 			if got := eu.SetTotalEnergyConsumed(tt.args.totalEnergyConsumed); !reflect.DeepEqual(got, tt.want) {
@@ -488,13 +488,13 @@ func TestElectricityUsage_SetTotalEnergyProvided(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		want   *ElectricityUsage
+		want   *Usage
 	}{
-		{"Test set total energy provided", fields{totalEnergyProvided: 2500}, args{totalEnergyProvided: 2500}, NewElectricityUsage().SetTotalEnergyProvided(2500)},
+		{"Test set total energy provided", fields{totalEnergyProvided: 2500}, args{totalEnergyProvided: 2500}, NewUsage().SetTotalEnergyProvided(2500)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				totalEnergyProvided: tt.fields.totalEnergyProvided,
 			}
 			if got := eu.SetTotalEnergyProvided(tt.args.totalEnergyProvided); !reflect.DeepEqual(got, tt.want) {
@@ -519,7 +519,7 @@ func TestElectricityUsage_TotalEnergyConsumed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyConsumed:      tt.fields.energyConsumed,
 				totalEnergyConsumed: tt.fields.totalEnergyConsumed,
 			}
@@ -545,7 +545,7 @@ func TestElectricityUsage_TotalEnergyProvided(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyProvided:      tt.fields.energyProvided,
 				totalEnergyProvided: tt.fields.totalEnergyProvided,
 			}
@@ -580,7 +580,7 @@ func TestElectricityUsage_Valid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eu := &ElectricityUsage{
+			eu := &Usage{
 				energyConsumed:      tt.fields.energyConsumed,
 				totalEnergyConsumed: tt.fields.totalEnergyConsumed,
 				energyProvided:      tt.fields.energyProvided,

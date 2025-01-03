@@ -3,6 +3,7 @@ package meters
 import (
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
 	"enman/internal/log"
 	"enman/internal/modbus"
 	"fmt"
@@ -36,7 +37,7 @@ func (mm *modbusMeter) shutdown() {
 	}
 }
 
-func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeModbusMeter(role constants.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	var meter domain.EnergyMeter
 	if strings.HasPrefix(meterConfig.ConnectURL, "rtu") {
 		probeBaudRates := []uint{115200, 57600, 38400, 19200, 9600}
@@ -81,7 +82,7 @@ func probeModbusMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMe
 	return meter
 }
 
-func probeMeterWithClient(role domain.EnergySourceRole, meterConfig *config.EnergyMeter, modbusClient *modbus.ModbusClient) domain.EnergyMeter {
+func probeMeterWithClient(role constants.EnergySourceRole, meterConfig *config.EnergyMeter, modbusClient *modbus.ModbusClient) domain.EnergyMeter {
 	if meterConfig.Brand == "Carlo Gavazzi" || meterConfig.Brand == "" {
 		// Carlo Gavazzi meter type
 		if log.InfoEnabled() {

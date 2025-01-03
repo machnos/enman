@@ -1,6 +1,8 @@
-package domain
+package events
 
 import (
+	"enman/internal/domain/battery"
+	"enman/internal/domain/constants"
 	"errors"
 	"time"
 )
@@ -14,10 +16,10 @@ type BatteryMeterValueChangeListener interface {
 }
 
 type BatteryMeterValues struct {
-	eventTime    time.Time
-	name         string
-	role         EnergySourceRole
-	batteryState *BatteryState
+	eventTime time.Time
+	name      string
+	role      constants.EnergySourceRole
+	state     *battery.State
 }
 
 func NewBatteryMeterValues() *BatteryMeterValues {
@@ -39,28 +41,28 @@ func (bmv *BatteryMeterValues) Name() string {
 	return bmv.name
 }
 
-func (bmv *BatteryMeterValues) SetRole(role EnergySourceRole) *BatteryMeterValues {
+func (bmv *BatteryMeterValues) SetRole(role constants.EnergySourceRole) *BatteryMeterValues {
 	bmv.role = role
 	return bmv
 }
 
-func (bmv *BatteryMeterValues) Role() EnergySourceRole {
+func (bmv *BatteryMeterValues) Role() constants.EnergySourceRole {
 	return bmv.role
 }
 
-func (bmv *BatteryMeterValues) SetBatteryState(batteryState *BatteryState) *BatteryMeterValues {
-	bmv.batteryState = batteryState
+func (bmv *BatteryMeterValues) SetState(state *battery.State) *BatteryMeterValues {
+	bmv.state = state
 	return bmv
 }
 
-func (bmv *BatteryMeterValues) BatteryState() *BatteryState {
-	return bmv.batteryState
+func (bmv *BatteryMeterValues) State() *battery.State {
+	return bmv.state
 }
 
 func (bmv *BatteryMeterValues) Valid() (bool, error) {
 	var result error
-	if bmv.batteryState != nil {
-		_, err := bmv.batteryState.Valid()
+	if bmv.state != nil {
+		_, err := bmv.state.Valid()
 		result = errors.Join(result, err)
 	}
 	return result == nil, result

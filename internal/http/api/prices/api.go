@@ -30,7 +30,7 @@ func NewApi(system *domain.System, repository domain.Repository) *Api {
 		api.NewBaseApi(system, repository),
 	}
 }
-func (p *Api) prices(w http.ResponseWriter, r *http.Request) {
+func (api *Api) prices(w http.ResponseWriter, r *http.Request) {
 	type pricesResponsePrice struct {
 		Time             time.Time `json:"time"`
 		ConsumptionPrice float32   `json:"consumption_price"`
@@ -41,14 +41,14 @@ func (p *Api) prices(w http.ResponseWriter, r *http.Request) {
 	}
 	rsp := pricesResponse{}
 
-	startTime, endTime, success := p.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
-	energyPrices, err := p.Repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"))
+	energyPrices, err := api.Repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"))
 	if err != nil {
 		log.Error(err.Error())
-		p.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadPrices, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadPrices, err.Error())
 		return
 	}
 	rsp.Prices = make(map[string][]pricesResponsePrice)
@@ -58,35 +58,35 @@ func (p *Api) prices(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (p *Api) providers(w http.ResponseWriter, r *http.Request) {
+func (api *Api) providers(w http.ResponseWriter, r *http.Request) {
 	rsp := struct {
 		Providers []string `json:"providers"`
 		Grid      string   `json:"grid"`
 	}{}
-	startTime, endTime, success := p.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
-	providers, err := p.Repository.EnergyPriceProviderNames(startTime, endTime)
+	providers, err := api.Repository.EnergyPriceProviderNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
-		p.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadProviders, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadProviders, err.Error())
 		return
 	}
 	rsp.Providers = providers
-	rsp.Grid = p.System.Grid().Name()
+	rsp.Grid = api.System.Grid().Name()
 	render.JSON(w, r, rsp)
 }
 
-func (p *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
+func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
 	return func(r chi.Router) {
 		r.Use(middleware.AllowContentType("application/json"))
-		r.Get(fmt.Sprintf("/{start:%s}", p.TimePattern), p.prices)
-		r.Get(fmt.Sprintf("/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.prices)
-		r.Get(fmt.Sprintf("/providers/{start:%s}", p.TimePattern), p.providers)
-		r.Get(fmt.Sprintf("/providers/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.providers)
-		r.Get(fmt.Sprintf("/{providerName}/{start:%s}", p.TimePattern), p.prices)
-		r.Get(fmt.Sprintf("/{providerName}/{start:%s}/{end:%s}", p.TimePattern, p.TimePattern), p.prices)
+		r.Get(fmt.Sprintf("/{start:%s}", api.TimePattern), api.prices)
+		r.Get(fmt.Sprintf("/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.prices)
+		r.Get(fmt.Sprintf("/providers/{start:%s}", api.TimePattern), api.providers)
+		r.Get(fmt.Sprintf("/providers/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.providers)
+		r.Get(fmt.Sprintf("/{providerName}/{start:%s}", api.TimePattern), api.prices)
+		r.Get(fmt.Sprintf("/{providerName}/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.prices)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

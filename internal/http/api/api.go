@@ -146,27 +146,35 @@ func (b *BaseApi) ValidateStartAndEndParams(w http.ResponseWriter, r *http.Reque
 func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, aggregate *domain.AggregateConfiguration) *domain.AggregateConfiguration {
 	q := r.URL.Query()
 	if q.Has("aggregate_window_unit") {
-		unit, err := domain.WindowUnitOf(q.Get("aggregate_window_unit"))
+		unit, err := domain.ParseWindowUnit(q.Get("aggregate_window_unit"))
 		if err == nil {
 			aggregate.WindowUnit = unit
+		} else {
+			log.Warning(err.Error())
 		}
 	}
 	if q.Has("aggregate_window_amount") {
 		value, err := strconv.Atoi(q.Get("aggregate_window_amount"))
 		if err == nil {
 			aggregate.WindowAmount = uint64(value)
+		} else {
+			log.Warning(err.Error())
 		}
 	}
 	if q.Has("aggregate_create_empty") {
 		value, err := strconv.ParseBool(q.Get("aggregate_create_empty"))
 		if err == nil {
 			aggregate.CreateEmpty = value
+		} else {
+			log.Warning(err.Error())
 		}
 	}
-	if q.Has("aggregate_function") {
-		function, _ := domain.AggregateFunctionOf("aggregate_function")
-		if function != nil {
-			aggregate.Function = function
+	if q.Has("aggregate_functions") {
+		function, err := domain.AggregateFunctionsOf(q.Get("aggregate_functions"))
+		if err == nil {
+			aggregate.Functions = function
+		} else {
+			log.Warning(err.Error())
 		}
 	}
 	return aggregate

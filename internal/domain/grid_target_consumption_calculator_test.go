@@ -1,6 +1,9 @@
 package domain
 
 import (
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/events"
 	"math"
 	"math/rand"
 	"sync"
@@ -14,7 +17,7 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	percentageFromGrid := uint8(rand.Int31n(100))
 	mockController := &MockGridController{}
 	system.SetGrid("Grid", 230, 25, 3, targetConsumption, nil, mockController)
-	system.AddAcLoad("EvCharger1", RoleEvCharger, percentageFromGrid, nil)
+	system.AddAcLoad("EvCharger1", constants.EnergySourceRoleEvCharger, percentageFromGrid, nil)
 	calculator, err := NewGridTargetConsumptionCalculator(system)
 	defer calculator.Stop()
 	if err != nil {
@@ -26,9 +29,9 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	for i := 0; i < loops; i++ {
 		power := int(rand.Int31n(math.MaxInt16))
 		totalPower += power
-		ElectricityMeterReadings.Trigger(NewElectricityMeterValues().
+		events.ElectricityMeterReadings.Trigger(events.NewElectricityMeterValues().
 			SetName("EvCharger1").
-			SetRole(RoleEvCharger).SetElectricityState(NewElectricityState().SetPower(0, float32(power))))
+			SetRole(constants.EnergySourceRoleEvCharger).SetState(electricity.NewState().SetPower(0, float32(power))))
 	}
 	mockController.wg.Wait()
 	// Add 1 to the WaitGroup because the 'defer calculator.Stop() will also call the MockController'

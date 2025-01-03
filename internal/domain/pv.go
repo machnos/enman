@@ -2,6 +2,9 @@ package domain
 
 import (
 	"context"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"sort"
 	"time"
@@ -13,28 +16,28 @@ type PvController interface {
 }
 
 type Pv struct {
-	name             string
-	electricityState *ElectricityState
-	electricityUsage *ElectricityUsage
-	meters           []EnergyMeter
-	controller       PvController
-	updateTicker     *time.Ticker
+	name         string
+	state        *electricity.State
+	usage        *electricity.Usage
+	meters       []EnergyMeter
+	controller   PvController
+	updateTicker *time.Ticker
 }
 
 func (pv *Pv) Name() string {
 	return pv.name
 }
 
-func (pv *Pv) Role() EnergySourceRole {
-	return RolePv
+func (pv *Pv) Role() constants.EnergySourceRole {
+	return constants.EnergySourceRolePv
 }
 
-func (pv *Pv) ElectricityState() *ElectricityState {
-	return pv.electricityState
+func (pv *Pv) State() *electricity.State {
+	return pv.state
 }
 
-func (pv *Pv) ElectricityUsage() *ElectricityUsage {
-	return pv.electricityUsage
+func (pv *Pv) Usage() *electricity.Usage {
+	return pv.usage
 }
 
 func (pv *Pv) StartMeasuring(context context.Context) {
@@ -50,7 +53,7 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 		if meter.UpdateInterval() > interval {
 			interval = meter.UpdateInterval()
 		}
-		electricityMeter, ok := meter.(ElectricityMeter)
+		electricityMeter, ok := meter.(electricity.Meter)
 		if ok {
 			meterPhases += electricityMeter.Phases()
 			readLineIndices = append(readLineIndices, electricityMeter.LineIndices()...)
@@ -72,11 +75,11 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 				}
 				return
 			case _ = <-pv.updateTicker.C:
-				es := NewElectricityState()
-				var eu *ElectricityUsage = nil
-				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricityMeterUsageUpdateInterval) {
+				es := electricity.NewState()
+				var eu *electricity.Usage = nil
+				if usageLastRead.IsZero() || (time.Now().Sub(usageLastRead) > electricity.MeterUsageUpdateInterval) {
 					usageLastRead = time.Now()
-					eu = NewElectricityUsage()
+					eu = electricity.NewUsage()
 				}
 				for _, meter := range pv.meters {
 					err := meter.UpdateValues(es, eu, nil, nil, nil)
@@ -85,19 +88,19 @@ func (pv *Pv) StartMeasuring(context context.Context) {
 						continue loadLoop
 					}
 				}
-				pv.electricityState.SetValues(es)
+				pv.state.SetValues(es)
 				if eu != nil && !eu.IsZero() {
-					pv.electricityUsage.SetValues(eu)
+					pv.usage.SetValues(eu)
 				}
 				if !es.IsZero() || (eu != nil && !eu.IsZero()) {
-					electricityMeterValues := NewElectricityMeterValues().
+					electricityMeterValues := events.NewElectricityMeterValues().
 						SetName(pv.Name()).
 						SetRole(pv.Role()).
-						SetElectricityState(es).
-						SetElectricityUsage(eu).
+						SetState(es).
+						SetUsage(eu).
 						SetMeterPhases(meterPhases).
 						SetReadLineIndices(readLineIndices)
-					ElectricityMeterReadings.Trigger(electricityMeterValues)
+					events.ElectricityMeterReadings.Trigger(electricityMeterValues)
 				}
 			}
 		}

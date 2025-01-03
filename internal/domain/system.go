@@ -2,16 +2,12 @@ package domain
 
 import (
 	"context"
+	"enman/internal/domain/battery"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/gas"
+	"enman/internal/domain/water"
 	"time"
-)
-
-type EnergySourceRole string
-
-const (
-	RoleGrid      EnergySourceRole = "Grid"
-	RolePv        EnergySourceRole = "Pv"
-	RoleBattery   EnergySourceRole = "Battery"
-	RoleEvCharger EnergySourceRole = "EvCharger"
 )
 
 type System struct {
@@ -41,10 +37,10 @@ func (s *System) SetGrid(name string, voltage uint16, maxCurrentPerPhase float32
 		targetConsumption:  targetConsumption,
 		meters:             meters,
 		controller:         controller,
-		electricityState:   NewElectricityState(),
-		electricityUsage:   NewElectricityUsage(),
-		gasUsage:           NewGasUsage(),
-		waterUsage:         NewWaterUsage(),
+		electricityState:   electricity.NewState(),
+		electricityUsage:   electricity.NewUsage(),
+		gasUsage:           gas.NewUsage(),
+		waterUsage:         water.NewUsage(),
 	}
 	return s
 }
@@ -55,11 +51,11 @@ func (s *System) Grid() *Grid {
 
 func (s *System) AddPv(name string, meters []EnergyMeter, controller PvController) *System {
 	s.pvs = append(s.pvs, &Pv{
-		name:             name,
-		meters:           meters,
-		controller:       controller,
-		electricityState: NewElectricityState(),
-		electricityUsage: NewElectricityUsage(),
+		name:       name,
+		meters:     meters,
+		controller: controller,
+		state:      electricity.NewState(),
+		usage:      electricity.NewUsage(),
 	})
 	return s
 }
@@ -72,14 +68,14 @@ func (s *System) AcLoads() []*AcLoad {
 	return s.acLoads
 }
 
-func (s *System) AddAcLoad(name string, role EnergySourceRole, percentageFromGrid uint8, meters []EnergyMeter) *System {
+func (s *System) AddAcLoad(name string, role constants.EnergySourceRole, percentageFromGrid uint8, meters []EnergyMeter) *System {
 	s.acLoads = append(s.acLoads, &AcLoad{
 		name:               name,
 		role:               role,
 		percentageFromGrid: percentageFromGrid,
 		meters:             meters,
-		electricityState:   NewElectricityState(),
-		electricityUsage:   NewElectricityUsage(),
+		state:              electricity.NewState(),
+		usage:              electricity.NewUsage(),
 	})
 	return s
 }
@@ -90,9 +86,9 @@ func (s *System) Batteries() []*Battery {
 
 func (s *System) AddBattery(name string, meters []EnergyMeter) *System {
 	s.batteries = append(s.batteries, &Battery{
-		name:         name,
-		meters:       meters,
-		batteryState: NewBatteryState(),
+		name:   name,
+		meters: meters,
+		state:  battery.NewState(),
 	})
 	return s
 }
@@ -107,7 +103,7 @@ func (s *System) StartMeasuring(context context.Context) {
 	for _, acLoad := range s.AcLoads() {
 		acLoad.StartMeasuring(context)
 	}
-	for _, battery := range s.Batteries() {
-		battery.StartMeasuring(context)
+	for _, b := range s.Batteries() {
+		b.StartMeasuring(context)
 	}
 }

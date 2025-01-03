@@ -3,6 +3,8 @@ package timescale
 import (
 	"context"
 	"enman/internal/domain"
+	"enman/internal/domain/events"
+	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,11 +82,11 @@ func (t *timescaleRepository) Initialize() error {
 		return err
 	}
 
-	domain.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: t}, nil)
-	domain.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: t}, nil)
-	domain.GasMeterReadings.Register(&GasMeterValueChangeListener{repo: t}, nil)
-	domain.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: t}, nil)
-	domain.BatteryMeterReadings.Register(&BatteryMeterValueChangeListener{repo: t}, nil)
+	events.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: t}, nil)
+	events.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: t}, nil)
+	events.GasMeterReadings.Register(&GasMeterValueChangeListener{repo: t}, nil)
+	events.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: t}, nil)
+	events.BatteryMeterReadings.Register(&BatteryMeterValueChangeListener{repo: t}, nil)
 
 	return nil
 }
@@ -223,57 +225,78 @@ func (t *timescaleRepository) toPostgresqlInterval(unit domain.WindowUnit, amoun
 	switch unit {
 	case domain.WindowUnitNanosecond:
 		return "nanosecond unsupported"
-	case domain.WindowUnitMicrosecond:
-		return fmt.Sprintf("%d microsecond", amount)
-	case domain.WindowUnitMillisecond:
-		return fmt.Sprintf("%d millisecond", amount)
-	case domain.WindowUnitSecond:
-		return fmt.Sprintf("%d second", amount)
-	case domain.WindowUnitMinute:
-		return fmt.Sprintf("%d minute", amount)
-	case domain.WindowUnitHour:
-		return fmt.Sprintf("%d hour", amount)
-	case domain.WindowUnitDay:
-		return fmt.Sprintf("%d day", amount)
-	case domain.WindowUnitWeek:
-		return fmt.Sprintf("%d week", amount)
-	case domain.WindowUnitMonth:
-		return fmt.Sprintf("%d month", amount)
-	case domain.WindowUnitYear:
-		return fmt.Sprintf("%d year", amount)
+	default:
+		return fmt.Sprintf("%d %s", amount, unit.String())
 	}
-	return ""
 }
 
-func (t *timescaleRepository) toPostgresqlAggregateFunction(function domain.AggregateFunction) func(string) string {
-	switch function.(type) {
-	case domain.Count:
-		return func(col string) string {
-			return fmt.Sprintf("COUNT(%s)", col)
-		}
-	case domain.Max:
-		return func(col string) string {
-			return fmt.Sprintf("MAX(%s)", col)
-		}
-	case domain.Mean:
-		return func(col string) string {
-			return fmt.Sprintf("AVG(%s)", col)
-		}
-	case domain.Median:
-		return func(col string) string {
-			return fmt.Sprintf("MEDIAN(%s)", col)
-		}
-	case domain.Min:
-		return func(col string) string {
-			return fmt.Sprintf("MIN(%s)", col)
-		}
-	case domain.Sum:
-		return func(col string) string {
-			return fmt.Sprintf("SUM(%s)", col)
-		}
-	default:
-		return func(col string) string {
-			return col
+func (t *timescaleRepository) toPostgresqlAggregateFunctions(functions []domain.AggregateFunction) []func(string) string {
+	result := make([]func(string) string, 0)
+	for _, function := range functions {
+		switch function {
+		case domain.AggregateFunctionCount:
+			result = append(result, func(col string) string {
+				return fmt.Sprintf("COUNT(%s)", col)
+			})
+			break
+		case domain.AggregateFunctionMax:
+			result = append(result, func(col string) string {
+				return fmt.Sprintf("MAX(%s)", col)
+			})
+			break
+		case domain.AggregateFunctionMean:
+			result = append(result, func(col string) string {
+				return fmt.Sprintf("AVG(%s)", col)
+			})
+			break
+		case domain.AggregateFunctionMedian:
+			result = append(result, func(col string) string {
+				return fmt.Sprintf("MEDIAN(%s)", col)
+			})
+			break
+		case domain.AggregateFunctionMin:
+			result = append(result, func(col string) string {
+				return fmt.Sprintf("MIN(%s)", col)
+			})
+			break
+		case domain.AggregateFunctionSum:
+			result = append(result, func(col string) string {
+				return fmt.Sprintf("SUM(%s)", col)
+			})
+			break
+		default:
+			log.Warningf("unknown AggregateFunction type: %s", function)
+			result = append(result, func(col string) string {
+				return col
+			})
+			break
 		}
 	}
+	return result
+}
+
+func (t *timescaleRepository) calculateEndTime(startTime time.Time, ac *domain.AggregateConfiguration) time.Time {
+	switch ac.WindowUnit {
+	case domain.WindowUnitNanosecond:
+		return startTime.Add(time.Nanosecond * time.Duration(ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitMicrosecond:
+		return startTime.Add(time.Microsecond * time.Duration(ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitMillisecond:
+		return startTime.Add(time.Millisecond * time.Duration(ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitSecond:
+		return startTime.Add(time.Second * time.Duration(ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitMinute:
+		return startTime.Add(time.Minute * time.Duration(ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitHour:
+		return startTime.Add(time.Hour * time.Duration(ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitDay:
+		return startTime.AddDate(0, 0, int(1*ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitWeek:
+		return startTime.AddDate(0, 0, int(7*ac.WindowAmount)).Add(time.Nanosecond * -1)
+	case domain.WindowUnitMonth:
+		return startTime.AddDate(0, int(1*ac.WindowAmount), 0).Add(time.Nanosecond * -1)
+	case domain.WindowUnitYear:
+		return startTime.AddDate(int(1*ac.WindowAmount), 0, 0).Add(time.Nanosecond * -1)
+	}
+	return startTime
 }

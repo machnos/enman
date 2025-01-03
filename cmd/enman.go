@@ -5,12 +5,13 @@ import (
 	"enman/internal/config"
 	"enman/internal/controllers"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/events"
 	"enman/internal/http"
 	"enman/internal/log"
 	"enman/internal/meters"
 	"enman/internal/modbus"
 	"enman/internal/modbus/server"
-	"enman/internal/persistency/influx"
 	"enman/internal/persistency/noop"
 	"enman/internal/persistency/timescale"
 	"enman/internal/prices/entsoe"
@@ -44,7 +45,7 @@ func main() {
 
 	// Setup system
 	system := domain.NewSystem(time.Now().Location())
-	energyMeters, err := meters.ProbeEnergyMeters(domain.RoleGrid, configuration.Grid.Meters)
+	energyMeters, err := meters.ProbeEnergyMeters(constants.EnergySourceRoleGrid, configuration.Grid.Meters)
 	if err != nil {
 		log.Fatalf("unable to probe grid meter: %s", err.Error())
 		syscall.Exit(-1)
@@ -60,7 +61,7 @@ func main() {
 	var pvStateController *domain.PvStateController
 	if configuration.Pvs != nil {
 		for _, pv := range configuration.Pvs.Arrays {
-			energyMeters, err = meters.ProbeEnergyMeters(domain.RolePv, pv.Meters)
+			energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRolePv, pv.Meters)
 			if err != nil {
 				log.Fatalf("unable to probe pv meter: %s", err.Error())
 				syscall.Exit(-1)
@@ -77,19 +78,19 @@ func main() {
 		}
 	}
 	for _, acLoad := range configuration.AcLoads {
-		energyMeters, err = meters.ProbeEnergyMeters(domain.EnergySourceRole(acLoad.Role), acLoad.Meters)
+		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRole(acLoad.Role), acLoad.Meters)
 		if err != nil {
 			log.Fatalf("unable to probe ac load meter: %s", err.Error())
 			syscall.Exit(-1)
 		}
 		system.AddAcLoad(acLoad.Name,
-			domain.EnergySourceRole(acLoad.Role),
+			constants.EnergySourceRole(acLoad.Role),
 			acLoad.PercentageFromGrid,
 			energyMeters,
 		)
 	}
 	for _, battery := range configuration.Batteries {
-		energyMeters, err = meters.ProbeEnergyMeters(domain.RoleBattery, battery.Meters)
+		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRoleBattery, battery.Meters)
 		if err != nil {
 			log.Fatalf("unable to probe battery meter: %s", err.Error())
 			syscall.Exit(-1)
@@ -109,7 +110,7 @@ func main() {
 
 	// Setup domain event listeners
 	costCalculator := domain.NewElectricityUsageCostCalculator(repository)
-	domain.ElectricityPrices.Register(costCalculator, nil)
+	events.ElectricityPrices.Register(costCalculator, nil)
 
 	// Setup grid target consumption calculator
 	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
@@ -196,20 +197,20 @@ func main() {
 			}
 		}
 		if costCalculator != nil {
-			domain.ElectricityPrices.Deregister(costCalculator)
+			events.ElectricityPrices.Deregister(costCalculator)
 		}
 		if gridTargetConsumptionCalculator != nil {
 			gridTargetConsumptionCalculator.Stop()
 		}
 		modbus.EmptyClientCache()
 		if modbusServers != nil {
-			for _, server := range modbusServers {
-				log.Infof("Shutting down modbus server on %s", server.ServerUrl())
-				err := server.Stop()
+			for _, modbusServer := range modbusServers {
+				log.Infof("Shutting down modbus server on %s", modbusServer.ServerUrl())
+				err := modbusServer.Stop()
 				if err != nil {
 					log.Warningf("Failed to stop modbus server: %s", err.Error())
 				}
-				log.Infof("Modbus server on %s shutdown", server.ServerUrl())
+				log.Infof("Modbus server on %s shutdown", modbusServer.ServerUrl())
 			}
 		}
 		if repository != nil {
@@ -224,10 +225,7 @@ func main() {
 
 func loadRepository(configuration *config.Configuration) domain.Repository {
 	if configuration.Persistency != nil {
-		if configuration.Persistency.Influx != nil {
-			influxConfig := configuration.Persistency.Influx
-			return influx.NewInfluxRepository(influxConfig.ServerUrl, influxConfig.Token)
-		} else if configuration.Persistency.Timescale != nil {
+		if configuration.Persistency.Timescale != nil {
 			repository, err := timescale.NewTimescaleRepository(configuration.Persistency.Timescale.ConnectionString)
 			if err == nil {
 				return repository
@@ -269,8 +267,8 @@ func createModbusServers(config *config.Configuration, system *domain.System) ([
 						simulator, err := server.NewMeterSimulator(
 							pv.ModbusMeterSimulator.MeterType,
 							pv.ModbusMeterSimulator.ModbusUnitId,
-							p.ElectricityState(),
-							p.ElectricityUsage())
+							p.State(),
+							p.Usage())
 						if err != nil {
 							return nil, err
 						}
@@ -289,12 +287,12 @@ func createModbusServers(config *config.Configuration, system *domain.System) ([
 				continue
 			}
 			for _, a := range system.AcLoads() {
-				if a.Name() == acLoad.Name && a.Role() == domain.EnergySourceRole(acLoad.Role) {
+				if a.Name() == acLoad.Name && a.Role() == constants.EnergySourceRole(acLoad.Role) {
 					simulator, err := server.NewMeterSimulator(
 						acLoad.ModbusMeterSimulator.MeterType,
 						acLoad.ModbusMeterSimulator.ModbusUnitId,
-						a.ElectricityState(),
-						a.ElectricityUsage())
+						a.State(),
+						a.Usage())
 					if err != nil {
 						return nil, err
 					}
@@ -307,7 +305,7 @@ func createModbusServers(config *config.Configuration, system *domain.System) ([
 	}
 
 	for _, modbusProxy := range config.ModbusServers {
-		server, err := modbus.NewServer(&modbus.ServerConfiguration{
+		modbusServer, err := modbus.NewServer(&modbus.ServerConfiguration{
 			URL:        modbusProxy.ServerUrl,
 			Speed:      uint(modbusProxy.Speed),
 			DataBits:   uint(modbusProxy.DataBits),
@@ -319,7 +317,7 @@ func createModbusServers(config *config.Configuration, system *domain.System) ([
 			log.Errorf("Failed to create modbus server server: %s", err.Error())
 			continue
 		}
-		servers = append(servers, server)
+		servers = append(servers, modbusServer)
 	}
 	return servers, nil
 }

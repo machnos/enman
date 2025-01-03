@@ -2,7 +2,7 @@ package meters
 
 import (
 	"enman/internal/config"
-	"enman/internal/domain"
+	"enman/internal/domain/electricity"
 	"enman/internal/log"
 	"slices"
 )
@@ -20,7 +20,7 @@ func newElectricityMeter(config *config.EnergyMeter) *electricityMeter {
 	}
 }
 
-func (e *electricityMeter) HasAttribute(attribute domain.ElectricityMeterAttribute) bool {
+func (e *electricityMeter) HasAttribute(attribute electricity.MeterAttribute) bool {
 	return len(e.attributes) == 0 || slices.Contains(e.attributes, string(attribute))
 }
 func (e *electricityMeter) LineIndices() []uint8 {
@@ -46,29 +46,29 @@ func (e *electricityMeter) setDefaultLineIndices(meterIdentification string) {
 }
 
 func (e *electricityMeter) HasCurrentAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeCurrent) || e.HasAttribute(domain.ElectricityMeterAttributeAllstate)
+	return e.HasAttribute(electricity.MeterAttributeCurrent) || e.HasAttribute(electricity.MeterAttributeAllstate)
 }
 func (e *electricityMeter) HasTotalCurrentAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeTotalCurrent) || e.HasAttribute(domain.ElectricityMeterAttributeAllstate)
+	return e.HasAttribute(electricity.MeterAttributeTotalCurrent) || e.HasAttribute(electricity.MeterAttributeAllstate)
 }
 func (e *electricityMeter) HasPowerAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributePower) || e.HasAttribute(domain.ElectricityMeterAttributeAllstate)
+	return e.HasAttribute(electricity.MeterAttributePower) || e.HasAttribute(electricity.MeterAttributeAllstate)
 }
 func (e *electricityMeter) HasTotalPowerAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeTotalPower) || e.HasAttribute(domain.ElectricityMeterAttributeAllstate)
+	return e.HasAttribute(electricity.MeterAttributeTotalPower) || e.HasAttribute(electricity.MeterAttributeAllstate)
 }
 func (e *electricityMeter) HasVoltageAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeVoltage) || e.HasAttribute(domain.ElectricityMeterAttributeAllstate)
+	return e.HasAttribute(electricity.MeterAttributeVoltage) || e.HasAttribute(electricity.MeterAttributeAllstate)
 }
 func (e *electricityMeter) HasConsumptionAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeConsumption) || e.HasAttribute(domain.ElectricityMeterAttributeAllUsage)
+	return e.HasAttribute(electricity.MeterAttributeConsumption) || e.HasAttribute(electricity.MeterAttributeAllUsage)
 }
 func (e *electricityMeter) HasTotalConsumptionAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeTotalConsumption) || e.HasAttribute(domain.ElectricityMeterAttributeAllUsage)
+	return e.HasAttribute(electricity.MeterAttributeTotalConsumption) || e.HasAttribute(electricity.MeterAttributeAllUsage)
 }
 func (e *electricityMeter) HasProductionAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeProduction) || e.HasAttribute(domain.ElectricityMeterAttributeAllUsage)
+	return e.HasAttribute(electricity.MeterAttributeProduction) || e.HasAttribute(electricity.MeterAttributeAllUsage)
 }
 func (e *electricityMeter) HasTotalProductionAttribute() bool {
-	return e.HasAttribute(domain.ElectricityMeterAttributeTotalProduction) || e.HasAttribute(domain.ElectricityMeterAttributeAllUsage)
+	return e.HasAttribute(electricity.ElectricityMeterAttributeTotalProduction) || e.HasAttribute(electricity.MeterAttributeAllUsage)
 }

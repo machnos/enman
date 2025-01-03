@@ -33,151 +33,173 @@ func NewApi(system *domain.System, repository domain.Repository) *Api {
 	}
 }
 
-func (e *Api) sources(w http.ResponseWriter, r *http.Request) {
+func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 	rsp := struct {
 		Sources []string `json:"sources"`
 	}{}
-	startTime, endTime, success := e.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
-	sources, err := e.Repository.ElectricitySourceNames(startTime, endTime)
+	sources, err := api.Repository.ElectricitySourceNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
-		e.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSources, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSources, err.Error())
 		return
 	}
 	rsp.Sources = sources
 	render.JSON(w, r, rsp)
 }
 
-func (e *Api) usage(w http.ResponseWriter, r *http.Request) {
-	type usageResponse struct {
-		Time                time.Time `json:"time"`
-		TotalEnergyConsumed float64   `json:"total_energy_consumed"`
-		TotalEnergyProvided float64   `json:"total_energy_provided"`
+func (api *Api) usage(w http.ResponseWriter, r *http.Request) {
+	type usage struct {
+		TotalEnergyConsumed float64 `json:"total_energy_consumed"`
+		TotalEnergyProvided float64 `json:"total_energy_provided"`
 	}
-	type usageSerie struct {
-		Role   string          `json:"role"`
-		Usages []usageResponse `json:"usages"`
+	type bucket struct {
+		StartTime time.Time         `json:"start_time"`
+		EndTime   time.Time         `json:"end_time"`
+		Usages    map[string]*usage `json:"usages"`
+	}
+	type source struct {
+		Role    string    `json:"role"`
+		Buckets []*bucket `json:"buckets"`
 	}
 	type usagesResponse struct {
-		Usages map[string]*usageSerie `json:"usages"`
+		Sources map[string]*source `json:"sources"`
 	}
 	rsp := usagesResponse{
-		Usages: make(map[string]*usageSerie),
+		Sources: make(map[string]*source),
 	}
-	startTime, endTime, success := e.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
 	aggregate := &domain.AggregateConfiguration{
 		WindowUnit:   domain.WindowUnitHour,
 		WindowAmount: 1,
-		Function:     domain.Min{},
+		Functions:    []domain.AggregateFunction{domain.AggregateFunctionMin, domain.AggregateFunctionMax},
 		CreateEmpty:  false,
 	}
-	usages, err := e.Repository.ElectricityUsages(
+	usagesRecords, err := api.Repository.ElectricityUsages(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
-		e.ParseAggregateConfigurationFromRequestURL(r, aggregate),
+		api.ParseAggregateConfigurationFromRequestURL(r, aggregate),
 	)
 	if err != nil {
 		log.Error(err.Error())
-		e.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadUsages, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadUsages, err.Error())
 		return
 	}
-	for _, usage := range usages {
-		if rsp.Usages[usage.Name] == nil {
-			rsp.Usages[usage.Name] = &usageSerie{Role: usage.Role}
+	for _, usagesRecord := range usagesRecords {
+		if rsp.Sources[usagesRecord.Name] == nil {
+			rsp.Sources[usagesRecord.Name] = &source{Role: usagesRecord.Role}
 		}
-		rsp.Usages[usage.Name].Usages = append(rsp.Usages[usage.Name].Usages, usageResponse{
-			Time:                usage.Time,
-			TotalEnergyConsumed: usage.TotalEnergyConsumed(),
-			TotalEnergyProvided: usage.TotalEnergyProvided(),
-		})
+		b := &bucket{
+			StartTime: usagesRecord.StartTime,
+			EndTime:   usagesRecord.EndTime,
+			Usages:    make(map[string]*usage),
+		}
+		for _, fn := range aggregate.Functions {
+			b.Usages[fn.String()] = &usage{
+				TotalEnergyConsumed: usagesRecord.Usages[fn].TotalEnergyConsumed(),
+				TotalEnergyProvided: usagesRecord.Usages[fn].TotalEnergyProvided(),
+			}
+		}
+		rsp.Sources[usagesRecord.Name].Buckets = append(rsp.Sources[usagesRecord.Name].Buckets, b)
 	}
 	render.JSON(w, r, rsp)
 }
 
-func (e *Api) states(w http.ResponseWriter, r *http.Request) {
-	type LineValues struct {
+func (api *Api) states(w http.ResponseWriter, r *http.Request) {
+	type lineValues struct {
 		L1 float32 `json:"l1"`
 		L2 float32 `json:"l2"`
 		L3 float32 `json:"l3"`
 	}
-	type stateResponse struct {
-		Time         time.Time  `json:"time"`
-		Current      LineValues `json:"current"`
-		TotalCurrent float32    `json:"total_current"`
-		Voltage      LineValues `json:"voltage"`
-		Power        LineValues `json:"power"`
-		TotalPower   float32    `json:"total_power"`
+	type state struct {
+		Current      *lineValues `json:"current"`
+		TotalCurrent float32     `json:"total_current"`
+		Voltage      *lineValues `json:"voltage"`
+		Power        *lineValues `json:"power"`
+		TotalPower   float32     `json:"total_power"`
 	}
-	type stateSerie struct {
-		Role   string          `json:"role"`
-		States []stateResponse `json:"states"`
+	type bucket struct {
+		StartTime time.Time         `json:"start_time"`
+		EndTime   time.Time         `json:"end_time"`
+		States    map[string]*state `json:"states"`
+	}
+	type source struct {
+		Role    string    `json:"role"`
+		Buckets []*bucket `json:"buckets"`
 	}
 	type energyStatesResponse struct {
-		States map[string]*stateSerie `json:"states"`
+		Sources map[string]*source `json:"sources"`
 	}
 	rsp := energyStatesResponse{
-		States: make(map[string]*stateSerie),
+		Sources: make(map[string]*source),
 	}
-	startTime, endTime, success := e.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
 	aggregate := &domain.AggregateConfiguration{
 		WindowUnit:   domain.WindowUnitMinute,
 		WindowAmount: 1,
-		Function:     domain.Mean{},
+		Functions:    []domain.AggregateFunction{domain.AggregateFunctionMean},
 		CreateEmpty:  false,
 	}
-	states, err := e.Repository.ElectricityStates(
+	statesRecords, err := api.Repository.ElectricityStates(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
-		e.ParseAggregateConfigurationFromRequestURL(r, aggregate),
+		api.ParseAggregateConfigurationFromRequestURL(r, aggregate),
 	)
 
 	if err != nil {
 		log.Error(err.Error())
-		e.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadStates, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadStates, err.Error())
 		return
 	}
-	for _, state := range states {
-		if rsp.States[state.Name] == nil {
-			rsp.States[state.Name] = &stateSerie{Role: state.Role}
+	for _, statesRecord := range statesRecords {
+		if rsp.Sources[statesRecord.Name] == nil {
+			rsp.Sources[statesRecord.Name] = &source{Role: statesRecord.Role}
 		}
-		rsp.States[state.Name].States = append(rsp.States[state.Name].States, stateResponse{
-			Time: state.Time,
-			Current: LineValues{
-				L1: state.Current(0),
-				L2: state.Current(1),
-				L3: state.Current(2),
-			},
-			TotalCurrent: state.TotalCurrent(),
-			Voltage: LineValues{
-				L1: state.Voltage(0),
-				L2: state.Voltage(1),
-				L3: state.Voltage(2),
-			},
-			Power: LineValues{
-				L1: state.Power(0),
-				L2: state.Power(1),
-				L3: state.Power(2),
-			},
-			TotalPower: state.TotalPower(),
-		})
+		b := &bucket{
+			StartTime: statesRecord.StartTime,
+			EndTime:   statesRecord.EndTime,
+			States:    make(map[string]*state),
+		}
+		for _, fn := range aggregate.Functions {
+			b.States[fn.String()] = &state{
+				Current: &lineValues{
+					L1: statesRecord.States[fn].Current(0),
+					L2: statesRecord.States[fn].Current(1),
+					L3: statesRecord.States[fn].Current(2),
+				},
+				TotalCurrent: statesRecord.States[fn].TotalCurrent(),
+				Voltage: &lineValues{
+					L1: statesRecord.States[fn].Voltage(0),
+					L2: statesRecord.States[fn].Voltage(1),
+					L3: statesRecord.States[fn].Voltage(2),
+				},
+				Power: &lineValues{
+					L1: statesRecord.States[fn].Power(0),
+					L2: statesRecord.States[fn].Power(1),
+					L3: statesRecord.States[fn].Power(2),
+				},
+				TotalPower: statesRecord.States[fn].TotalPower()}
+		}
+		rsp.Sources[statesRecord.Name].Buckets = append(rsp.Sources[statesRecord.Name].Buckets, b)
 	}
 	render.JSON(w, r, rsp)
 }
 
-func (e *Api) costs(w http.ResponseWriter, r *http.Request) {
-	type costResponse struct {
-		Time              time.Time `json:"time"`
+func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
+	type bucket struct {
+		StartTime         time.Time `json:"start_time"`
+		EndTime           time.Time `json:"end_time"`
 		ConsumptionCosts  float32   `json:"consumption_costs"`
 		ConsumptionEnergy float32   `json:"consumption_energy"`
 		FeedbackCosts     float32   `json:"feedback_costs"`
@@ -185,35 +207,36 @@ func (e *Api) costs(w http.ResponseWriter, r *http.Request) {
 		NetCosts          float32   `json:"net_costs"`
 	}
 	type costsResponse struct {
-		Costs map[string][]*costResponse `json:"costs"`
+		Sources map[string][]*bucket `json:"sources"`
 	}
 	rsp := costsResponse{
-		Costs: make(map[string][]*costResponse),
+		Sources: make(map[string][]*bucket),
 	}
-	startTime, endTime, success := e.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
 	aggregate := &domain.AggregateConfiguration{
 		WindowUnit:   domain.WindowUnitHour,
 		WindowAmount: 1,
-		Function:     domain.Sum{},
+		Functions:    []domain.AggregateFunction{domain.AggregateFunctionSum},
 		CreateEmpty:  false,
 	}
-	costs, err := e.Repository.ElectricityCosts(
+	costs, err := api.Repository.ElectricityCosts(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
-		e.ParseAggregateConfigurationFromRequestURL(r, aggregate),
+		api.ParseAggregateConfigurationFromRequestURL(r, aggregate),
 	)
 	if err != nil {
 		log.Error(err.Error())
-		e.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadCosts, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadCosts, err.Error())
 		return
 	}
 	for _, cost := range costs {
-		rsp.Costs[cost.Name] = append(rsp.Costs[cost.Name], &costResponse{
-			Time:              cost.Time,
+		rsp.Sources[cost.Name] = append(rsp.Sources[cost.Name], &bucket{
+			StartTime:         cost.StartTime,
+			EndTime:           cost.EndTime,
 			ConsumptionCosts:  cost.ConsumptionCosts,
 			ConsumptionEnergy: cost.ConsumptionEnergy,
 			FeedbackCosts:     cost.FeedbackCosts,
@@ -225,23 +248,23 @@ func (e *Api) costs(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (e *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
+func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
 	return func(r chi.Router) {
 		r.Use(middleware.AllowContentType("application/json"))
-		r.Get(fmt.Sprintf("/sources/{start:%s}", e.TimePattern), e.sources)
-		r.Get(fmt.Sprintf("/sources/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.sources)
-		r.Get(fmt.Sprintf("/usages/{start:%s}", e.TimePattern), e.usage)
-		r.Get(fmt.Sprintf("/usages/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.usage)
-		r.Get(fmt.Sprintf("/states/{start:%s}", e.TimePattern), e.states)
-		r.Get(fmt.Sprintf("/states/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.states)
-		r.Get(fmt.Sprintf("/costs/{start:%s}", e.TimePattern), e.costs)
-		r.Get(fmt.Sprintf("/costs/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.costs)
-		r.Get(fmt.Sprintf("/{sourceName}/usage/{start:%s}", e.TimePattern), e.usage)
-		r.Get(fmt.Sprintf("/{sourceName}/usage/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.usage)
-		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}", e.TimePattern), e.states)
-		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.states)
-		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}", e.TimePattern), e.costs)
-		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}/{end:%s}", e.TimePattern, e.TimePattern), e.costs)
+		r.Get(fmt.Sprintf("/sources/{start:%s}", api.TimePattern), api.sources)
+		r.Get(fmt.Sprintf("/sources/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.sources)
+		r.Get(fmt.Sprintf("/usages/{start:%s}", api.TimePattern), api.usage)
+		r.Get(fmt.Sprintf("/usages/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.usage)
+		r.Get(fmt.Sprintf("/states/{start:%s}", api.TimePattern), api.states)
+		r.Get(fmt.Sprintf("/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
+		r.Get(fmt.Sprintf("/costs/{start:%s}", api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/costs/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}", api.TimePattern), api.usage)
+		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.usage)
+		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}", api.TimePattern), api.states)
+		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
+		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}", api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.costs)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

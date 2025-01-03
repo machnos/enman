@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"enman/internal/domain/constants"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"sync"
 	"time"
@@ -18,7 +20,7 @@ func NewElectricityUsageCostCalculator(repository Repository) *ElectricityUsageC
 	return calculator
 }
 
-func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceValues) {
+func (e *ElectricityUsageCostCalculator) HandleEvent(values *events.ElectricityPriceValues) {
 	cacheKey := values.EnergyProviderName()
 	defer func() { e.previousValues.Store(cacheKey, values) }()
 	var startTime time.Time
@@ -26,7 +28,7 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceVal
 	previousFeedbackPrice := float32(0)
 	endTime := values.PriceStartingTime()
 	if value, ok := e.previousValues.Load(cacheKey); ok {
-		previousValue := value.(*ElectricityPriceValues)
+		previousValue := value.(*events.ElectricityPriceValues)
 		startTime = previousValue.PriceStartingTime()
 		previousConsumptionPrice = previousValue.ConsumptionPrice()
 		previousFeedbackPrice = previousValue.FeedbackPrice()
@@ -44,7 +46,7 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceVal
 		previousConsumptionPrice = dbPrice.ConsumptionPrice
 		previousFeedbackPrice = dbPrice.FeedbackPrice
 	}
-	startUsage, err := e.repository.ElectricityUsageAtTime(startTime, "", RoleGrid, EqualOrGreater)
+	startUsage, err := e.repository.ElectricityUsageAtTime(startTime, "", constants.EnergySourceRoleGrid, EqualOrGreater)
 	if err != nil {
 		log.Errorf("Unable to determine start usage: %s", err.Error())
 		return
@@ -52,7 +54,7 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceVal
 		log.Warning("Unable to determine start usage")
 		return
 	}
-	endUsage, err := e.repository.ElectricityUsageAtTime(endTime, "", RoleGrid, LessOrEqual)
+	endUsage, err := e.repository.ElectricityUsageAtTime(endTime, "", constants.EnergySourceRoleGrid, LessOrEqual)
 	if err != nil {
 		log.Errorf("Unable to determine end usage: %s", err.Error())
 		return
@@ -60,15 +62,15 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *ElectricityPriceVal
 		log.Warning("Unable to determine end usage")
 		return
 	}
-	valuesEvent := NewElectricityCostsValues().
+	valuesEvent := events.NewElectricityCostsValues().
 		SetStartTime(startTime).
 		SetEndTime(endTime).
-		SetEnergyProviderName(values.energyProviderName).
+		SetEnergyProviderName(values.EnergyProviderName()).
 		SetConsumptionPricePerKwh(previousConsumptionPrice).
-		SetStartConsumptionEnergy(startUsage.ElectricityUsage.TotalEnergyConsumed()).
-		SetEndConsumptionEnergy(endUsage.ElectricityUsage.TotalEnergyConsumed()).
+		SetStartConsumptionEnergy(startUsage.TotalEnergyConsumed()).
+		SetEndConsumptionEnergy(endUsage.TotalEnergyConsumed()).
 		SetFeedbackPricePerKwh(previousFeedbackPrice).
-		SetStartFeedbackEnergy(startUsage.ElectricityUsage.TotalEnergyProvided()).
-		SetEndFeedbackEnergy(endUsage.ElectricityUsage.TotalEnergyProvided())
-	ElectricityCosts.Trigger(valuesEvent)
+		SetStartFeedbackEnergy(startUsage.TotalEnergyProvided()).
+		SetEndFeedbackEnergy(endUsage.TotalEnergyProvided())
+	events.ElectricityCosts.Trigger(valuesEvent)
 }

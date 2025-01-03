@@ -1,7 +1,7 @@
 package server
 
 import (
-	"enman/internal/domain"
+	"enman/internal/domain/electricity"
 	"enman/internal/modbus"
 	"strconv"
 )
@@ -9,11 +9,11 @@ import (
 type EM24MeterSimulator struct {
 	modbus.RequestHandler
 	unitId           uint8
-	electricityState *domain.ElectricityState
-	electricityUsage *domain.ElectricityUsage
+	electricityState *electricity.State
+	electricityUsage *electricity.Usage
 }
 
-func newEM24MeterSimulator(unitId uint8, electricityState *domain.ElectricityState, electricityUsage *domain.ElectricityUsage) *EM24MeterSimulator {
+func newEM24MeterSimulator(unitId uint8, electricityState *electricity.State, electricityUsage *electricity.Usage) *EM24MeterSimulator {
 	return &EM24MeterSimulator{
 		unitId:           unitId,
 		electricityState: electricityState,

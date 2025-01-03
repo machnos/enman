@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"fmt"
 	"math"
@@ -34,7 +35,7 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 				make([]int, 0),
 				sync.Mutex{},
 			})
-			ElectricityMeterReadings.Register(calculator, func(values *ElectricityMeterValues) bool {
+			events.ElectricityMeterReadings.Register(calculator, func(values *events.ElectricityMeterValues) bool {
 				return acLoad.Name() == values.Name() && acLoad.Role() == values.Role()
 			})
 		}
@@ -66,13 +67,13 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 	return calculator, nil
 }
 
-func (g *GridTargetConsumptionCalculator) HandleEvent(values *ElectricityMeterValues) {
+func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.ElectricityMeterValues) {
 	valid, err := values.Valid()
 	if !valid {
 		log.Warningf("Ignoring electricity meter reading from '%s' for grid target consumption calculations as it is invalid: %v", values.Name(), err)
 		return
 	}
-	if values.ElectricityState().TotalPower() < 0 || values.ElectricityState().TotalPower() > math.MaxInt16 {
+	if values.State().TotalPower() < 0 || values.State().TotalPower() > math.MaxInt16 {
 		log.Warningf("Ignoring electricity meter reading from '%s' for grid target consumption calculations as it is > %d or < 0", values.Name(), math.MaxInt16)
 		return
 	}
@@ -83,7 +84,7 @@ func (g *GridTargetConsumptionCalculator) HandleEvent(values *ElectricityMeterVa
 		return
 	}
 	data := value.(*meterData)
-	data.values = append(data.values, int(values.ElectricityState().TotalPower()))
+	data.values = append(data.values, int(values.State().TotalPower()))
 }
 
 func (g *GridTargetConsumptionCalculator) Stop() {
@@ -102,7 +103,7 @@ func (g *GridTargetConsumptionCalculator) Stop() {
 	g.tickerDoneChannel <- true
 	for _, acLoad := range g.system.AcLoads() {
 		if acLoad.PercentageFromGrid() > 0 {
-			ElectricityMeterReadings.Deregister(g)
+			events.ElectricityMeterReadings.Deregister(g)
 		}
 	}
 }

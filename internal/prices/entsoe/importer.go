@@ -6,6 +6,7 @@ import (
 	"enman/internal/config"
 	"enman/internal/domain"
 	"enman/internal/domain/arithmetic"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"enman/internal/prices"
 	"fmt"
@@ -226,7 +227,7 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 }
 
 func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain.EnergyPrice, interval time.Duration) {
-	event := domain.NewElectricityPriceValues().
+	event := events.NewElectricityPriceValues().
 		SetConsumptionPrice(price.ConsumptionPrice).
 		SetFeedbackPrice(price.FeedbackPrice).
 		SetEnergyProviderName(price.Provider).
@@ -251,7 +252,7 @@ func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain
 
 	select {
 	case <-timer.C:
-		domain.ElectricityPrices.Trigger(event)
+		events.ElectricityPrices.Trigger(event)
 		e.registeredEvents.Delete(eventKey)
 		log.Debugf("Deregistered price task because it was fired %s", eventKey)
 		return

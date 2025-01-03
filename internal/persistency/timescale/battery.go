@@ -3,6 +3,9 @@ package timescale
 import (
 	"context"
 	"enman/internal/domain"
+	"enman/internal/domain/battery"
+	"enman/internal/domain/constants"
+	"enman/internal/domain/events"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -71,7 +74,7 @@ func (t *timescaleRepository) BatterySourceNames(from time.Time, till time.Time)
 	return names, nil
 }
 
-func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.BatteryStateRecord, error) {
+func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.BatteryStatesRecord, error) {
 	tdStates := t.tableDefinitions[tableBatteryStates]
 	tdBatteries := t.tableDefinitions[tableBatteries]
 
@@ -84,7 +87,7 @@ func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sour
 	statement, err := sql.NewSelect(tdStates.Name).
 		WithColumns(aggregateColumn).
 		WithColumns(sql.NewColumns(tdBatteries.TablePrefixedColumnNames()...)...).
-		WithColumns(sql.NewColumnsWithFunction(t.toPostgresqlAggregateFunction(aggregate.Function), tdStates.TablePrefixedColumnNames()[2:]...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), tdStates.TablePrefixedColumnNames()[2:]...)...).
 		WithFilter(filter).
 		WithJoin(sql.NewJoin(tdBatteries.Name, sql.Inner, tdStates.TablePrefixedColumn("battery"), tdBatteries.TablePrefixedColumn("name"))).
 		GroupBy(aggregateColumn, sql.NewColumnWithName(tdBatteries.TablePrefixedColumn("name"))).
@@ -98,18 +101,18 @@ func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sour
 	}
 	defer rows.Close()
 
-	states := make([]*domain.BatteryStateRecord, 0)
+	states := make([]*domain.BatteryStatesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		states = append(states, t.rowValuesToBatteryStateRecord(values))
+		states = append(states, t.rowValuesToBatteryStatesRecord(aggregate, values))
 	}
 	return states, nil
 }
 
-func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName string, role domain.EnergySourceRole, timeMatchType domain.MatchType) (*domain.BatteryStateRecord, error) {
+func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.BatteryStateRecord, error) {
 	tdStates := t.tableDefinitions[tableElectricityStates]
 	tdBatteries := t.tableDefinitions[tableBatteries]
 
@@ -117,7 +120,7 @@ func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName st
 	if sourceName != "" {
 		filter.And(tdBatteries.TablePrefixedColumn("name"), sql.Equals, sourceName)
 	}
-	if role != "" {
+	if role != constants.EnergySourceRoleUndefined {
 		filter.And(tdBatteries.TablePrefixedColumn("role"), sql.Equals, string(role))
 	}
 
@@ -161,10 +164,10 @@ func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName st
 
 func (t *timescaleRepository) rowValuesToBatteryStateRecord(values []any) *domain.BatteryStateRecord {
 	batteryState := &domain.BatteryStateRecord{
-		Time:         values[0].(time.Time),
-		Name:         values[1].(string),
-		Role:         values[2].(string),
-		BatteryState: domain.NewBatteryState(),
+		Time:  values[0].(time.Time),
+		Name:  values[1].(string),
+		Role:  values[2].(string),
+		State: battery.NewState(),
 	}
 	batteryState.SetCurrent(float32(values[3].(float64)))
 	batteryState.SetPower(float32(values[4].(float64)))
@@ -174,18 +177,39 @@ func (t *timescaleRepository) rowValuesToBatteryStateRecord(values []any) *domai
 	return batteryState
 }
 
+func (t *timescaleRepository) rowValuesToBatteryStatesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.BatteryStatesRecord {
+	batteryStates := &domain.BatteryStatesRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Role:      values[2].(string),
+		States:    make(map[domain.AggregateFunction]*battery.State),
+	}
+	nrOfFields := 5
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		batteryState := battery.NewState()
+		batteryState.SetCurrent(float32(values[(ix*nrOfFields)+3].(float64)))
+		batteryState.SetPower(float32(values[(ix*nrOfFields)+4].(float64)))
+		batteryState.SetVoltage(float32(values[(ix*nrOfFields)+5].(float64)))
+		batteryState.SetSoC(float32(values[(ix*nrOfFields)+6].(float64)))
+		batteryState.SetSoH(float32(values[(ix*nrOfFields)+7].(float64)))
+		batteryStates.States[aggregateFunction] = batteryState
+	}
+	return batteryStates
+}
+
 type BatteryMeterValueChangeListener struct {
 	repo *timescaleRepository
 }
 
-func (bmvcl *BatteryMeterValueChangeListener) HandleEvent(values *domain.BatteryMeterValues) {
+func (bmvcl *BatteryMeterValueChangeListener) HandleEvent(values *events.BatteryMeterValues) {
 	valid, err := values.Valid()
 	if !valid {
 		if log.WarningEnabled() {
 			log.Warningf("Not storing battery meter reading from '%s' as it is invalid: %v", values.Name(), err)
 		}
 	}
-	if values.BatteryState() == nil || values.BatteryState().IsZero() {
+	if values.State() == nil || values.State().IsZero() {
 		// No usable values in event.
 		return
 	}
@@ -193,11 +217,11 @@ func (bmvcl *BatteryMeterValueChangeListener) HandleEvent(values *domain.Battery
 	fields := make([]any, len(bmvcl.repo.tableDefinitions[tableBatteryStates].Columns))
 	fields[0] = values.EventTime()
 	fields[1] = values.Name()
-	fields[2] = values.BatteryState().Current()
-	fields[3] = values.BatteryState().Power()
-	fields[4] = values.BatteryState().Voltage()
-	fields[5] = values.BatteryState().SoC()
-	fields[6] = values.BatteryState().SoH()
+	fields[2] = values.State().Current()
+	fields[3] = values.State().Power()
+	fields[4] = values.State().Voltage()
+	fields[5] = values.State().SoC()
+	fields[6] = values.State().SoH()
 	_, err = bmvcl.repo.dbPool.Exec(context.Background(), bmvcl.repo.insertQueries[tableBatteryStates], fields...)
 	if err != nil {
 		if log.WarningEnabled() {

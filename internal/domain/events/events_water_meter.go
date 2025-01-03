@@ -1,6 +1,8 @@
-package domain
+package events
 
 import (
+	"enman/internal/domain/constants"
+	"enman/internal/domain/water"
 	"errors"
 	"time"
 )
@@ -14,10 +16,10 @@ type WaterMeterValueChangeListener interface {
 }
 
 type WaterMeterValues struct {
-	eventTime  time.Time
-	name       string
-	role       EnergySourceRole
-	waterUsage *WaterUsage
+	eventTime time.Time
+	name      string
+	role      constants.EnergySourceRole
+	usage     *water.Usage
 }
 
 func NewWaterMeterValues() *WaterMeterValues {
@@ -39,28 +41,28 @@ func (wmv *WaterMeterValues) Name() string {
 	return wmv.name
 }
 
-func (wmv *WaterMeterValues) SetRole(role EnergySourceRole) *WaterMeterValues {
+func (wmv *WaterMeterValues) SetRole(role constants.EnergySourceRole) *WaterMeterValues {
 	wmv.role = role
 	return wmv
 }
 
-func (wmv *WaterMeterValues) Role() EnergySourceRole {
+func (wmv *WaterMeterValues) Role() constants.EnergySourceRole {
 	return wmv.role
 }
 
-func (wmv *WaterMeterValues) SetWaterUsage(waterUsage *WaterUsage) *WaterMeterValues {
-	wmv.waterUsage = waterUsage
+func (wmv *WaterMeterValues) SetUsage(usage *water.Usage) *WaterMeterValues {
+	wmv.usage = usage
 	return wmv
 }
 
-func (wmv *WaterMeterValues) WaterUsage() *WaterUsage {
-	return wmv.waterUsage
+func (wmv *WaterMeterValues) Usage() *water.Usage {
+	return wmv.usage
 }
 
 func (wmv *WaterMeterValues) Valid() (bool, error) {
 	var result error
-	if wmv.waterUsage != nil {
-		_, err := wmv.waterUsage.Valid()
+	if wmv.usage != nil {
+		_, err := wmv.usage.Valid()
 		result = errors.Join(result, err)
 	}
 	return result == nil, result

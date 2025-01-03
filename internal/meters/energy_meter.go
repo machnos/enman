@@ -3,6 +3,7 @@ package meters
 import (
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/constants"
 	"fmt"
 )
 
@@ -30,7 +31,7 @@ func newEnergyMeter(brand string) *energyMeter {
 	}
 }
 
-func ProbeEnergyMeters(role domain.EnergySourceRole, meterConfigs []*config.EnergyMeter) ([]domain.EnergyMeter, error) {
+func ProbeEnergyMeters(role constants.EnergySourceRole, meterConfigs []*config.EnergyMeter) ([]domain.EnergyMeter, error) {
 	meters := make([]domain.EnergyMeter, 0)
 	for _, meterConfig := range meterConfigs {
 		meter := probeEnergyMeter(role, meterConfig)
@@ -43,7 +44,7 @@ func ProbeEnergyMeters(role domain.EnergySourceRole, meterConfigs []*config.Ener
 	return meters, nil
 }
 
-func probeEnergyMeter(role domain.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
+func probeEnergyMeter(role constants.EnergySourceRole, meterConfig *config.EnergyMeter) domain.EnergyMeter {
 	if "modbus" == meterConfig.Type {
 		return probeModbusMeter(role, meterConfig)
 	} else if "serial" == meterConfig.Type {

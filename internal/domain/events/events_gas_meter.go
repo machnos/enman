@@ -1,6 +1,8 @@
-package domain
+package events
 
 import (
+	"enman/internal/domain/constants"
+	"enman/internal/domain/gas"
 	"errors"
 	"time"
 )
@@ -16,8 +18,8 @@ type GasMeterValueChangeListener interface {
 type GasMeterValues struct {
 	eventTime time.Time
 	name      string
-	role      EnergySourceRole
-	gasUsage  *GasUsage
+	role      constants.EnergySourceRole
+	usage     *gas.Usage
 }
 
 func NewGasMeterValues() *GasMeterValues {
@@ -39,28 +41,28 @@ func (gmv *GasMeterValues) Name() string {
 	return gmv.name
 }
 
-func (gmv *GasMeterValues) SetRole(role EnergySourceRole) *GasMeterValues {
+func (gmv *GasMeterValues) SetRole(role constants.EnergySourceRole) *GasMeterValues {
 	gmv.role = role
 	return gmv
 }
 
-func (gmv *GasMeterValues) Role() EnergySourceRole {
+func (gmv *GasMeterValues) Role() constants.EnergySourceRole {
 	return gmv.role
 }
 
-func (gmv *GasMeterValues) SetGasUsage(gasUsage *GasUsage) *GasMeterValues {
-	gmv.gasUsage = gasUsage
+func (gmv *GasMeterValues) SetUsage(usage *gas.Usage) *GasMeterValues {
+	gmv.usage = usage
 	return gmv
 }
 
-func (gmv *GasMeterValues) GasUsage() *GasUsage {
-	return gmv.gasUsage
+func (gmv *GasMeterValues) Usage() *gas.Usage {
+	return gmv.usage
 }
 
 func (gmv *GasMeterValues) Valid() (bool, error) {
 	var result error
-	if gmv.gasUsage != nil {
-		_, err := gmv.gasUsage.Valid()
+	if gmv.usage != nil {
+		_, err := gmv.usage.Valid()
 		result = errors.Join(result, err)
 	}
 	return result == nil, result

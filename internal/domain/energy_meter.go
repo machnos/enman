@@ -1,6 +1,12 @@
 package domain
 
-import "time"
+import (
+	"enman/internal/domain/battery"
+	"enman/internal/domain/electricity"
+	"enman/internal/domain/gas"
+	"enman/internal/domain/water"
+	"time"
+)
 
 type EnergyMeter interface {
 	Brand() string
@@ -8,10 +14,10 @@ type EnergyMeter interface {
 	Serial() string
 	UpdateInterval() time.Duration
 	UpdateValues(
-		electricityState *ElectricityState,
-		electricityUsage *ElectricityUsage,
-		gasUsage *GasUsage,
-		waterUsage *WaterUsage,
-		batteryState *BatteryState) error
+		electricityState *electricity.State,
+		electricityUsage *electricity.Usage,
+		gasUsage *gas.Usage,
+		waterUsage *water.Usage,
+		batteryState *battery.State) error
 	Shutdown()
 }
