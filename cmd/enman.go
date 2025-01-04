@@ -7,6 +7,7 @@ import (
 	"enman/internal/domain"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
+	"enman/internal/domain/prices"
 	"enman/internal/http"
 	"enman/internal/log"
 	"enman/internal/meters"
@@ -14,11 +15,14 @@ import (
 	"enman/internal/modbus/server"
 	"enman/internal/persistency/noop"
 	"enman/internal/persistency/timescale"
-	"enman/internal/prices/entsoe"
+	"enman/internal/price_importers"
+	"enman/internal/price_importers/energyzero"
+	"enman/internal/price_importers/entsoe"
 	"flag"
 	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -38,6 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to load configuration file: %s", err.Error())
 		syscall.Exit(-1)
+		return
 	}
 	if configuration.Log != nil && configuration.Log.Level != 0 {
 		log.ActiveLevel = log.Level(configuration.Log.Level)
@@ -109,8 +114,14 @@ func main() {
 	}
 
 	// Setup domain event listeners
-	costCalculator := domain.NewElectricityUsageCostCalculator(repository)
-	events.ElectricityPrices.Register(costCalculator, nil)
+	electricityCostCalculator := domain.NewElectricityUsageCostCalculator(repository)
+	events.EnergyPrices.Register(electricityCostCalculator, func(values *events.EnergyPriceValues) bool {
+		return values.EnergyType() == prices.EnergyTypeElectricity
+	})
+	gasCostCalculator := domain.NewGasUsageCostCalculator(repository)
+	events.EnergyPrices.Register(gasCostCalculator, func(values *events.EnergyPriceValues) bool {
+		return values.EnergyType() == prices.EnergyTypeGas
+	})
 
 	// Setup grid target consumption calculator
 	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
@@ -120,25 +131,43 @@ func main() {
 
 	// Set price importers
 	if configuration.Prices != nil {
-		importer, err := entsoe.NewEntsoeImporter(
-			configuration.Prices.Country,
-			configuration.Prices.Area,
-			configuration.Prices.Entsoe.SecurityToken,
-			configuration.Prices.Providers,
-			repository,
-		)
-		if err != nil {
-			log.Error(err.Error())
-			return
+		baseImporter := &price_importers.BasePriceImporter{
+			Repository:      repository,
+			EnergyProviders: configuration.Prices.Providers,
+		}
+		rootImporters := make([]price_importers.PriceImporter, 0)
+		if configuration.Prices.Entsoe != nil && configuration.Prices.Entsoe.SecurityToken != "" {
+			importer, err := entsoe.NewEntsoeImporter(
+				baseImporter,
+				configuration.Prices.Country,
+				configuration.Prices.Area,
+				configuration.Prices.Entsoe.SecurityToken,
+			)
+			if err != nil {
+				log.Error(err.Error())
+				return
+			}
+			rootImporters = append(rootImporters, importer)
+		}
+		if strings.ToLower(configuration.Prices.Country) == "nl" {
+			importer := energyzero.NewEnergyZeroImporter(baseImporter)
+			rootImporters = append(rootImporters, importer)
 		}
 		t := time.Now()
 		year, month, day := t.Date()
 		start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+		end := start.AddDate(0, 0, 2).Add(time.Nanosecond * -1)
 		go func() {
-			err = importer.ImportPrices(ctx, start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
-			if err != nil {
-				log.Errorf("Failed to import prices: %v", err.Error())
+			rootPrices := make([]*prices.EnergyPrice, 0)
+			for _, rootImporter := range rootImporters {
+				p, err := rootImporter.ImportPrices(ctx, start, end)
+				if err != nil {
+					log.Errorf("Failed to import prices: %v", err.Error())
+				} else {
+					rootPrices = append(rootPrices, p...)
+				}
 			}
+			baseImporter.UpdateProviderPrices(syncGroupContext, rootPrices)
 		}()
 		ticker := time.NewTicker(1 * time.Hour)
 		go func() {
@@ -151,10 +180,16 @@ func main() {
 					t = time.Now()
 					year, month, day = t.Date()
 					start = time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-					err = importer.ImportPrices(ctx, start, start.AddDate(0, 0, 2).Add(time.Nanosecond*-1))
-					if err != nil {
-						log.Error(err.Error())
+					rootPrices := make([]*prices.EnergyPrice, 0)
+					for _, rootImporter := range rootImporters {
+						p, err := rootImporter.ImportPrices(ctx, start, end)
+						if err != nil {
+							log.Errorf("Failed to import prices: %v", err.Error())
+						} else {
+							rootPrices = append(rootPrices, p...)
+						}
 					}
+					baseImporter.UpdateProviderPrices(syncGroupContext, rootPrices)
 				}
 			}
 		}()
@@ -196,8 +231,11 @@ func main() {
 				log.Warningf("Failed to stop http server: %s", err.Error())
 			}
 		}
-		if costCalculator != nil {
-			events.ElectricityPrices.Deregister(costCalculator)
+		if electricityCostCalculator != nil {
+			events.EnergyPrices.Deregister(electricityCostCalculator)
+		}
+		if gasCostCalculator != nil {
+			events.EnergyPrices.Deregister(gasCostCalculator)
 		}
 		if gridTargetConsumptionCalculator != nil {
 			gridTargetConsumptionCalculator.Stop()

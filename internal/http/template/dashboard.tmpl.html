@@ -16,6 +16,9 @@
         <div class="col-auto">
             <select class="form-select form-select-sm" id="sel-price-providers"></select>
         </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-price-energy-type"></select>
+        </div>
     </div>
     <div id="container1"></div>
     <br />
@@ -25,7 +28,10 @@
             <label for="sel-costs-providers" class="col-form-label">Cost per provider</label>
         </div>
         <div class="col-auto">
-            <select class="form-select form-select-sm" id="sel-costs-providers" autofocus="autofocus"></select>
+            <select class="form-select form-select-sm" id="sel-costs-providers"></select>
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-costs-energy-type"></select>
         </div>
     </div>
     <div id="container2"></div>
@@ -67,6 +73,8 @@ $(document).ready(function(){
     const aggregateFunctionMean = "mean";
     const aggregateFunctionMin = "min";
     const aggregateFunctionMax = "max";
+    const providerMap = new Map();
+
 
     const today = new Date();
     let tomorrow = new Date();
@@ -74,134 +82,50 @@ $(document).ready(function(){
     let yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
+    $('#sel-price-energy-type').on('change', function (event) {
+        event.preventDefault();
+        loadPrices($('#sel-price-providers').val(), $(this).val())
+    });
+
+    $('#sel-costs-energy-type').on('change', function (event) {
+        event.preventDefault();
+        loadCosts($('#sel-costs-providers').val(), $(this).val())
+    });
+
     $('#sel-price-providers').on('change', function (event) {
         event.preventDefault();
         const selectedProvider = $(this).val();
-        $.ajax({
-            url: "{{$.ContextRoot}}api/prices/" + selectedProvider + "/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0],
-        }).done(function(data) {
-            if (data && data.prices) {
-                let markers = [];
-                $.each(data.prices, function (series, prices) {
-                    $.each(prices, function (i, price) {
-                        markers.push({
-                            time: Date.parse(price.time),
-                            value: price.consumption_price,
-                            provider: series
-                        });
-                    });
-                });
-                const graph = Plot.plot({
-                    x: {
-                        type: "time",
-                        interval: "hour",
-                    },
-                    y: {
-                        label: "Price in €"
-                    },
-                    grid: true,
-                    width: "1200",
-                    color: {
-                        legend: true,
-                        scheme: "gnbu",
-                    },
-                    marks: [
-                        Plot.ruleY([0]),
-                        Plot.axisX({ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start"}),
-                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
-                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
-                        Plot.tip(markers, Plot.pointerX({x: "time", y: "value", title: function(d) {
-                                return 'Time: ' + formatDate(new Date(d.time))  + '\n Price: €' + d.value;
-                            }, class: 'tooltipclass'
-                        })),
-                    ]
-                })
 
-                function formatDate(date) {
-                    let hour = date.getHours();
-                    let endHour = hour + 1
-                    hour = hour < 10 ? ('0' + hour) : hour;
-                    let minutes = date.getMinutes()
-                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                    if (endHour >= 24) {
-                        endHour = 0
-                    }
-                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
-                }
-
-                $('#container1').empty().append(graph);
+        const $priceEnergyType = $('#sel-price-energy-type');
+        const currentEnergyType = $priceEnergyType.val();
+        $priceEnergyType.empty()
+        $(providerMap.get(selectedProvider)).each(function (index, energyType) {
+            const $option = $('<option>').attr('value', energyType).text(capitalize(energyType));
+            if (energyType === currentEnergyType) {
+                $option.attr('selected', 'selected')
             }
+            $priceEnergyType.append($option.clone());
         });
+
+        loadPrices(selectedProvider, $priceEnergyType.val())
     });
 
     $('#sel-costs-providers').on('change', function (event) {
         event.preventDefault();
         const selectedProvider = $(this).val();
 
-        $.ajax({
-            url: "{{$.ContextRoot}}api/electricity/" + selectedProvider + "/costs/" + yesterday.toISOString().split('T')[0],
-        }).done(function (data) {
-            if (data && data.sources) {
-                let markers = [];
-                $.each(data.sources, function (source, buckets) {
-                    $.each(buckets, function (i, bucket) {
-                        markers.push({
-                            start_time: Date.parse(bucket.start_time),
-                            end_time: Date.parse(bucket.end_time),
-                            value: bucket.net_costs,
-                            provider: source
-                        });
-                    });
-                });
-                const graph = Plot.plot({
-                    x: {
-                        type: "time",
-                        interval: "hour",
-                    },
-                    y: {
-                        label: "Costs in €"
-                    },
-                    grid: true,
-                    width: "1200",
-                    color: {
-                        legend: true,
-                        scheme: "gnbu",
-                    },
-                    marks: [
-                        Plot.ruleY([0]),
-                        Plot.axisX({
-                            ticks: "day",
-                            tickSize: 28,
-                            tickPadding: -9,
-                            tickFormat: " %A",
-                            textAnchor: "start"
-                        }),
-                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
-                        Plot.rectY(markers, {x: "start_time", y: "value", z: "provider", interval: "hour", fill: "value"}),
-                        Plot.tip(markers, Plot.pointerX({
-                            x: "start_time", y: "value", title: function (d) {
-                                return 'Time: ' + formatDate(new Date(d.start_time), new Date(d.end_time)) + '\n Costs: €' + d.value;
-                            }
-                        })),
-                    ]
-                })
-
-                function formatDate(startDate, endDate) {
-                    let startHour = startDate.getHours();
-                    let startMinutes = startDate.getMinutes()
-                    let endHour = endDate.getHours();
-                    let endMinutes = endDate.getMinutes()
-                    startHour = startHour < 10 ? ('0' + startHour) : startHour;
-                    startMinutes = startMinutes < 10 ? ('0' + startMinutes) : startMinutes;
-                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                    endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
-                    return startHour + ':' + startMinutes + '-' + endHour + ':' + endMinutes;
-                }
-
-                $('#container2').empty().append(graph);
+        const $costsEnergyType = $('#sel-costs-energy-type');
+        const currentEnergyType = $costsEnergyType.val();
+        $costsEnergyType.empty()
+        $(providerMap.get(selectedProvider)).each(function (index, energyType) {
+            const $option = $('<option>').attr('value', energyType).text(capitalize(energyType));
+            if (energyType === currentEnergyType) {
+                $option.attr('selected', 'selected')
             }
+            $costsEnergyType.append($option.clone());
         });
+
+        loadCosts(selectedProvider, $costsEnergyType.val())
     });
 
     $('#sel-gas-providers').on('change', function (event) {
@@ -227,6 +151,7 @@ $(document).ready(function(){
                     x: {
                         type: "time",
                         interval: "hour",
+                        label: "Time"
                     },
                     y: {
                         label: "Usage in m3"
@@ -283,8 +208,9 @@ $(document).ready(function(){
         const $priceProviders = $('#sel-price-providers');
         const $costsProviders = $('#sel-costs-providers');
         $(data.providers).each(function (index, provider) {
-            const $option = $('<option>').attr('value', provider).text(provider)
-            if (data.grid && provider === data.grid) {
+            providerMap.set(provider.name, provider.energy_types.sort())
+            const $option = $('<option>').attr('value', provider.name).text(provider.name)
+            if (data.grid && provider.name === data.grid) {
                 $option.attr('selected', 'selected')
             }
             $priceProviders.append($option.clone());
@@ -557,6 +483,137 @@ $(document).ready(function(){
             $('#container6').append(graph);
         }
     });
+
+    function loadPrices(provider, energyType) {
+        $.ajax({
+            url: "{{$.ContextRoot}}api/prices/" + provider + "/" + energyType + "/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0],
+        }).done(function(data) {
+            if (data && data.prices) {
+                let markers = [];
+                $.each(data.prices, function (series, prices) {
+                    $.each(prices, function (i, price) {
+                        markers.push({
+                            time: Date.parse(price.time),
+                            value: price.consumption_price,
+                            provider: series
+                        });
+                    });
+                });
+                const graph = Plot.plot({
+                    x: {
+                        type: "time",
+                        interval: "hour"
+                    },
+                    y: {
+                        label: "Price in €"
+                    },
+                    grid: true,
+                    width: "1200",
+                    color: {
+                        legend: true,
+                        scheme: "gnbu",
+                    },
+                    marks: [
+                        Plot.ruleY([0]),
+                        Plot.axisX({ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start"}),
+                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
+                        Plot.rectY(markers, {x: "time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.tip(markers, Plot.pointerX({x: "time", y: "value", title: function(d) {
+                                return 'Time: ' + formatDate(new Date(d.time))  + '\n Price: €' + d.value;
+                            }, class: 'tooltipclass'
+                        })),
+                    ]
+                })
+
+                function formatDate(date) {
+                    let hour = date.getHours();
+                    let endHour = hour + 1
+                    hour = hour < 10 ? ('0' + hour) : hour;
+                    let minutes = date.getMinutes()
+                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                    if (endHour >= 24) {
+                        endHour = 0
+                    }
+                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
+                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                }
+
+                $('#container1').empty().append(graph);
+            }
+        });
+    }
+
+    function loadCosts(provider, energyType) {
+        $.ajax({
+            url: "{{$.ContextRoot}}api/" + energyType + "/" + provider + "/costs/" + yesterday.toISOString().split('T')[0],
+        }).done(function (data) {
+            if (data && data.sources) {
+                let markers = [];
+                $.each(data.sources, function (source, buckets) {
+                    $.each(buckets, function (i, bucket) {
+                        markers.push({
+                            start_time: Date.parse(bucket.start_time),
+                            end_time: Date.parse(bucket.end_time),
+                            value: bucket.net_costs,
+                            provider: source
+                        });
+                    });
+                });
+                const graph = Plot.plot({
+                    x: {
+                        type: "time",
+                        interval: "hour",
+                        label: "Time"
+                    },
+                    y: {
+                        label: "Costs in €"
+                    },
+                    grid: true,
+                    width: "1200",
+                    color: {
+                        legend: true,
+                        scheme: "gnbu",
+                    },
+                    marks: [
+                        Plot.ruleY([0]),
+                        Plot.axisX({
+                            ticks: "day",
+                            tickSize: 28,
+                            tickPadding: -9,
+                            tickFormat: " %A",
+                            textAnchor: "start"
+                        }),
+                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
+                        Plot.rectY(markers, {x: "start_time", y: "value", z: "provider", interval: "hour", fill: "value"}),
+                        Plot.tip(markers, Plot.pointerX({
+                            x: "start_time", y: "value", title: function (d) {
+                                return 'Time: ' + formatDate(new Date(d.start_time), new Date(d.end_time)) + '\n Costs: €' + d.value;
+                            }
+                        })),
+                    ]
+                })
+
+                function formatDate(startDate, endDate) {
+                    let startHour = startDate.getHours();
+                    let startMinutes = startDate.getMinutes()
+                    let endHour = endDate.getHours();
+                    let endMinutes = endDate.getMinutes()
+                    startHour = startHour < 10 ? ('0' + startHour) : startHour;
+                    startMinutes = startMinutes < 10 ? ('0' + startMinutes) : startMinutes;
+                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
+                    endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                    return startHour + ':' + startMinutes + '-' + endHour + ':' + endMinutes;
+                }
+
+                $('#container2').empty().append(graph);
+            }
+        });
+    }
+
+
+    function capitalize(val) {
+        return String(val).charAt(0).toUpperCase() + String(val).slice(1);
+    }
 
 });
 </script>

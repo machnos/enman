@@ -5,8 +5,10 @@ import (
 	"enman/internal/domain/constants"
 	"enman/internal/domain/electricity"
 	"enman/internal/domain/gas"
+	"enman/internal/domain/prices"
 	"enman/internal/domain/water"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -61,8 +63,8 @@ func (u WindowUnit) String() string {
 	}
 }
 
-func ParseWindowUnit(s string) (WindowUnit, error) {
-	switch strings.ToLower(s) {
+func ParseWindowUnit(windowUnit string) (WindowUnit, error) {
+	switch strings.ToLower(windowUnit) {
 	case "nanosecond":
 		return WindowUnitNanosecond, nil
 	case "microsecond":
@@ -84,7 +86,7 @@ func ParseWindowUnit(s string) (WindowUnit, error) {
 	case "year":
 		return WindowUnitYear, nil
 	default:
-		return WindowUnit(^uint64(0)), fmt.Errorf("invalid WindowUnit: %s", s)
+		return WindowUnit(math.MaxUint64), fmt.Errorf("invalid WindowUnit: %s", windowUnit)
 	}
 }
 
@@ -118,8 +120,8 @@ func (f AggregateFunction) String() string {
 	}
 }
 
-func ParseAggregateFunction(s string) (AggregateFunction, error) {
-	switch strings.ToLower(s) {
+func ParseAggregateFunction(aggregateFunction string) (AggregateFunction, error) {
+	switch strings.ToLower(aggregateFunction) {
 	case "count":
 		return AggregateFunctionCount, nil
 	case "max":
@@ -133,7 +135,7 @@ func ParseAggregateFunction(s string) (AggregateFunction, error) {
 	case "sum":
 		return AggregateFunctionSum, nil
 	default:
-		return AggregateFunction(^uint64(0)), fmt.Errorf("invalid AggregateFunction: %s", s)
+		return AggregateFunction(math.MaxUint64), fmt.Errorf("invalid AggregateFunction: %s", aggregateFunction)
 	}
 }
 
@@ -144,14 +146,15 @@ type Repository interface {
 	ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*ElectricityStatesRecord, error)
 	ElectricityCosts(from time.Time, till time.Time, providerName string, aggregate *AggregateConfiguration) ([]*ElectricityCostsRecord, error)
 
-	EnergyPriceProviderNames(from time.Time, till time.Time) ([]string, error)
-	EnergyPrices(from time.Time, till time.Time, providerName string) ([]*EnergyPrice, error)
-	EnergyPriceAtTime(moment time.Time, providerName string, timeMatchType MatchType) (*EnergyPrice, error)
-	StoreEnergyPrice(price *EnergyPrice) error
+	EnergyPriceProviders(from time.Time, till time.Time) ([]*prices.EnergyPriceProvider, error)
+	EnergyPrices(from time.Time, till time.Time, providerName string, energyType prices.EnergyType) ([]*prices.EnergyPrice, error)
+	EnergyPriceAtTime(moment time.Time, providerName string, energyType prices.EnergyType, timeMatchType MatchType) (*prices.EnergyPrice, error)
+	StoreEnergyPrice(price *prices.EnergyPrice) error
 
 	GasSourceNames(from time.Time, till time.Time) ([]string, error)
 	GasUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*GasUsagesRecord, error)
 	GasUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType MatchType) (*GasUsageRecord, error)
+	GasCosts(from time.Time, till time.Time, providerName string, aggregate *AggregateConfiguration) ([]*GasCostsRecord, error)
 
 	WaterSourceNames(from time.Time, till time.Time) ([]string, error)
 	WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*WaterUsagesRecord, error)
@@ -257,10 +260,19 @@ type ElectricityCostsRecord struct {
 	StartTime              time.Time
 	EndTime                time.Time
 	Name                   string
-	ConsumptionCosts       float32
-	ConsumptionPricePerKwh float32
 	ConsumptionEnergy      float32
-	FeedbackCosts          float32
-	FeedbackPricePerKwh    float32
+	ConsumptionPricePerKwh float32
+	ConsumptionCosts       float32
 	FeedbackEnergy         float32
+	FeedbackPricePerKwh    float32
+	FeedbackCosts          float32
+}
+
+type GasCostsRecord struct {
+	StartTime             time.Time
+	EndTime               time.Time
+	Name                  string
+	ConsumptionUsage      float32
+	ConsumptionPricePerM3 float32
+	ConsumptionCosts      float32
 }

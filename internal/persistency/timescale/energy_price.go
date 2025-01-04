@@ -3,6 +3,7 @@ package timescale
 import (
 	"context"
 	"enman/internal/domain"
+	"enman/internal/domain/prices"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -30,20 +31,23 @@ func (t *timescaleRepository) newEnergyPricesDefinition() *sql.TableDefinition {
 		Columns: []*sql.ColumnDefinition{
 			{"time", "TIMESTAMPTZ", false},
 			{"provider", "VARCHAR(50)", false},
+			{"energy_type", "VARCHAR(20)", false},
 			{"consumption_price", "DOUBLE PRECISION", true},
 			{"feedback_price", "DOUBLE PRECISION", true},
 		},
-		PrimaryKey: []string{"time", "provider"},
+		PrimaryKey: []string{"time", "provider", "energy_type"},
 		ForeignKeys: []*sql.ForeignKey{
 			{[]string{"provider"}, tableEnergyPriceProviders, []string{"name"}},
 		},
 	}
 }
 
-func (t *timescaleRepository) EnergyPriceProviderNames(from time.Time, till time.Time) ([]string, error) {
+func (t *timescaleRepository) EnergyPriceProviders(from time.Time, till time.Time) ([]*prices.EnergyPriceProvider, error) {
 	statement, err := sql.NewSelect(tableEnergyPrices).
-		WithColumns(sql.NewDistinctColumn("provider")).
+		Distinct().
+		WithColumns(sql.NewColumns("provider", "energy_type")...).
 		WithFilter(t.timeRangeFilter("time", from, till)).
+		OrderAscending(sql.NewColumnWithName("provider")).
 		Build()
 	if err != nil {
 		return nil, err
@@ -54,25 +58,45 @@ func (t *timescaleRepository) EnergyPriceProviderNames(from time.Time, till time
 	}
 	defer rows.Close()
 
-	var names []string
+	var providers []*prices.EnergyPriceProvider
+	currentProvider := &prices.EnergyPriceProvider{}
 	for rows.Next() {
-		var name string
-		err = rows.Scan(&name)
+		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		names = append(names, name)
+		name := values[0].(string)
+		energyType, err := prices.ParseEnergyType(values[1].(string))
+		if err != nil {
+			return nil, err
+		}
+		if name != currentProvider.Name {
+			if currentProvider.Name != "" {
+				providers = append(providers, currentProvider)
+			}
+			currentProvider = &prices.EnergyPriceProvider{
+				Name: name,
+			}
+		}
+		currentProvider.EnergyTypes = append(currentProvider.EnergyTypes, energyType)
 	}
-	return names, nil
+	if currentProvider.Name != "" {
+		providers = append(providers, currentProvider)
+	}
+	return providers, nil
 }
 
-func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, providerName string) ([]*domain.EnergyPrice, error) {
+func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, providerName string, energyType prices.EnergyType) ([]*prices.EnergyPrice, error) {
 	tdPrices := t.tableDefinitions[tableEnergyPrices]
 
 	filter := t.timeRangeFilter("time", from, till)
 	if providerName != "" {
 		filter.And("provider", sql.Equals, providerName)
 	}
+	if energyType != prices.EnergyTypeNone {
+		filter.And("energy_type", sql.Equals, energyType.String())
+	}
+
 	statement, err := sql.NewSelect(tableEnergyPrices).
 		WithColumns(sql.NewColumns(tdPrices.ColumnNames()...)...).
 		WithFilter(filter).
@@ -86,7 +110,7 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 	}
 	defer rows.Close()
 
-	energyPrices := make([]*domain.EnergyPrice, 0)
+	energyPrices := make([]*prices.EnergyPrice, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -97,12 +121,15 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 	return energyPrices, nil
 }
 
-func (t *timescaleRepository) EnergyPriceAtTime(moment time.Time, providerName string, timeMatchType domain.MatchType) (*domain.EnergyPrice, error) {
+func (t *timescaleRepository) EnergyPriceAtTime(moment time.Time, providerName string, energyType prices.EnergyType, timeMatchType domain.MatchType) (*prices.EnergyPrice, error) {
 	tdPrices := t.tableDefinitions[tableEnergyPrices]
 
 	filter := t.momentFilter("time", moment, timeMatchType)
 	if providerName != "" {
 		filter.And("provider", sql.Equals, providerName)
+	}
+	if energyType != prices.EnergyTypeNone {
+		filter.And("energy_type", sql.Equals, energyType.String())
 	}
 	selectStatement := sql.NewSelect(tableEnergyPrices).
 		WithColumns(sql.NewColumns(tdPrices.ColumnNames()...)...).
@@ -139,18 +166,29 @@ func (t *timescaleRepository) EnergyPriceAtTime(moment time.Time, providerName s
 	return t.rowValuesToEnergyPrice(values), nil
 }
 
-func (t *timescaleRepository) StoreEnergyPrice(price *domain.EnergyPrice) error {
-	t.registerEnergyPriceProvider(price.Provider)
-	_, err := t.dbPool.Exec(context.Background(), t.insertQueries[tableEnergyPrices], price.Time, price.Provider, price.ConsumptionPrice, price.FeedbackPrice)
+func (t *timescaleRepository) StoreEnergyPrice(price *prices.EnergyPrice) error {
+	t.registerEnergyPriceProvider(price.ProviderName)
+	_, err := t.dbPool.Exec(context.Background(), t.insertQueries[tableEnergyPrices],
+		price.Time,
+		price.ProviderName,
+		price.EnergyType.String(),
+		price.ConsumptionPrice,
+		price.FeedbackPrice,
+	)
 	return err
 }
 
-func (t *timescaleRepository) rowValuesToEnergyPrice(values []any) *domain.EnergyPrice {
-	return &domain.EnergyPrice{
+func (t *timescaleRepository) rowValuesToEnergyPrice(values []any) *prices.EnergyPrice {
+	energyType, err := prices.ParseEnergyType(values[2].(string))
+	if err != nil {
+		log.Warning(err.Error())
+	}
+	return &prices.EnergyPrice{
 		Time:             values[0].(time.Time),
-		Provider:         values[1].(string),
-		ConsumptionPrice: float32(values[2].(float64)),
-		FeedbackPrice:    float32(values[3].(float64)),
+		ProviderName:     values[1].(string),
+		EnergyType:       energyType,
+		ConsumptionPrice: float32(values[3].(float64)),
+		FeedbackPrice:    float32(values[4].(float64)),
 	}
 }
 

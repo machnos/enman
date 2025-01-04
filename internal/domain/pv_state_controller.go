@@ -88,7 +88,7 @@ func (p *PvStateController) Start(context context.Context) {
 	if p.updateTicker != nil {
 		return
 	}
-	events.ElectricityPrices.Register(p.priceBasedPVControl, func(priceValues *events.ElectricityPriceValues) bool {
+	events.EnergyPrices.Register(p.priceBasedPVControl, func(priceValues *events.EnergyPriceValues) bool {
 		return true
 	})
 	if p.system.Grid().controller == nil {
@@ -103,7 +103,7 @@ func (p *PvStateController) Start(context context.Context) {
 			select {
 			case <-context.Done():
 				p.updateTicker.Stop()
-				events.ElectricityPrices.Deregister(p.priceBasedPVControl)
+				events.EnergyPrices.Deregister(p.priceBasedPVControl)
 				return
 			case _ = <-p.updateTicker.C:
 				p.detectGridBasedPvProduction()
@@ -138,7 +138,7 @@ func newPriceBasedPVControl(controller *PvStateController) *priceBasedPVControl 
 	}
 }
 
-func (pbc *priceBasedPVControl) HandleEvent(values *events.ElectricityPriceValues) {
+func (pbc *priceBasedPVControl) HandleEvent(values *events.EnergyPriceValues) {
 	if pbc.disableFormula == "" {
 		return
 	}

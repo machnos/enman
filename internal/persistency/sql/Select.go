@@ -13,6 +13,7 @@ type Select struct {
 	filterFunction *FilterFunction
 	groupBy        []*Column
 	orderBy        []*Column
+	distinct       bool
 	orderAscending bool
 }
 
@@ -22,6 +23,11 @@ func NewSelect(table string) *Select {
 	}
 	s.table = table
 	s.tableAliases[table] = "t0"
+	return s
+}
+
+func (s *Select) Distinct() *Select {
+	s.distinct = true
 	return s
 }
 
@@ -62,6 +68,9 @@ func (s *Select) Build() (*Statement, error) {
 	result := &Statement{}
 	var builder strings.Builder
 	builder.WriteString("SELECT ")
+	if s.distinct {
+		builder.WriteString("DISTINCT ")
+	}
 	if len(s.columns) == 0 {
 		builder.WriteString("*")
 	} else {

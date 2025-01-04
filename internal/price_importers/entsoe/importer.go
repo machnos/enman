@@ -3,20 +3,13 @@ package entsoe
 import (
 	"context"
 	"encoding/xml"
-	"enman/internal/config"
-	"enman/internal/domain"
-	"enman/internal/domain/arithmetic"
-	"enman/internal/domain/events"
+	"enman/internal/domain/prices"
 	"enman/internal/log"
-	"enman/internal/prices"
+	"enman/internal/price_importers"
 	"fmt"
-	"golang.org/x/sync/syncmap"
 	"io"
-	"math"
 	"net/http"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -156,27 +149,25 @@ type publicationMarketDocument struct {
 }
 
 type PriceImporter struct {
-	prices.PriceImporter
-	domain           string
-	securityToken    string
-	energyProviders  []config.EnergyProvider
-	repository       domain.Repository
-	registeredEvents sync.Map
+	price_importers.PriceImporter
+	*price_importers.BasePriceImporter
+	domain        string
+	securityToken string
 }
 
-func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, endDate time.Time) error {
+func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, endDate time.Time) ([]*prices.EnergyPrice, error) {
 	log.Info("Start reading energy prices from ENTSO-E")
 	if !startDate.Before(endDate) {
-		return fmt.Errorf("start date must be before end date")
+		return nil, fmt.Errorf("start date must be before end date")
 	}
 	url := fmt.Sprintf("https://web-api.tp.entsoe.eu/api?securityToken=%s&documentType=A44&in_Domain=%s&out_Domain=%s&periodStart=%s&periodEnd=%s", e.securityToken, e.domain, e.domain, startDate.Truncate(time.Hour).UTC().Format("200601021504"), endDate.Truncate(time.Hour).UTC().Format("200601021504"))
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
@@ -185,8 +176,9 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 	var doc publicationMarketDocument
 	err = xml.Unmarshal(body, &doc)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	result := make([]*prices.EnergyPrice, 0)
 	for i := 0; i < len(doc.TimeSeries); i++ {
 		units := doc.TimeSeries[i].PriceMeasureUnitName
 		for j := 0; j < len(doc.TimeSeries[i].Period); j++ {
@@ -197,112 +189,28 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 				point := period.Point[k]
 				price := point.PriceAmount * units.toKwhFactor()
 				pointStart := start.Add(interval * time.Duration(point.Position-1))
-				entsoePrice := &domain.EnergyPrice{
-					Time:             pointStart,
+				entsoePrice := &prices.EnergyPrice{
+					Time:             pointStart.Truncate(time.Minute),
+					ProviderName:     "ENTSO-E",
+					EnergyType:       prices.EnergyTypeElectricity,
 					ConsumptionPrice: price,
 					FeedbackPrice:    price,
-					Provider:         "ENTSO-E",
 				}
-				err = e.repository.StoreEnergyPrice(entsoePrice)
-				if err != nil && log.WarningEnabled() {
+				err = e.BasePriceImporter.Repository.StoreEnergyPrice(entsoePrice)
+				if err != nil {
 					log.Warningf("failed to store energy price: %v", err)
 				}
-				go e.firePriceChangedEvent(ctx, entsoePrice, interval)
-				for l := 0; l < len(e.energyProviders); l++ {
-					energyPrice := e.calculateProviderPrice(e.energyProviders[l], price, pointStart)
-					if energyPrice != nil {
-						err = e.repository.StoreEnergyPrice(energyPrice)
-						if err != nil && log.WarningEnabled() {
-							log.Warningf("failed to store energy price: %v", err)
-						}
-						go e.firePriceChangedEvent(ctx, energyPrice, interval)
-					}
-				}
+				result = append(result, entsoePrice)
+				go e.BasePriceImporter.FirePriceChangedEvent(ctx, entsoePrice)
 			}
 		}
 
 	}
 	log.Info("Finished reading energy prices from ENTSO-E")
-	return nil
+	return result, nil
 }
 
-func (e *PriceImporter) firePriceChangedEvent(ctx context.Context, price *domain.EnergyPrice, interval time.Duration) {
-	event := events.NewElectricityPriceValues().
-		SetConsumptionPrice(price.ConsumptionPrice).
-		SetFeedbackPrice(price.FeedbackPrice).
-		SetEnergyProviderName(price.Provider).
-		SetPriceStartingTime(price.Time)
-	if interval != 0 {
-		event.SetInterval(interval)
-	}
-	eventKey := fmt.Sprintf("%v-%v", event.EnergyProviderName(), event.PriceStartingTime())
-	if time.Now().After(price.Time) {
-		log.Tracef("Not registering price task because it was in the past %s", eventKey)
-		return
-	}
-	_, ok := e.registeredEvents.Load(eventKey)
-	if ok {
-		log.Tracef("Not registering price task because it was already registered %s", eventKey)
-		return
-	}
-	log.Tracef("Registering price task %s", eventKey)
-	e.registeredEvents.Store(eventKey, true)
-	timer := time.NewTimer(time.Until(price.Time))
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		events.ElectricityPrices.Trigger(event)
-		e.registeredEvents.Delete(eventKey)
-		log.Debugf("Deregistered price task because it was fired %s", eventKey)
-		return
-	case <-ctx.Done():
-		return
-	}
-}
-
-func (e *PriceImporter) calculateProviderPrice(provider config.EnergyProvider, price float32, time time.Time) *domain.EnergyPrice {
-	p := &domain.EnergyPrice{
-		Provider: provider.Name,
-		Time:     time,
-	}
-	sort.Slice(provider.PriceModels, func(i, j int) bool {
-		return provider.PriceModels[i].StartAsTime().Before(provider.PriceModels[j].StartAsTime())
-	})
-	ix := math.MinInt
-	for i := 0; i < len(provider.PriceModels); i++ {
-		if provider.PriceModels[i].StartAsTime().After(time) {
-			break
-		}
-		ix = i
-	}
-	if ix < 0 {
-		return nil
-	}
-	// consumption price
-	formula := provider.PriceModels[ix].ConsumptionFormula
-	if formula != "" {
-		value, err := arithmetic.ParseCalculation(formula, map[string]float64{"ENTSO-E": float64(price)})
-		if err != nil {
-			log.Warningf("Unable to calculate consumption price: %v", err)
-		} else {
-			p.ConsumptionPrice = float32(value)
-		}
-	}
-	// feedback price
-	formula = provider.PriceModels[ix].FeedbackFormula
-	if formula != "" {
-		value, err := arithmetic.ParseCalculation(formula, map[string]float64{"ENTSO-E": float64(price)})
-		if err != nil {
-			log.Warningf("Unable to calculate feedback price: %v", err)
-		} else {
-			p.FeedbackPrice = float32(value)
-		}
-	}
-	return p
-}
-
-func NewEntsoeImporter(county string, area string, securityToken string, energyProviders []config.EnergyProvider, repository domain.Repository) (*PriceImporter, error) {
+func NewEntsoeImporter(baseImporter *price_importers.BasePriceImporter, county string, area string, securityToken string) (price_importers.PriceImporter, error) {
 	entsoeDomain := ""
 	key := strings.ToUpper(county)
 	if area != "" {
@@ -510,10 +418,8 @@ func NewEntsoeImporter(county string, area string, securityToken string, energyP
 		return nil, fmt.Errorf("invalid country (%s) & area (%s) combination", county, area)
 	}
 	return &PriceImporter{
-		domain:           entsoeDomain,
-		securityToken:    securityToken,
-		energyProviders:  energyProviders,
-		repository:       repository,
-		registeredEvents: syncmap.Map{},
+		BasePriceImporter: baseImporter,
+		domain:            entsoeDomain,
+		securityToken:     securityToken,
 	}, nil
 }

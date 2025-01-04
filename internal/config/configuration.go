@@ -115,10 +115,10 @@ type ModbusServer struct {
 }
 
 type Prices struct {
-	Country   string           `json:"country" yaml:"country"`
-	Area      string           `json:"area" yaml:"area"`
-	Providers []EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
-	Entsoe    Entsoe           `json:"entso-e" yaml:"entso-e"`
+	Country   string            `json:"country" yaml:"country"`
+	Area      string            `json:"area" yaml:"area"`
+	Providers []*EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
+	Entsoe    *Entsoe           `json:"entso-e" yaml:"entso-e"`
 }
 
 type Entsoe struct {
@@ -126,12 +126,13 @@ type Entsoe struct {
 }
 
 type EnergyProvider struct {
-	Name        string       `json:"name" yaml:"name" validate:"required"`
-	PriceModels []PriceModel `json:"price_models" yaml:"price_models" validate:"dive"`
+	Name        string        `json:"name" yaml:"name" validate:"required"`
+	PriceModels []*PriceModel `json:"price_models" yaml:"price_models" validate:"dive"`
 }
 
 type PriceModel struct {
 	Start              string `json:"start" yaml:"start" validate:"required,datetime=2006-01-02"`
+	EnergyType         string `json:"energy_type" yaml:"energy_type" validate:"required,oneof='electricity' 'gas' 'water'"`
 	ConsumptionFormula string `json:"consumption_formula" yaml:"consumption_formula"`
 	FeedbackFormula    string `json:"feedback_formula" yaml:"feedback_formula"`
 }

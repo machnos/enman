@@ -245,7 +245,6 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	render.JSON(w, r, rsp)
-
 }
 
 func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {

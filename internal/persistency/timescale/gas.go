@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	tableGasSources = "gas_sources"
-	tableGasUsages  = "gas_usages"
+	tablePrefixGas  = "gas_"
+	tableGasSources = tablePrefixGas + "sources"
+	tableGasUsages  = tablePrefixGas + "usages"
+	tableGasCosts   = tablePrefixGas + "costs"
 )
 
 func (t *timescaleRepository) newGasSourcesDefinition() *sql.TableDefinition {
@@ -44,10 +46,28 @@ func (t *timescaleRepository) newGasUsagesDefinition() *sql.TableDefinition {
 	return td
 }
 
+func (t *timescaleRepository) newGasCostsDefinition() *sql.TableDefinition {
+	return &sql.TableDefinition{
+		Name: tableGasCosts,
+		Columns: []*sql.ColumnDefinition{
+			{"time", "TIMESTAMPTZ", false},
+			{"gas_provider", "VARCHAR(50)", false},
+			{"total_gas_consumed", "DOUBLE PRECISION", true},
+			{"consumption_price_per_m3", "DOUBLE PRECISION", true},
+			{"consumption_costs", "DOUBLE PRECISION", true},
+		},
+		PrimaryKey: []string{"time", "gas_provider"},
+		ForeignKeys: []*sql.ForeignKey{
+			{[]string{"gas_provider"}, tableEnergyPriceProviders, []string{"name"}},
+		},
+	}
+}
+
 func (t *timescaleRepository) GasSourceNames(from time.Time, till time.Time) ([]string, error) {
 	filter := t.timeRangeFilter("time", from, till)
 	statement, err := sql.NewSelect(tableGasUsages).
-		WithColumns(sql.NewDistinctColumn("gas_source")).
+		Distinct().
+		WithColumns(sql.NewColumnWithName("gas_source")).
 		WithFilter(filter).
 		Build()
 	if err != nil {
@@ -160,6 +180,44 @@ func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string
 	return t.rowValuesToGasUsageRecord(values), nil
 }
 
+func (t *timescaleRepository) GasCosts(from time.Time, till time.Time, providerName string, aggregate *domain.AggregateConfiguration) ([]*domain.GasCostsRecord, error) {
+	tdCosts := t.tableDefinitions[tableGasCosts]
+	tdProviders := t.tableDefinitions[tableEnergyPriceProviders]
+
+	filter := t.timeRangeFilter(tdCosts.TablePrefixedColumn("time"), from, till)
+	if providerName != "" {
+		filter.And(tdProviders.TablePrefixedColumn("name"), sql.Equals, providerName)
+	}
+	aggregateColumn := t.toAggregateWindowColumn(tdCosts.TablePrefixedColumn("time"), "interval", aggregate)
+	statement, err := sql.NewSelect(tdCosts.Name).
+		WithColumns(aggregateColumn).
+		WithColumns(sql.NewColumns(tdProviders.TablePrefixedColumnNames()...)...).
+		WithColumns(sql.NewColumnsWithFunctions(t.toPostgresqlAggregateFunctions(aggregate.Functions), tdCosts.TablePrefixedColumnNames()[2:]...)...).
+		WithFilter(filter).
+		WithJoin(sql.NewJoin(tdProviders.Name, sql.Inner, tdCosts.TablePrefixedColumn("gas_provider"), tdProviders.TablePrefixedColumn("name"))).
+		GroupBy(aggregateColumn, sql.NewColumnWithName(tdProviders.TablePrefixedColumn("name"))).
+		OrderAscending(aggregateColumn).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := t.dbPool.Query(context.Background(), statement.Query, statement.Args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	costs := make([]*domain.GasCostsRecord, 0)
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+		costs = append(costs, t.rowValuesToGasCostsRecord(aggregate, values))
+	}
+	return costs, nil
+}
+
 func (t *timescaleRepository) rowValuesToGasUsageRecord(values []any) *domain.GasUsageRecord {
 	gasUsage := &domain.GasUsageRecord{
 		Time:  values[0].(time.Time),
@@ -228,5 +286,35 @@ func (t *timescaleRepository) registerGasSource(name string, role string) {
 			return
 		}
 		t.energySourcesCache[cacheKey] = true
+	}
+}
+
+func (t *timescaleRepository) rowValuesToGasCostsRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.GasCostsRecord {
+	return &domain.GasCostsRecord{
+		StartTime:             values[0].(time.Time),
+		EndTime:               t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:                  values[1].(string),
+		ConsumptionUsage:      float32(values[2].(float64)),
+		ConsumptionPricePerM3: float32(values[3].(float64)),
+		ConsumptionCosts:      float32(values[4].(float64)),
+	}
+}
+
+type GasCostsValueChangeListener struct {
+	repo *timescaleRepository
+}
+
+func (gcvcl *GasCostsValueChangeListener) HandleEvent(values *events.GasCostsValues) {
+	fields := make([]any, len(gcvcl.repo.tableDefinitions[tableGasCosts].Columns))
+	fields[0] = values.StartTime()
+	fields[1] = values.EnergyProviderName()
+	fields[2] = values.ConsumptionUsage()
+	fields[3] = values.ConsumptionPricePerM3()
+	fields[4] = values.ConsumptionCosts()
+	_, err := gcvcl.repo.dbPool.Exec(context.Background(), gcvcl.repo.insertQueries[tableGasCosts], fields...)
+	if err != nil {
+		if log.WarningEnabled() {
+			log.Warningf("unable to store gas costs from '%s': %v", values.EnergyProviderName(), err)
+		}
 	}
 }

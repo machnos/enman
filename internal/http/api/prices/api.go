@@ -2,6 +2,7 @@ package prices
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/prices"
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
@@ -18,7 +19,7 @@ const (
 	errorCodeEndDateParseError      = errorCodePricesRoot + "-02"
 	errorCodeEndDateBeforeStartDate = errorCodePricesRoot + "-03"
 	errorCodeUnableToLoadPrices     = errorCodePricesRoot + "-04"
-	errorCodeUnableToLoadProviders  = errorCodePricesRoot + "-05"
+	errorCodeUnableToLoadProviders  = errorCodePricesRoot + "-07"
 )
 
 type Api struct {
@@ -33,6 +34,7 @@ func NewApi(system *domain.System, repository domain.Repository) *Api {
 func (api *Api) prices(w http.ResponseWriter, r *http.Request) {
 	type pricesResponsePrice struct {
 		Time             time.Time `json:"time"`
+		EnergyType       string    `json:"energy_type"`
 		ConsumptionPrice float32   `json:"consumption_price"`
 		FeedbackPrice    float32   `json:"feedback_price"`
 	}
@@ -45,7 +47,8 @@ func (api *Api) prices(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	energyPrices, err := api.Repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"))
+	energyType, _ := prices.ParseEnergyType(chi.URLParam(r, "energyType"))
+	energyPrices, err := api.Repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"), energyType)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadPrices, err.Error())
@@ -53,27 +56,42 @@ func (api *Api) prices(w http.ResponseWriter, r *http.Request) {
 	}
 	rsp.Prices = make(map[string][]pricesResponsePrice)
 	for _, energyPrice := range energyPrices {
-		rsp.Prices[energyPrice.Provider] = append(rsp.Prices[energyPrice.Provider], pricesResponsePrice{Time: energyPrice.Time, ConsumptionPrice: energyPrice.ConsumptionPrice, FeedbackPrice: energyPrice.FeedbackPrice})
+		rsp.Prices[energyPrice.ProviderName] = append(rsp.Prices[energyPrice.ProviderName], pricesResponsePrice{
+			Time:             energyPrice.Time,
+			EnergyType:       energyPrice.EnergyType.String(),
+			ConsumptionPrice: energyPrice.ConsumptionPrice,
+			FeedbackPrice:    energyPrice.FeedbackPrice,
+		})
 	}
 	render.JSON(w, r, rsp)
 }
 
 func (api *Api) providers(w http.ResponseWriter, r *http.Request) {
+	type provider struct {
+		Name        string   `json:"name"`
+		EnergyTypes []string `json:"energy_types"`
+	}
+
 	rsp := struct {
-		Providers []string `json:"providers"`
-		Grid      string   `json:"grid"`
+		Providers []*provider `json:"providers"`
+		Grid      string      `json:"grid"`
 	}{}
 	startTime, endTime, success := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !success {
 		return
 	}
-	providers, err := api.Repository.EnergyPriceProviderNames(startTime, endTime)
+	providerRecords, err := api.Repository.EnergyPriceProviders(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadProviders, err.Error())
 		return
 	}
-	rsp.Providers = providers
+	for _, providerRecord := range providerRecords {
+		rsp.Providers = append(rsp.Providers, &provider{
+			Name:        providerRecord.Name,
+			EnergyTypes: providerRecord.EnergyTypesAsStrings(),
+		})
+	}
 	rsp.Grid = api.System.Grid().Name()
 	render.JSON(w, r, rsp)
 }
@@ -87,6 +105,8 @@ func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Route
 		r.Get(fmt.Sprintf("/providers/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.providers)
 		r.Get(fmt.Sprintf("/{providerName}/{start:%s}", api.TimePattern), api.prices)
 		r.Get(fmt.Sprintf("/{providerName}/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.prices)
+		r.Get(fmt.Sprintf("/{providerName}/{energyType}/{start:%s}", api.TimePattern), api.prices)
+		r.Get(fmt.Sprintf("/{providerName}/{energyType}/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.prices)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

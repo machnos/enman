@@ -63,16 +63,6 @@ func NewColumnWithNameAs(name string, as string) *Column {
 	return NewColumn(name, as, nil)
 }
 
-func NewDistinctColumn(name string) *Column {
-	return NewDistinctColumnAs(name, "")
-}
-
-func NewDistinctColumnAs(name string, as string) *Column {
-	return NewColumn(name, as, func(col string) string {
-		return fmt.Sprintf("DISTINCT(%s)", col)
-	})
-}
-
 func NewCountColumn(name string) *Column {
 	return NewCountColumnAs(name, "")
 }

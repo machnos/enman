@@ -47,7 +47,8 @@ func (t *timescaleRepository) newWaterUsagesDefinition() *sql.TableDefinition {
 func (t *timescaleRepository) WaterSourceNames(from time.Time, till time.Time) ([]string, error) {
 	filter := t.timeRangeFilter("time", from, till)
 	statement, err := sql.NewSelect(tableWaterUsages).
-		WithColumns(sql.NewDistinctColumn("water_source")).
+		Distinct().
+		WithColumns(sql.NewColumnWithName("water_source")).
 		WithFilter(filter).
 		Build()
 	if err != nil {

@@ -18,7 +18,7 @@ const (
 	errorCodeEndDateParseError      = errorCodeBatteryRoot + "-02"
 	errorCodeEndDateBeforeStartDate = errorCodeBatteryRoot + "-03"
 	errorCodeUnableToLoadStates     = errorCodeBatteryRoot + "-04"
-	errorCodeUnableToLoadSources    = errorCodeBatteryRoot + "-05"
+	errorCodeUnableToLoadSources    = errorCodeBatteryRoot + "-07"
 )
 
 type Api struct {

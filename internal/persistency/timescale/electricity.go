@@ -92,7 +92,8 @@ func (t *timescaleRepository) newElectricityCostsDefinition() *sql.TableDefiniti
 
 func (t *timescaleRepository) ElectricitySourceNames(from time.Time, till time.Time) ([]string, error) {
 	statement, err := sql.NewSelect(tableElectricityStates).
-		WithColumns(sql.NewDistinctColumn("electricity_source")).
+		Distinct().
+		WithColumns(sql.NewColumnWithName("electricity_source")).
 		WithFilter(t.timeRangeFilter("time", from, till)).
 		Build()
 	if err != nil {
@@ -274,15 +275,15 @@ func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, p
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.ElectricityCostsRecord, 0)
+	costs := make([]*domain.ElectricityCostsRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
-		usages = append(usages, t.rowValuesToElectricityCostsRecord(aggregate, values))
+		costs = append(costs, t.rowValuesToElectricityCostsRecord(aggregate, values))
 	}
-	return usages, nil
+	return costs, nil
 }
 
 func (t *timescaleRepository) rowValuesToElectricityUsageRecord(values []any) *domain.ElectricityUsageRecord {
@@ -414,28 +415,6 @@ func (emvcl *ElectricityMeterValueChangeListener) HandleEvent(values *events.Ele
 	}
 }
 
-type ElectricityCostsValueChangeListener struct {
-	repo *timescaleRepository
-}
-
-func (ecvcl *ElectricityCostsValueChangeListener) HandleEvent(values *events.ElectricityCostsValues) {
-	fields := make([]any, len(ecvcl.repo.tableDefinitions[tableElectricityCosts].Columns))
-	fields[0] = values.StartTime()
-	fields[1] = values.EnergyProviderName()
-	fields[2] = values.ConsumptionEnergy()
-	fields[3] = values.ConsumptionPricePerKwh()
-	fields[4] = values.ConsumptionCosts()
-	fields[5] = values.FeedbackEnergy()
-	fields[6] = values.FeedbackPricePerKwh()
-	fields[7] = values.FeedbackCosts()
-	_, err := ecvcl.repo.dbPool.Exec(context.Background(), ecvcl.repo.insertQueries[tableElectricityCosts], fields...)
-	if err != nil {
-		if log.WarningEnabled() {
-			log.Warningf("unable to store electricity costs from '%s': %v", values.EnergyProviderName(), err)
-		}
-	}
-}
-
 func (t *timescaleRepository) registerElectricitySource(name string, role string) {
 	cacheKey := fmt.Sprintf("electricity-source-%s:%s", name, role)
 	_, ok := t.energySourcesCache[cacheKey]
@@ -461,4 +440,26 @@ func (t *timescaleRepository) columnDefinitionPerPhase(columnName string, sqlTyp
 		})
 	}
 	return result
+}
+
+type ElectricityCostsValueChangeListener struct {
+	repo *timescaleRepository
+}
+
+func (ecvcl *ElectricityCostsValueChangeListener) HandleEvent(values *events.ElectricityCostsValues) {
+	fields := make([]any, len(ecvcl.repo.tableDefinitions[tableElectricityCosts].Columns))
+	fields[0] = values.StartTime()
+	fields[1] = values.EnergyProviderName()
+	fields[2] = values.ConsumptionEnergy()
+	fields[3] = values.ConsumptionPricePerKwh()
+	fields[4] = values.ConsumptionCosts()
+	fields[5] = values.FeedbackEnergy()
+	fields[6] = values.FeedbackPricePerKwh()
+	fields[7] = values.FeedbackCosts()
+	_, err := ecvcl.repo.dbPool.Exec(context.Background(), ecvcl.repo.insertQueries[tableElectricityCosts], fields...)
+	if err != nil {
+		if log.WarningEnabled() {
+			log.Warningf("unable to store electricity costs from '%s': %v", values.EnergyProviderName(), err)
+		}
+	}
 }

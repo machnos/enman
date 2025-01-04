@@ -70,5 +70,5 @@ func (e *electricityMeter) HasProductionAttribute() bool {
 	return e.HasAttribute(electricity.MeterAttributeProduction) || e.HasAttribute(electricity.MeterAttributeAllUsage)
 }
 func (e *electricityMeter) HasTotalProductionAttribute() bool {
-	return e.HasAttribute(electricity.ElectricityMeterAttributeTotalProduction) || e.HasAttribute(electricity.MeterAttributeAllUsage)
+	return e.HasAttribute(electricity.MeterAttributeTotalProduction) || e.HasAttribute(electricity.MeterAttributeAllUsage)
 }

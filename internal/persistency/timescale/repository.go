@@ -65,6 +65,10 @@ func (t *timescaleRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
+	err = t.initializeHyperTable(t.newGasCostsDefinition(), "time", uint32((time.Hour * 24 * 90).Hours()))
+	if err != nil {
+		return err
+	}
 	err = t.initializeTable(t.newWaterSourcesDefinition())
 	if err != nil {
 		return err
@@ -85,6 +89,7 @@ func (t *timescaleRepository) Initialize() error {
 	events.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: t}, nil)
 	events.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: t}, nil)
 	events.GasMeterReadings.Register(&GasMeterValueChangeListener{repo: t}, nil)
+	events.GasCosts.Register(&GasCostsValueChangeListener{repo: t}, nil)
 	events.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: t}, nil)
 	events.BatteryMeterReadings.Register(&BatteryMeterValueChangeListener{repo: t}, nil)
 

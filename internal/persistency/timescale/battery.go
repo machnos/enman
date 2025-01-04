@@ -50,7 +50,8 @@ func (t *timescaleRepository) newBatteryStatesDefinition() *sql.TableDefinition 
 
 func (t *timescaleRepository) BatterySourceNames(from time.Time, till time.Time) ([]string, error) {
 	statement, err := sql.NewSelect(tableBatteryStates).
-		WithColumns(sql.NewDistinctColumn("battery")).
+		Distinct().
+		WithColumns(sql.NewColumnWithName("battery")).
 		WithFilter(t.timeRangeFilter("time", from, till)).
 		Build()
 	if err != nil {
