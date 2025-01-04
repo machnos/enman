@@ -93,9 +93,9 @@ func (b *BasePriceImporter) calculateProviderPrice(provider config.EnergyProvide
 		value, err := arithmetic.ParseCalculation(formula, providerUpdateData.baseConsumptionPrices)
 		if err != nil {
 			log.Warningf("Unable to calculate consumption price: %v", err)
-		} else {
-			p.ConsumptionPrice = float32(value)
+			return nil
 		}
+		p.ConsumptionPrice = float32(value)
 	}
 	// feedback price
 	formula = priceModels[ix].FeedbackFormula
@@ -103,9 +103,9 @@ func (b *BasePriceImporter) calculateProviderPrice(provider config.EnergyProvide
 		value, err := arithmetic.ParseCalculation(formula, providerUpdateData.baseFeedbackPrices)
 		if err != nil {
 			log.Warningf("Unable to calculate feedback price: %v", err)
-		} else {
-			p.FeedbackPrice = float32(value)
+			return nil
 		}
+		p.FeedbackPrice = float32(value)
 	}
 	return p
 }
