@@ -50,18 +50,10 @@ func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *Api) states(w http.ResponseWriter, r *http.Request) {
-	type state struct {
-		Current float32 `json:"current"`
-		Voltage float32 `json:"voltage"`
-		Power   float32 `json:"power"`
-		SoC     float32 `json:"soc"`
-		SoH     float32 `json:"soh"`
-	}
-
 	type bucket struct {
-		StartTime time.Time         `json:"start_time"`
-		EndTime   time.Time         `json:"end_time"`
-		States    map[string]*state `json:"states"`
+		StartTime time.Time      `json:"start_time"`
+		EndTime   time.Time      `json:"end_time"`
+		States    map[string]any `json:"states"`
 	}
 	type source struct {
 		Role    string    `json:"role"`
@@ -95,6 +87,7 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadStates, err.Error())
 		return
 	}
+	requestedFields := api.ParseFieldsFromRequestURL(r)
 	for _, statesRecord := range statesRecords {
 		if rsp.Sources[statesRecord.Name] == nil {
 			rsp.Sources[statesRecord.Name] = &source{Role: statesRecord.Role}
@@ -102,16 +95,16 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 		b := &bucket{
 			StartTime: statesRecord.StartTime,
 			EndTime:   statesRecord.EndTime,
-			States:    make(map[string]*state),
+			States:    make(map[string]any),
 		}
 		for _, fn := range aggregate.Functions {
-			b.States[fn.String()] = &state{
-				Current: statesRecord.States[fn].Current(),
-				Voltage: statesRecord.States[fn].Voltage(),
-				Power:   statesRecord.States[fn].Power(),
-				SoC:     statesRecord.States[fn].SoC(),
-				SoH:     statesRecord.States[fn].SoH(),
-			}
+			stateMap := make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "current", statesRecord.States[fn].Current(), stateMap)
+			api.ConditionallyAddField(requestedFields, "voltage", statesRecord.States[fn].Voltage(), stateMap)
+			api.ConditionallyAddField(requestedFields, "power", statesRecord.States[fn].Power(), stateMap)
+			api.ConditionallyAddField(requestedFields, "soc", statesRecord.States[fn].SoC(), stateMap)
+			api.ConditionallyAddField(requestedFields, "soh", statesRecord.States[fn].SoH(), stateMap)
+			b.States[fn.String()] = stateMap
 		}
 		rsp.Sources[statesRecord.Name].Buckets = append(rsp.Sources[statesRecord.Name].Buckets, b)
 	}

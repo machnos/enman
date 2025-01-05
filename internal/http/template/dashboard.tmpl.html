@@ -73,6 +73,7 @@ $(document).ready(function(){
     const aggregateFunctionMean = "mean";
     const aggregateFunctionMin = "min";
     const aggregateFunctionMax = "max";
+    const aggregateFunctionSum = "sum";
     const providerMap = new Map();
 
 
@@ -309,7 +310,7 @@ $(document).ready(function(){
     });
 
     $.ajax({
-        url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean,
+        url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean + "&fields=total_power",
     }).done(function(data) {
         if (data && data.sources) {
             let powerMarkers = [];
@@ -366,37 +367,23 @@ $(document).ready(function(){
     });
 
     $.ajax({
-        url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean,
+        url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean + "&fields=power,soc",
     }).done(function(data) {
         if (data && data.sources) {
-            let currentMarkers = [];
             let powerMarkers = [];
-            let voltageMarkers = [];
             let socMarkers = [];
             $.each(data.sources, function(source, serie) {
                 $.each(serie.buckets, function(i, bucket) {
-                    currentMarkers.push({
-                        start_time: Date.parse(bucket.start_time),
-                        end_time: Date.parse(bucket.end_time),
-                        value: (bucket.states[aggregateFunctionMean].current),
-                        provider: source
-                    });
                     powerMarkers.push({
                         start_time: Date.parse(bucket.start_time),
                         end_time: Date.parse(bucket.end_time),
-                        value: (bucket.states[aggregateFunctionMean].power),
-                        provider: source
-                    });
-                    voltageMarkers.push({
-                        start_time: Date.parse(bucket.start_time),
-                        end_time: Date.parse(bucket.end_time),
-                        value: (bucket.states[aggregateFunctionMean].voltage),
+                        value: bucket.states[aggregateFunctionMean].power,
                         provider: source
                     });
                     socMarkers.push({
                         start_time: Date.parse(bucket.start_time),
                         end_time: Date.parse(bucket.end_time),
-                        value: (bucket.states[aggregateFunctionMean].soc),
+                        value: bucket.states[aggregateFunctionMean].soc,
                         provider: source
                     });
                 });
@@ -545,7 +532,7 @@ $(document).ready(function(){
 
     function loadCosts(provider, energyType) {
         $.ajax({
-            url: "{{$.ContextRoot}}api/" + energyType + "/" + provider + "/costs/" + yesterday.toISOString().split('T')[0],
+            url: "{{$.ContextRoot}}api/" + energyType + "/" + provider + "/costs/" + yesterday.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionSum,
         }).done(function (data) {
             if (data && data.sources) {
                 let markers = [];
@@ -554,7 +541,7 @@ $(document).ready(function(){
                         markers.push({
                             start_time: Date.parse(bucket.start_time),
                             end_time: Date.parse(bucket.end_time),
-                            value: bucket.net_costs,
+                            value: bucket.costs[aggregateFunctionSum].net_costs,
                             provider: source
                         });
                     });

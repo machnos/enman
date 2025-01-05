@@ -257,22 +257,15 @@ type BatteryStatesRecord struct {
 }
 
 type ElectricityCostsRecord struct {
-	StartTime              time.Time
-	EndTime                time.Time
-	Name                   string
-	ConsumptionEnergy      float32
-	ConsumptionPricePerKwh float32
-	ConsumptionCosts       float32
-	FeedbackEnergy         float32
-	FeedbackPricePerKwh    float32
-	FeedbackCosts          float32
+	StartTime time.Time
+	EndTime   time.Time
+	Name      string
+	Costs     map[AggregateFunction]*electricity.Costs
 }
 
 type GasCostsRecord struct {
-	StartTime             time.Time
-	EndTime               time.Time
-	Name                  string
-	ConsumptionUsage      float32
-	ConsumptionPricePerM3 float32
-	ConsumptionCosts      float32
+	StartTime time.Time
+	EndTime   time.Time
+	Name      string
+	Costs     map[AggregateFunction]*gas.Costs
 }

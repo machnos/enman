@@ -51,13 +51,10 @@ func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *Api) usages(w http.ResponseWriter, r *http.Request) {
-	type usage struct {
-		GasConsumed float64 `json:"gas_consumed"`
-	}
 	type bucket struct {
-		StartTime time.Time         `json:"start_time"`
-		EndTime   time.Time         `json:"end_time"`
-		Usages    map[string]*usage `json:"usages"`
+		StartTime time.Time      `json:"start_time"`
+		EndTime   time.Time      `json:"end_time"`
+		Usages    map[string]any `json:"usages"`
 	}
 	type source struct {
 		Role    string    `json:"role"`
@@ -91,6 +88,7 @@ func (api *Api) usages(w http.ResponseWriter, r *http.Request) {
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadUsages, err.Error())
 		return
 	}
+	requestedFields := api.ParseFieldsFromRequestURL(r)
 	for _, usagesRecord := range usagesRecords {
 		if rsp.Sources[usagesRecord.Name] == nil {
 			rsp.Sources[usagesRecord.Name] = &source{Role: usagesRecord.Role}
@@ -98,12 +96,12 @@ func (api *Api) usages(w http.ResponseWriter, r *http.Request) {
 		b := &bucket{
 			StartTime: usagesRecord.StartTime,
 			EndTime:   usagesRecord.EndTime,
-			Usages:    map[string]*usage{},
+			Usages:    make(map[string]any),
 		}
 		for _, fn := range aggregate.Functions {
-			b.Usages[fn.String()] = &usage{
-				GasConsumed: usagesRecord.Usages[fn].GasConsumed(),
-			}
+			usageMap := make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "gas_consumed", usagesRecord.Usages[fn].GasConsumed(), usageMap)
+			b.Usages[fn.String()] = usageMap
 		}
 		rsp.Sources[usagesRecord.Name].Buckets = append(rsp.Sources[usagesRecord.Name].Buckets, b)
 	}
@@ -112,11 +110,9 @@ func (api *Api) usages(w http.ResponseWriter, r *http.Request) {
 
 func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 	type bucket struct {
-		StartTime        time.Time `json:"start_time"`
-		EndTime          time.Time `json:"end_time"`
-		ConsumptionCosts float32   `json:"consumption_costs"`
-		ConsumptionUsage float32   `json:"consumption_usage"`
-		NetCosts         float32   `json:"net_costs"`
+		StartTime time.Time      `json:"start_time"`
+		EndTime   time.Time      `json:"end_time"`
+		Costs     map[string]any `json:"costs"`
 	}
 	type costsResponse struct {
 		Sources map[string][]*bucket `json:"sources"`
@@ -134,7 +130,7 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 		Functions:    []domain.AggregateFunction{domain.AggregateFunctionSum},
 		CreateEmpty:  false,
 	}
-	costs, err := api.Repository.GasCosts(
+	costsRecords, err := api.Repository.GasCosts(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
@@ -145,14 +141,21 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadCosts, err.Error())
 		return
 	}
-	for _, cost := range costs {
-		rsp.Sources[cost.Name] = append(rsp.Sources[cost.Name], &bucket{
-			StartTime:        cost.StartTime,
-			EndTime:          cost.EndTime,
-			ConsumptionCosts: cost.ConsumptionCosts,
-			ConsumptionUsage: cost.ConsumptionUsage,
-			NetCosts:         cost.ConsumptionCosts,
-		})
+	requestedFields := api.ParseFieldsFromRequestURL(r)
+	for _, costsRecord := range costsRecords {
+		b := &bucket{
+			StartTime: costsRecord.StartTime,
+			EndTime:   costsRecord.EndTime,
+			Costs:     make(map[string]any),
+		}
+		for _, fn := range aggregate.Functions {
+			costsMap := make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "consumption_costs", costsRecord.Costs[fn].ConsumptionCosts(), costsMap)
+			api.ConditionallyAddField(requestedFields, "consumption_usage", costsRecord.Costs[fn].ConsumptionUsage(), costsMap)
+			api.ConditionallyAddField(requestedFields, "net_costs", costsRecord.Costs[fn].NetCosts(), costsMap)
+			b.Costs[fn.String()] = costsMap
+		}
+		rsp.Sources[costsRecord.Name] = append(rsp.Sources[costsRecord.Name], b)
 	}
 	render.JSON(w, r, rsp)
 }

@@ -239,8 +239,9 @@ func (t *timescaleRepository) rowValuesToGasUsagesRecord(aggregateConfiguration 
 	}
 	nrOfFields := 1
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
 		gu := gas.NewUsage()
-		gu.SetGasConsumed(values[(ix*nrOfFields)+3].(float64))
+		gu.SetGasConsumed(values[offset+3].(float64))
 		gasUsage.Usages[aggregateFunction] = gu
 	}
 	return gasUsage
@@ -290,14 +291,23 @@ func (t *timescaleRepository) registerGasSource(name string, role string) {
 }
 
 func (t *timescaleRepository) rowValuesToGasCostsRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.GasCostsRecord {
-	return &domain.GasCostsRecord{
-		StartTime:             values[0].(time.Time),
-		EndTime:               t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
-		Name:                  values[1].(string),
-		ConsumptionUsage:      float32(values[2].(float64)),
-		ConsumptionPricePerM3: float32(values[3].(float64)),
-		ConsumptionCosts:      float32(values[4].(float64)),
+	gasCosts := &domain.GasCostsRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Costs:     make(map[domain.AggregateFunction]*gas.Costs),
 	}
+
+	nrOfFields := 3
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
+		gc := gas.NewCosts()
+		gc.SetConsumptionUsage(float32(values[offset+2].(float64)))
+		gc.SetConsumptionPricePerM3(float32(values[offset+3].(float64)))
+		gc.SetConsumptionCosts(float32(values[offset+4].(float64)))
+		gasCosts.Costs[aggregateFunction] = gc
+	}
+	return gasCosts
 }
 
 type GasCostsValueChangeListener struct {

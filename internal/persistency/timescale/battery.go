@@ -188,12 +188,13 @@ func (t *timescaleRepository) rowValuesToBatteryStatesRecord(aggregateConfigurat
 	}
 	nrOfFields := 5
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
 		batteryState := battery.NewState()
-		batteryState.SetCurrent(float32(values[(ix*nrOfFields)+3].(float64)))
-		batteryState.SetPower(float32(values[(ix*nrOfFields)+4].(float64)))
-		batteryState.SetVoltage(float32(values[(ix*nrOfFields)+5].(float64)))
-		batteryState.SetSoC(float32(values[(ix*nrOfFields)+6].(float64)))
-		batteryState.SetSoH(float32(values[(ix*nrOfFields)+7].(float64)))
+		batteryState.SetCurrent(float32(values[offset+3].(float64)))
+		batteryState.SetPower(float32(values[offset+4].(float64)))
+		batteryState.SetVoltage(float32(values[offset+5].(float64)))
+		batteryState.SetSoC(float32(values[offset+6].(float64)))
+		batteryState.SetSoH(float32(values[offset+7].(float64)))
 		batteryStates.States[aggregateFunction] = batteryState
 	}
 	return batteryStates

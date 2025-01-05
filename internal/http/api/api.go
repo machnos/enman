@@ -9,7 +9,9 @@ import (
 	"github.com/go-chi/render"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -178,4 +180,19 @@ func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, agg
 		}
 	}
 	return aggregate
+}
+
+func (b *BaseApi) ParseFieldsFromRequestURL(r *http.Request) []string {
+	q := r.URL.Query()
+	if q.Has("fields") {
+		fields := q.Get("fields")
+		return strings.Split(fields, ",")
+	}
+	return nil
+}
+
+func (b *BaseApi) ConditionallyAddField(fieldsToAdd []string, field string, value any, target map[string]any) {
+	if fieldsToAdd == nil || slices.Contains(fieldsToAdd, field) {
+		target[field] = value
+	}
 }

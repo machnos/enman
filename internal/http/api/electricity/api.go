@@ -52,14 +52,10 @@ func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *Api) usage(w http.ResponseWriter, r *http.Request) {
-	type usage struct {
-		TotalEnergyConsumed float64 `json:"total_energy_consumed"`
-		TotalEnergyProvided float64 `json:"total_energy_provided"`
-	}
 	type bucket struct {
-		StartTime time.Time         `json:"start_time"`
-		EndTime   time.Time         `json:"end_time"`
-		Usages    map[string]*usage `json:"usages"`
+		StartTime time.Time      `json:"start_time"`
+		EndTime   time.Time      `json:"end_time"`
+		Usages    map[string]any `json:"usages"`
 	}
 	type source struct {
 		Role    string    `json:"role"`
@@ -92,6 +88,7 @@ func (api *Api) usage(w http.ResponseWriter, r *http.Request) {
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadUsages, err.Error())
 		return
 	}
+	requestedFields := api.ParseFieldsFromRequestURL(r)
 	for _, usagesRecord := range usagesRecords {
 		if rsp.Sources[usagesRecord.Name] == nil {
 			rsp.Sources[usagesRecord.Name] = &source{Role: usagesRecord.Role}
@@ -99,13 +96,13 @@ func (api *Api) usage(w http.ResponseWriter, r *http.Request) {
 		b := &bucket{
 			StartTime: usagesRecord.StartTime,
 			EndTime:   usagesRecord.EndTime,
-			Usages:    make(map[string]*usage),
+			Usages:    make(map[string]any),
 		}
 		for _, fn := range aggregate.Functions {
-			b.Usages[fn.String()] = &usage{
-				TotalEnergyConsumed: usagesRecord.Usages[fn].TotalEnergyConsumed(),
-				TotalEnergyProvided: usagesRecord.Usages[fn].TotalEnergyProvided(),
-			}
+			usageMap := make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "total_energy_consumed", usagesRecord.Usages[fn].TotalEnergyConsumed(), usageMap)
+			api.ConditionallyAddField(requestedFields, "total_energy_provided", usagesRecord.Usages[fn].TotalEnergyProvided(), usageMap)
+			b.Usages[fn.String()] = usageMap
 		}
 		rsp.Sources[usagesRecord.Name].Buckets = append(rsp.Sources[usagesRecord.Name].Buckets, b)
 	}
@@ -113,22 +110,10 @@ func (api *Api) usage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *Api) states(w http.ResponseWriter, r *http.Request) {
-	type lineValues struct {
-		L1 float32 `json:"l1"`
-		L2 float32 `json:"l2"`
-		L3 float32 `json:"l3"`
-	}
-	type state struct {
-		Current      *lineValues `json:"current"`
-		TotalCurrent float32     `json:"total_current"`
-		Voltage      *lineValues `json:"voltage"`
-		Power        *lineValues `json:"power"`
-		TotalPower   float32     `json:"total_power"`
-	}
 	type bucket struct {
-		StartTime time.Time         `json:"start_time"`
-		EndTime   time.Time         `json:"end_time"`
-		States    map[string]*state `json:"states"`
+		StartTime time.Time      `json:"start_time"`
+		EndTime   time.Time      `json:"end_time"`
+		States    map[string]any `json:"states"`
 	}
 	type source struct {
 		Role    string    `json:"role"`
@@ -162,6 +147,7 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadStates, err.Error())
 		return
 	}
+	requestedFields := api.ParseFieldsFromRequestURL(r)
 	for _, statesRecord := range statesRecords {
 		if rsp.Sources[statesRecord.Name] == nil {
 			rsp.Sources[statesRecord.Name] = &source{Role: statesRecord.Role}
@@ -169,27 +155,34 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 		b := &bucket{
 			StartTime: statesRecord.StartTime,
 			EndTime:   statesRecord.EndTime,
-			States:    make(map[string]*state),
+			States:    make(map[string]any),
 		}
 		for _, fn := range aggregate.Functions {
-			b.States[fn.String()] = &state{
-				Current: &lineValues{
-					L1: statesRecord.States[fn].Current(0),
-					L2: statesRecord.States[fn].Current(1),
-					L3: statesRecord.States[fn].Current(2),
-				},
-				TotalCurrent: statesRecord.States[fn].TotalCurrent(),
-				Voltage: &lineValues{
-					L1: statesRecord.States[fn].Voltage(0),
-					L2: statesRecord.States[fn].Voltage(1),
-					L3: statesRecord.States[fn].Voltage(2),
-				},
-				Power: &lineValues{
-					L1: statesRecord.States[fn].Power(0),
-					L2: statesRecord.States[fn].Power(1),
-					L3: statesRecord.States[fn].Power(2),
-				},
-				TotalPower: statesRecord.States[fn].TotalPower()}
+			stateMap := make(map[string]any)
+			lineMap := make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "current.l1", statesRecord.States[fn].Current(0), lineMap)
+			api.ConditionallyAddField(requestedFields, "current.l2", statesRecord.States[fn].Current(1), lineMap)
+			api.ConditionallyAddField(requestedFields, "current.l3", statesRecord.States[fn].Current(2), lineMap)
+			if len(lineMap) > 0 {
+				stateMap["current"] = lineMap
+			}
+			api.ConditionallyAddField(requestedFields, "total_current", statesRecord.States[fn].TotalCurrent(), stateMap)
+			lineMap = make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "voltage.l1", statesRecord.States[fn].Voltage(0), lineMap)
+			api.ConditionallyAddField(requestedFields, "voltage.l2", statesRecord.States[fn].Voltage(1), lineMap)
+			api.ConditionallyAddField(requestedFields, "voltage.l3", statesRecord.States[fn].Voltage(2), lineMap)
+			if len(lineMap) > 0 {
+				stateMap["voltage"] = lineMap
+			}
+			lineMap = make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "power.l1", statesRecord.States[fn].Power(0), lineMap)
+			api.ConditionallyAddField(requestedFields, "power.l2", statesRecord.States[fn].Power(1), lineMap)
+			api.ConditionallyAddField(requestedFields, "power.l3", statesRecord.States[fn].Power(2), lineMap)
+			if len(lineMap) > 0 {
+				stateMap["power"] = lineMap
+			}
+			api.ConditionallyAddField(requestedFields, "total_power", statesRecord.States[fn].TotalPower(), stateMap)
+			b.States[fn.String()] = stateMap
 		}
 		rsp.Sources[statesRecord.Name].Buckets = append(rsp.Sources[statesRecord.Name].Buckets, b)
 	}
@@ -198,13 +191,9 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 
 func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 	type bucket struct {
-		StartTime         time.Time `json:"start_time"`
-		EndTime           time.Time `json:"end_time"`
-		ConsumptionCosts  float32   `json:"consumption_costs"`
-		ConsumptionEnergy float32   `json:"consumption_energy"`
-		FeedbackCosts     float32   `json:"feedback_costs"`
-		FeedbackEnergy    float32   `json:"feedback_energy"`
-		NetCosts          float32   `json:"net_costs"`
+		StartTime time.Time      `json:"start_time"`
+		EndTime   time.Time      `json:"end_time"`
+		Costs     map[string]any `json:"costs"`
 	}
 	type costsResponse struct {
 		Sources map[string][]*bucket `json:"sources"`
@@ -222,7 +211,7 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 		Functions:    []domain.AggregateFunction{domain.AggregateFunctionSum},
 		CreateEmpty:  false,
 	}
-	costs, err := api.Repository.ElectricityCosts(
+	costsRecords, err := api.Repository.ElectricityCosts(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
@@ -233,16 +222,24 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadCosts, err.Error())
 		return
 	}
-	for _, cost := range costs {
-		rsp.Sources[cost.Name] = append(rsp.Sources[cost.Name], &bucket{
-			StartTime:         cost.StartTime,
-			EndTime:           cost.EndTime,
-			ConsumptionCosts:  cost.ConsumptionCosts,
-			ConsumptionEnergy: cost.ConsumptionEnergy,
-			FeedbackCosts:     cost.FeedbackCosts,
-			FeedbackEnergy:    cost.FeedbackEnergy,
-			NetCosts:          cost.ConsumptionCosts - cost.FeedbackCosts,
-		})
+	requestedFields := api.ParseFieldsFromRequestURL(r)
+	for _, costsRecord := range costsRecords {
+		b := &bucket{
+			StartTime: costsRecord.StartTime,
+			EndTime:   costsRecord.EndTime,
+			Costs:     make(map[string]any),
+		}
+
+		for _, fn := range aggregate.Functions {
+			costsMap := make(map[string]any)
+			api.ConditionallyAddField(requestedFields, "consumption_costs", costsRecord.Costs[fn].ConsumptionCosts(), costsMap)
+			api.ConditionallyAddField(requestedFields, "consumption_energy", costsRecord.Costs[fn].ConsumptionEnergy(), costsMap)
+			api.ConditionallyAddField(requestedFields, "feedback_costs", costsRecord.Costs[fn].FeedbackCosts(), costsMap)
+			api.ConditionallyAddField(requestedFields, "feedback_energy", costsRecord.Costs[fn].FeedbackEnergy(), costsMap)
+			api.ConditionallyAddField(requestedFields, "net_costs", costsRecord.Costs[fn].NetCosts(), costsMap)
+			b.Costs[fn.String()] = costsMap
+		}
+		rsp.Sources[costsRecord.Name] = append(rsp.Sources[costsRecord.Name], b)
 	}
 	render.JSON(w, r, rsp)
 }

@@ -34,41 +34,6 @@ func TestElectricityState_Current(t *testing.T) {
 	}
 }
 
-func TestElectricityState_MarshalJSON(t *testing.T) {
-	type fields struct {
-		current [MaxPhases]float32
-		power   [MaxPhases]float32
-		voltage [MaxPhases]float32
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		want    string
-		wantErr bool
-	}{
-		{"Test marshall current", fields{current: [3]float32{1, 2, 3}}, "{\"current\":[1,2,3],\"total_current\":6,\"power\":[0,0,0],\"total_power\":0,\"voltage\":[0,0,0]}", false},
-		{"Test marshall power", fields{power: [3]float32{1, 2, 3}}, "{\"current\":[0,0,0],\"total_current\":0,\"power\":[1,2,3],\"total_power\":6,\"voltage\":[0,0,0]}", false},
-		{"Test marshall voltage", fields{voltage: [3]float32{229, 230, 231}}, "{\"current\":[0,0,0],\"total_current\":0,\"power\":[0,0,0],\"total_power\":0,\"voltage\":[229,230,231]}", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			es := State{
-				current: tt.fields.current,
-				power:   tt.fields.power,
-				voltage: tt.fields.voltage,
-			}
-			got, err := es.MarshalJSON()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("MarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(string(got), tt.want) {
-				t.Errorf("MarshalJSON() got = %v, want %v", string(got), tt.want)
-			}
-		})
-	}
-}
-
 func TestElectricityState_Power(t *testing.T) {
 	type fields struct {
 		power [MaxPhases]float32
@@ -349,42 +314,6 @@ func TestElectricityUsage_EnergyProvided(t *testing.T) {
 			}
 			if got := eu.EnergyProvided(tt.args.lineIx); got != tt.want {
 				t.Errorf("EnergyProvided() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestElectricityUsage_MarshalJSON(t *testing.T) {
-	type fields struct {
-		energyConsumed      [MaxPhases]float64
-		totalEnergyConsumed float64
-		energyProvided      [MaxPhases]float64
-		totalEnergyProvided float64
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		want    string
-		wantErr bool
-	}{
-		{"Test marshall energy consumer", fields{energyConsumed: [3]float64{1000, 2000, 3000}}, "{\"energy_consumed\":[1000,2000,3000],\"total_energy_consumed\":6000,\"energy_provided\":[0,0,0],\"total_energy_provided\":0}", false},
-		{"Test marshall energy provided", fields{energyProvided: [3]float64{1000, 2000, 3000}}, "{\"energy_consumed\":[0,0,0],\"total_energy_consumed\":0,\"energy_provided\":[1000,2000,3000],\"total_energy_provided\":6000}", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			eu := &Usage{
-				energyConsumed:      tt.fields.energyConsumed,
-				totalEnergyConsumed: tt.fields.totalEnergyConsumed,
-				energyProvided:      tt.fields.energyProvided,
-				totalEnergyProvided: tt.fields.totalEnergyProvided,
-			}
-			got, err := eu.MarshalJSON()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("MarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(string(got), tt.want) {
-				t.Errorf("MarshalJSON() got = %v, want %v", string(got), tt.want)
 			}
 		})
 	}

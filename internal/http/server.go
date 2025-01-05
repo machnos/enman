@@ -87,6 +87,7 @@ func NewServer(config *config.Http, system *domain.System, repository domain.Rep
 	enmanMiddleware := NewMiddleware(s.cookieStore, s.mergePaths(contextRoot, guiPath))
 
 	r.Route(contextRoot, func(r chi.Router) {
+		r.Use(middleware.Compress(5))
 		r.Get("/", func(writer http.ResponseWriter, request *http.Request) {
 			http.Redirect(writer, request, s.mergePaths(contextRoot, guiPath), http.StatusFound)
 		})

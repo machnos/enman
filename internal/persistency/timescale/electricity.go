@@ -312,12 +312,13 @@ func (t *timescaleRepository) rowValuesToElectricityUsagesRecord(aggregateConfig
 	}
 	nrOfFields := 2 + (int(electricity.MaxPhases) * 2)
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
 		eu := electricity.NewUsage()
-		eu.SetTotalEnergyConsumed(values[(ix*nrOfFields)+3].(float64))
-		eu.SetTotalEnergyProvided(values[(ix*nrOfFields)+4].(float64))
+		eu.SetTotalEnergyConsumed(values[offset+3].(float64))
+		eu.SetTotalEnergyProvided(values[offset+4].(float64))
 		for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
-			eu.SetEnergyConsumed(lineIx, values[(ix*nrOfFields)+5+int(lineIx)].(float64))
-			eu.SetEnergyProvided(lineIx, values[(ix*nrOfFields)+5+int(electricity.MaxPhases+lineIx)].(float64))
+			eu.SetEnergyConsumed(lineIx, values[offset+5+int(lineIx)].(float64))
+			eu.SetEnergyProvided(lineIx, values[offset+5+int(electricity.MaxPhases+lineIx)].(float64))
 		}
 		electricityUsage.Usages[aggregateFunction] = eu
 	}
@@ -334,11 +335,12 @@ func (t *timescaleRepository) rowValuesToElectricityStatesRecord(aggregateConfig
 	}
 	nrOfFields := int(electricity.MaxPhases) * 3
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
 		es := electricity.NewState()
 		for lineIx := uint8(0); lineIx < electricity.MaxPhases; lineIx++ {
-			es.SetCurrent(lineIx, float32(values[(ix*nrOfFields)+5+int(lineIx)].(float64)))
-			es.SetPower(lineIx, float32(values[(ix*nrOfFields)+int(5+electricity.MaxPhases+lineIx)].(float64)))
-			es.SetVoltage(lineIx, float32(values[(ix*nrOfFields)+int(5+electricity.MaxPhases+electricity.MaxPhases+lineIx)].(float64)))
+			es.SetCurrent(lineIx, float32(values[offset+5+int(lineIx)].(float64)))
+			es.SetPower(lineIx, float32(values[offset+int(5+electricity.MaxPhases+lineIx)].(float64)))
+			es.SetVoltage(lineIx, float32(values[offset+int(5+electricity.MaxPhases+electricity.MaxPhases+lineIx)].(float64)))
 		}
 		electricityStates.States[aggregateFunction] = es
 	}
@@ -346,17 +348,25 @@ func (t *timescaleRepository) rowValuesToElectricityStatesRecord(aggregateConfig
 }
 
 func (t *timescaleRepository) rowValuesToElectricityCostsRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityCostsRecord {
-	return &domain.ElectricityCostsRecord{
-		StartTime:              values[0].(time.Time),
-		EndTime:                t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
-		Name:                   values[1].(string),
-		ConsumptionEnergy:      float32(values[2].(float64)),
-		ConsumptionPricePerKwh: float32(values[3].(float64)),
-		ConsumptionCosts:       float32(values[4].(float64)),
-		FeedbackEnergy:         float32(values[5].(float64)),
-		FeedbackPricePerKwh:    float32(values[6].(float64)),
-		FeedbackCosts:          float32(values[7].(float64)),
+	electricityCosts := &domain.ElectricityCostsRecord{
+		StartTime: values[0].(time.Time),
+		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
+		Name:      values[1].(string),
+		Costs:     make(map[domain.AggregateFunction]*electricity.Costs),
 	}
+	nrOfFields := 6
+	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
+		ec := electricity.NewCosts()
+		ec.SetConsumptionEnergy(float32(values[offset+2].(float64)))
+		ec.SetConsumptionPricePerKwh(float32(values[offset+3].(float64)))
+		ec.SetConsumptionCosts(float32(values[offset+4].(float64)))
+		ec.SetFeedbackEnergy(float32(values[offset+5].(float64)))
+		ec.SetFeedbackPricePerKwh(float32(values[offset+6].(float64)))
+		ec.SetFeedbackCosts(float32(values[offset+7].(float64)))
+		electricityCosts.Costs[aggregateFunction] = ec
+	}
+	return electricityCosts
 }
 
 type ElectricityMeterValueChangeListener struct {

@@ -182,8 +182,9 @@ func (t *timescaleRepository) rowValuesToWaterUsagesRecord(aggregateConfiguratio
 	}
 	nrOfFields := 1
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
+		offset := ix * nrOfFields
 		wu := water.NewUsage()
-		wu.SetWaterConsumed(values[(ix*nrOfFields)+3].(float64))
+		wu.SetWaterConsumed(values[offset+3].(float64))
 		waterUsage.Usages[aggregateFunction] = wu
 	}
 	return waterUsage
