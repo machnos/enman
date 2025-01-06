@@ -153,14 +153,14 @@ func main() {
 			importer := energyzero.NewEnergyZeroImporter(baseImporter)
 			rootImporters = append(rootImporters, importer)
 		}
-		t := time.Now()
-		year, month, day := t.Date()
-		start := time.Date(year, month, day, 0, 0, 0, 0, t.Location())
-		end := start.AddDate(0, 0, 2).Add(time.Nanosecond * -1)
+		tNow := time.Now()
+		year, month, day := tNow.Date()
+		startOfToday := time.Date(year, month, day, 0, 0, 0, 0, tNow.Location())
+		endOfTomorrow := startOfToday.AddDate(0, 0, 2).Add(time.Nanosecond * -1)
 		go func() {
 			rootPrices := make([]*prices.EnergyPrice, 0)
 			for _, rootImporter := range rootImporters {
-				p, err := rootImporter.ImportPrices(ctx, start, end)
+				p, err := rootImporter.ImportPrices(ctx, startOfToday, endOfTomorrow)
 				if err != nil {
 					log.Errorf("Failed to import prices: %v", err.Error())
 				} else {
@@ -177,12 +177,13 @@ func main() {
 					ticker.Stop()
 					return
 				case <-ticker.C:
-					t = time.Now()
-					year, month, day = t.Date()
-					start = time.Date(year, month, day, 0, 0, 0, 0, t.Location())
+					tNow = time.Now()
+					year, month, day = tNow.Date()
+					startOfToday = time.Date(year, month, day, 0, 0, 0, 0, tNow.Location())
+					endOfTomorrow = startOfToday.AddDate(0, 0, 2).Add(time.Nanosecond * -1)
 					rootPrices := make([]*prices.EnergyPrice, 0)
 					for _, rootImporter := range rootImporters {
-						p, err := rootImporter.ImportPrices(ctx, start, end)
+						p, err := rootImporter.ImportPrices(ctx, startOfToday, endOfTomorrow)
 						if err != nil {
 							log.Errorf("Failed to import prices: %v", err.Error())
 						} else {
