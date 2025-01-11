@@ -2,10 +2,10 @@ package timescale
 
 import (
 	"context"
-	"enman/internal/domain"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
 	"enman/internal/domain/gas"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -91,7 +91,7 @@ func (t *timescaleRepository) GasSourceNames(from time.Time, till time.Time) ([]
 	return names, nil
 }
 
-func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.GasUsagesRecord, error) {
+func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceName string, aggregate *repository.AggregateConfiguration) ([]*repository.GasUsagesRecord, error) {
 	tdUsages := t.tableDefinitions[tableGasUsages]
 	tdSources := t.tableDefinitions[tableGasSources]
 
@@ -119,7 +119,7 @@ func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceNa
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.GasUsagesRecord, 0)
+	usages := make([]*repository.GasUsagesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -130,7 +130,7 @@ func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceNa
 	return usages, nil
 }
 
-func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.GasUsageRecord, error) {
+func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType repository.MatchType) (*repository.GasUsageRecord, error) {
 	tdUsages := t.tableDefinitions[tableGasUsages]
 	tdSources := t.tableDefinitions[tableGasSources]
 
@@ -150,10 +150,10 @@ func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string
 		WithJoin(sql.NewJoin(tdSources.Name, sql.Inner, tdUsages.TablePrefixedColumn("gas_source"), tdSources.TablePrefixedColumn("name")))
 
 	switch timeMatchType {
-	case domain.LessOrEqual:
+	case repository.LessOrEqual:
 		selectStatement.OrderDescending(sql.NewColumnWithName(tdUsages.TablePrefixedColumn("time")))
 		break
-	case domain.EqualOrGreater:
+	case repository.EqualOrGreater:
 		selectStatement.OrderAscending(sql.NewColumnWithName(tdUsages.TablePrefixedColumn("time")))
 		break
 	default:
@@ -180,7 +180,7 @@ func (t *timescaleRepository) GasUsageAtTime(moment time.Time, sourceName string
 	return t.rowValuesToGasUsageRecord(values), nil
 }
 
-func (t *timescaleRepository) GasCosts(from time.Time, till time.Time, providerName string, aggregate *domain.AggregateConfiguration) ([]*domain.GasCostsRecord, error) {
+func (t *timescaleRepository) GasCosts(from time.Time, till time.Time, providerName string, aggregate *repository.AggregateConfiguration) ([]*repository.GasCostsRecord, error) {
 	tdCosts := t.tableDefinitions[tableGasCosts]
 	tdProviders := t.tableDefinitions[tableEnergyPriceProviders]
 
@@ -207,7 +207,7 @@ func (t *timescaleRepository) GasCosts(from time.Time, till time.Time, providerN
 	}
 	defer rows.Close()
 
-	costs := make([]*domain.GasCostsRecord, 0)
+	costs := make([]*repository.GasCostsRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -218,8 +218,8 @@ func (t *timescaleRepository) GasCosts(from time.Time, till time.Time, providerN
 	return costs, nil
 }
 
-func (t *timescaleRepository) rowValuesToGasUsageRecord(values []any) *domain.GasUsageRecord {
-	gasUsage := &domain.GasUsageRecord{
+func (t *timescaleRepository) rowValuesToGasUsageRecord(values []any) *repository.GasUsageRecord {
+	gasUsage := &repository.GasUsageRecord{
 		Time:  values[0].(time.Time),
 		Name:  values[1].(string),
 		Role:  values[2].(string),
@@ -229,13 +229,13 @@ func (t *timescaleRepository) rowValuesToGasUsageRecord(values []any) *domain.Ga
 	return gasUsage
 }
 
-func (t *timescaleRepository) rowValuesToGasUsagesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.GasUsagesRecord {
-	gasUsage := &domain.GasUsagesRecord{
+func (t *timescaleRepository) rowValuesToGasUsagesRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.GasUsagesRecord {
+	gasUsage := &repository.GasUsagesRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
 		Role:      values[2].(string),
-		Usages:    map[domain.AggregateFunction]*gas.Usage{},
+		Usages:    map[repository.AggregateFunction]*gas.Usage{},
 	}
 	nrOfFields := 1
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
@@ -290,12 +290,12 @@ func (t *timescaleRepository) registerGasSource(name string, role string) {
 	}
 }
 
-func (t *timescaleRepository) rowValuesToGasCostsRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.GasCostsRecord {
-	gasCosts := &domain.GasCostsRecord{
+func (t *timescaleRepository) rowValuesToGasCostsRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.GasCostsRecord {
+	gasCosts := &repository.GasCostsRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
-		Costs:     make(map[domain.AggregateFunction]*gas.Costs),
+		Costs:     make(map[repository.AggregateFunction]*gas.Costs),
 	}
 
 	nrOfFields := 3

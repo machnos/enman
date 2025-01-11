@@ -2,10 +2,10 @@ package timescale
 
 import (
 	"context"
-	"enman/internal/domain"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/electricity"
 	"enman/internal/domain/events"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -121,8 +121,8 @@ func (t *timescaleRepository) ElectricityUsages(
 	from time.Time,
 	till time.Time,
 	sourceName string,
-	aggregate *domain.AggregateConfiguration,
-) ([]*domain.ElectricityUsagesRecord, error) {
+	aggregate *repository.AggregateConfiguration,
+) ([]*repository.ElectricityUsagesRecord, error) {
 	tdUsages := t.tableDefinitions[tableElectricityUsages]
 	tdSources := t.tableDefinitions[tableElectricitySources]
 
@@ -149,7 +149,7 @@ func (t *timescaleRepository) ElectricityUsages(
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.ElectricityUsagesRecord, 0)
+	usages := make([]*repository.ElectricityUsagesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -160,7 +160,7 @@ func (t *timescaleRepository) ElectricityUsages(
 	return usages, nil
 }
 
-func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.ElectricityUsageRecord, error) {
+func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType repository.MatchType) (*repository.ElectricityUsageRecord, error) {
 	tdUsages := t.tableDefinitions[tableElectricityUsages]
 	tdSources := t.tableDefinitions[tableElectricitySources]
 
@@ -180,10 +180,10 @@ func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceNam
 		WithJoin(sql.NewJoin(tdSources.Name, sql.Inner, tdUsages.TablePrefixedColumn("electricity_source"), tdSources.TablePrefixedColumn("name")))
 
 	switch timeMatchType {
-	case domain.LessOrEqual:
+	case repository.LessOrEqual:
 		selectStatement.OrderDescending(sql.NewColumnWithName(tdUsages.TablePrefixedColumn("time")))
 		break
-	case domain.EqualOrGreater:
+	case repository.EqualOrGreater:
 		selectStatement.OrderAscending(sql.NewColumnWithName(tdUsages.TablePrefixedColumn("time")))
 		break
 	default:
@@ -210,7 +210,7 @@ func (t *timescaleRepository) ElectricityUsageAtTime(moment time.Time, sourceNam
 	return t.rowValuesToElectricityUsageRecord(values), nil
 }
 
-func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.ElectricityStatesRecord, error) {
+func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, sourceName string, aggregate *repository.AggregateConfiguration) ([]*repository.ElectricityStatesRecord, error) {
 	tdStates := t.tableDefinitions[tableElectricityStates]
 	tdSources := t.tableDefinitions[tableElectricitySources]
 
@@ -237,7 +237,7 @@ func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, 
 	}
 	defer rows.Close()
 
-	states := make([]*domain.ElectricityStatesRecord, 0)
+	states := make([]*repository.ElectricityStatesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -248,7 +248,7 @@ func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, 
 	return states, nil
 }
 
-func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, providerName string, aggregate *domain.AggregateConfiguration) ([]*domain.ElectricityCostsRecord, error) {
+func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, providerName string, aggregate *repository.AggregateConfiguration) ([]*repository.ElectricityCostsRecord, error) {
 	tdCosts := t.tableDefinitions[tableElectricityCosts]
 	tdProviders := t.tableDefinitions[tableEnergyPriceProviders]
 
@@ -275,7 +275,7 @@ func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, p
 	}
 	defer rows.Close()
 
-	costs := make([]*domain.ElectricityCostsRecord, 0)
+	costs := make([]*repository.ElectricityCostsRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -286,8 +286,8 @@ func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, p
 	return costs, nil
 }
 
-func (t *timescaleRepository) rowValuesToElectricityUsageRecord(values []any) *domain.ElectricityUsageRecord {
-	electricityUsage := &domain.ElectricityUsageRecord{
+func (t *timescaleRepository) rowValuesToElectricityUsageRecord(values []any) *repository.ElectricityUsageRecord {
+	electricityUsage := &repository.ElectricityUsageRecord{
 		Time:  values[0].(time.Time),
 		Name:  values[1].(string),
 		Role:  values[2].(string),
@@ -302,13 +302,13 @@ func (t *timescaleRepository) rowValuesToElectricityUsageRecord(values []any) *d
 	return electricityUsage
 }
 
-func (t *timescaleRepository) rowValuesToElectricityUsagesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityUsagesRecord {
-	electricityUsage := &domain.ElectricityUsagesRecord{
+func (t *timescaleRepository) rowValuesToElectricityUsagesRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.ElectricityUsagesRecord {
+	electricityUsage := &repository.ElectricityUsagesRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
 		Role:      values[2].(string),
-		Usages:    make(map[domain.AggregateFunction]*electricity.Usage),
+		Usages:    make(map[repository.AggregateFunction]*electricity.Usage),
 	}
 	nrOfFields := 2 + (int(electricity.MaxPhases) * 2)
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
@@ -325,13 +325,13 @@ func (t *timescaleRepository) rowValuesToElectricityUsagesRecord(aggregateConfig
 	return electricityUsage
 }
 
-func (t *timescaleRepository) rowValuesToElectricityStatesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityStatesRecord {
-	electricityStates := &domain.ElectricityStatesRecord{
+func (t *timescaleRepository) rowValuesToElectricityStatesRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.ElectricityStatesRecord {
+	electricityStates := &repository.ElectricityStatesRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
 		Role:      values[2].(string),
-		States:    make(map[domain.AggregateFunction]*electricity.State),
+		States:    make(map[repository.AggregateFunction]*electricity.State),
 	}
 	nrOfFields := int(electricity.MaxPhases) * 3
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {
@@ -347,12 +347,12 @@ func (t *timescaleRepository) rowValuesToElectricityStatesRecord(aggregateConfig
 	return electricityStates
 }
 
-func (t *timescaleRepository) rowValuesToElectricityCostsRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.ElectricityCostsRecord {
-	electricityCosts := &domain.ElectricityCostsRecord{
+func (t *timescaleRepository) rowValuesToElectricityCostsRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.ElectricityCostsRecord {
+	electricityCosts := &repository.ElectricityCostsRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
-		Costs:     make(map[domain.AggregateFunction]*electricity.Costs),
+		Costs:     make(map[repository.AggregateFunction]*electricity.Costs),
 	}
 	nrOfFields := 6
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {

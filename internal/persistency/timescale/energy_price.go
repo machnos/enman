@@ -2,8 +2,8 @@ package timescale
 
 import (
 	"context"
-	"enman/internal/domain"
 	"enman/internal/domain/prices"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -121,7 +121,7 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 	return energyPrices, nil
 }
 
-func (t *timescaleRepository) EnergyPriceAtTime(moment time.Time, providerName string, energyType prices.EnergyType, timeMatchType domain.MatchType) (*prices.EnergyPrice, error) {
+func (t *timescaleRepository) EnergyPriceAtTime(moment time.Time, providerName string, energyType prices.EnergyType, timeMatchType repository.MatchType) (*prices.EnergyPrice, error) {
 	tdPrices := t.tableDefinitions[tableEnergyPrices]
 
 	filter := t.momentFilter("time", moment, timeMatchType)
@@ -136,10 +136,10 @@ func (t *timescaleRepository) EnergyPriceAtTime(moment time.Time, providerName s
 		WithFilter(filter)
 
 	switch timeMatchType {
-	case domain.LessOrEqual:
+	case repository.LessOrEqual:
 		selectStatement.OrderDescending(sql.NewColumnWithName("time"))
 		break
-	case domain.EqualOrGreater:
+	case repository.EqualOrGreater:
 		selectStatement.OrderAscending(sql.NewColumnWithName("time"))
 		break
 	default:

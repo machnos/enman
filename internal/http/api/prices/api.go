@@ -3,6 +3,7 @@ package prices
 import (
 	"enman/internal/domain"
 	"enman/internal/domain/prices"
+	"enman/internal/domain/repository"
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
@@ -24,11 +25,13 @@ const (
 
 type Api struct {
 	*api.BaseApi
+	repository repository.EnergyPrice
 }
 
-func NewApi(system *domain.System, repository domain.Repository) *Api {
+func NewApi(system *domain.System, repository repository.EnergyPrice) *Api {
 	return &Api{
-		api.NewBaseApi(system, repository),
+		api.NewBaseApi(system),
+		repository,
 	}
 }
 func (api *Api) prices(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +51,7 @@ func (api *Api) prices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	energyType, _ := prices.ParseEnergyType(chi.URLParam(r, "energyType"))
-	energyPrices, err := api.Repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"), energyType)
+	energyPrices, err := api.repository.EnergyPrices(startTime, endTime, chi.URLParam(r, "providerName"), energyType)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadPrices, err.Error())
@@ -80,7 +83,7 @@ func (api *Api) providers(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	providerRecords, err := api.Repository.EnergyPriceProviders(startTime, endTime)
+	providerRecords, err := api.repository.EnergyPriceProviders(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadProviders, err.Error())

@@ -2,6 +2,7 @@ package electricity
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/repository"
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
@@ -25,11 +26,13 @@ const (
 
 type Api struct {
 	*api.BaseApi
+	repository repository.Electricity
 }
 
-func NewApi(system *domain.System, repository domain.Repository) *Api {
+func NewApi(system *domain.System, repository repository.Electricity) *Api {
 	return &Api{
-		api.NewBaseApi(system, repository),
+		api.NewBaseApi(system),
+		repository,
 	}
 }
 
@@ -41,7 +44,7 @@ func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	sources, err := api.Repository.ElectricitySourceNames(startTime, endTime)
+	sources, err := api.repository.ElectricitySourceNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSources, err.Error())
@@ -71,13 +74,13 @@ func (api *Api) usage(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitHour,
+	aggregate := &repository.AggregateConfiguration{
+		WindowUnit:   repository.WindowUnitHour,
 		WindowAmount: 1,
-		Functions:    []domain.AggregateFunction{domain.AggregateFunctionMin, domain.AggregateFunctionMax},
+		Functions:    []repository.AggregateFunction{repository.AggregateFunctionMin, repository.AggregateFunctionMax},
 		CreateEmpty:  false,
 	}
-	usagesRecords, err := api.Repository.ElectricityUsages(
+	usagesRecords, err := api.repository.ElectricityUsages(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
@@ -129,13 +132,13 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitMinute,
+	aggregate := &repository.AggregateConfiguration{
+		WindowUnit:   repository.WindowUnitMinute,
 		WindowAmount: 1,
-		Functions:    []domain.AggregateFunction{domain.AggregateFunctionMean},
+		Functions:    []repository.AggregateFunction{repository.AggregateFunctionMean},
 		CreateEmpty:  false,
 	}
-	statesRecords, err := api.Repository.ElectricityStates(
+	statesRecords, err := api.repository.ElectricityStates(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
@@ -205,13 +208,13 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitHour,
+	aggregate := &repository.AggregateConfiguration{
+		WindowUnit:   repository.WindowUnitHour,
 		WindowAmount: 1,
-		Functions:    []domain.AggregateFunction{domain.AggregateFunctionSum},
+		Functions:    []repository.AggregateFunction{repository.AggregateFunctionSum},
 		CreateEmpty:  false,
 	}
-	costsRecords, err := api.Repository.ElectricityCosts(
+	costsRecords, err := api.repository.ElectricityCosts(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),

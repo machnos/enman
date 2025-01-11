@@ -8,6 +8,7 @@ import (
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
 	"enman/internal/domain/prices"
+	"enman/internal/domain/repository"
 	"enman/internal/http"
 	"enman/internal/log"
 	"enman/internal/meters"
@@ -106,19 +107,19 @@ func main() {
 	}
 
 	// Setup repository
-	repository := loadRepository(configuration)
-	err = repository.Initialize()
+	repo := loadRepository(configuration)
+	err = repo.Initialize()
 	if err != nil {
 		log.Fatalf("Unable to initialize database: %s", err.Error())
 		syscall.Exit(-1)
 	}
 
 	// Setup domain event listeners
-	electricityCostCalculator := domain.NewElectricityUsageCostCalculator(repository)
+	electricityCostCalculator := domain.NewElectricityUsageCostCalculator(repo)
 	events.EnergyPrices.Register(electricityCostCalculator, func(values *events.EnergyPriceValues) bool {
 		return values.EnergyType() == prices.EnergyTypeElectricity
 	})
-	gasCostCalculator := domain.NewGasUsageCostCalculator(repository)
+	gasCostCalculator := domain.NewGasUsageCostCalculator(repo)
 	events.EnergyPrices.Register(gasCostCalculator, func(values *events.EnergyPriceValues) bool {
 		return values.EnergyType() == prices.EnergyTypeGas
 	})
@@ -132,7 +133,7 @@ func main() {
 	// Set price importers
 	if configuration.Prices != nil {
 		baseImporter := &price_importers.BasePriceImporter{
-			Repository:      repository,
+			Repository:      repo,
 			EnergyProviders: configuration.Prices.Providers,
 		}
 		rootImporters := make([]price_importers.PriceImporter, 0)
@@ -217,7 +218,7 @@ func main() {
 	}
 
 	// Start the http server
-	httpServer, err := http.NewServer(configuration.Http, system, repository)
+	httpServer, err := http.NewServer(configuration.Http, system, repo)
 	if err != nil {
 		log.Warningf("Failed to create http server: %s", err.Error())
 	}
@@ -252,8 +253,8 @@ func main() {
 				log.Infof("Modbus server on %s shutdown", modbusServer.ServerUrl())
 			}
 		}
-		if repository != nil {
-			repository.Close()
+		if repo != nil {
+			repo.Close()
 		}
 		return nil
 	})
@@ -262,12 +263,12 @@ func main() {
 	}
 }
 
-func loadRepository(configuration *config.Configuration) domain.Repository {
+func loadRepository(configuration *config.Configuration) repository.Repository {
 	if configuration.Persistency != nil {
 		if configuration.Persistency.Timescale != nil {
-			repository, err := timescale.NewTimescaleRepository(configuration.Persistency.Timescale.ConnectionString)
+			repo, err := timescale.NewTimescaleRepository(configuration.Persistency.Timescale.ConnectionString)
 			if err == nil {
-				return repository
+				return repo
 			}
 			log.Warningf("Unable to create timescale repository: %s", err.Error())
 		}

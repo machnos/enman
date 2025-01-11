@@ -2,9 +2,9 @@ package timescale
 
 import (
 	"context"
-	"enman/internal/domain"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
+	"enman/internal/domain/repository"
 	"enman/internal/domain/water"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
@@ -72,7 +72,7 @@ func (t *timescaleRepository) WaterSourceNames(from time.Time, till time.Time) (
 	return names, nil
 }
 
-func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.WaterUsagesRecord, error) {
+func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, sourceName string, aggregate *repository.AggregateConfiguration) ([]*repository.WaterUsagesRecord, error) {
 	tdUsages := t.tableDefinitions[tableWaterUsages]
 	tdSources := t.tableDefinitions[tableWaterSources]
 
@@ -100,7 +100,7 @@ func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, source
 	}
 	defer rows.Close()
 
-	usages := make([]*domain.WaterUsagesRecord, 0)
+	usages := make([]*repository.WaterUsagesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -111,7 +111,7 @@ func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, source
 	return usages, nil
 }
 
-func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.WaterUsageRecord, error) {
+func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType repository.MatchType) (*repository.WaterUsageRecord, error) {
 	tdUsages := t.tableDefinitions[tableWaterUsages]
 	tdSources := t.tableDefinitions[tableWaterSources]
 
@@ -131,10 +131,10 @@ func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName stri
 		WithJoin(sql.NewJoin(tdSources.Name, sql.Inner, tdUsages.TablePrefixedColumn("water_source"), tdSources.TablePrefixedColumn("name")))
 
 	switch timeMatchType {
-	case domain.LessOrEqual:
+	case repository.LessOrEqual:
 		selectStatement.OrderDescending(sql.NewColumnWithName(tdUsages.TablePrefixedColumn("time")))
 		break
-	case domain.EqualOrGreater:
+	case repository.EqualOrGreater:
 		selectStatement.OrderAscending(sql.NewColumnWithName(tdUsages.TablePrefixedColumn("time")))
 		break
 	default:
@@ -161,8 +161,8 @@ func (t *timescaleRepository) WaterUsageAtTime(moment time.Time, sourceName stri
 	return t.rowValuesToWaterUsageRecord(values), nil
 }
 
-func (t *timescaleRepository) rowValuesToWaterUsageRecord(values []any) *domain.WaterUsageRecord {
-	waterUsage := &domain.WaterUsageRecord{
+func (t *timescaleRepository) rowValuesToWaterUsageRecord(values []any) *repository.WaterUsageRecord {
+	waterUsage := &repository.WaterUsageRecord{
 		Time:  values[0].(time.Time),
 		Name:  values[1].(string),
 		Role:  values[2].(string),
@@ -172,13 +172,13 @@ func (t *timescaleRepository) rowValuesToWaterUsageRecord(values []any) *domain.
 	return waterUsage
 }
 
-func (t *timescaleRepository) rowValuesToWaterUsagesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.WaterUsagesRecord {
-	waterUsage := &domain.WaterUsagesRecord{
+func (t *timescaleRepository) rowValuesToWaterUsagesRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.WaterUsagesRecord {
+	waterUsage := &repository.WaterUsagesRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
 		Role:      values[2].(string),
-		Usages:    make(map[domain.AggregateFunction]*water.Usage),
+		Usages:    make(map[repository.AggregateFunction]*water.Usage),
 	}
 	nrOfFields := 1
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"enman/internal/config"
 	"enman/internal/domain"
+	"enman/internal/domain/repository"
 	"enman/internal/http/api"
 	"enman/internal/http/api/battery"
 	"enman/internal/http/api/electricity"
@@ -36,13 +37,13 @@ var templates *template.Template
 
 type Server struct {
 	system      *domain.System
-	repository  domain.Repository
+	repository  repository.Repository
 	server      *http.Server
 	contextRoot string
 	cookieStore *sessions.CookieStore
 }
 
-func NewServer(config *config.Http, system *domain.System, repository domain.Repository) (*Server, error) {
+func NewServer(config *config.Http, system *domain.System, repository repository.Repository) (*Server, error) {
 	s := &Server{
 		system:      system,
 		repository:  repository,
@@ -99,7 +100,7 @@ func NewServer(config *config.Http, system *domain.System, repository domain.Rep
 			r.Get("/logout", s.logout)
 		})
 		r.Get("/static/*", s.staticResource)
-		r.Route("/api", api.NewBaseApi(system, repository).Router(map[string]func(r chi.Router){
+		r.Route("/api", api.NewBaseApi(system).Router(map[string]func(r chi.Router){
 			"/electricity": electricity.NewApi(system, repository).Router(nil),
 			"/battery":     battery.NewApi(system, repository).Router(nil),
 			"/gas":         gas.NewApi(system, repository).Router(nil),

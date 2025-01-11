@@ -2,6 +2,7 @@ package battery
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/repository"
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
@@ -23,11 +24,13 @@ const (
 
 type Api struct {
 	*api.BaseApi
+	repository repository.Battery
 }
 
-func NewApi(system *domain.System, repository domain.Repository) *Api {
+func NewApi(system *domain.System, repository repository.Battery) *Api {
 	return &Api{
-		api.NewBaseApi(system, repository),
+		api.NewBaseApi(system),
+		repository,
 	}
 }
 
@@ -39,7 +42,7 @@ func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	sources, err := api.Repository.ElectricitySourceNames(startTime, endTime)
+	sources, err := api.repository.BatterySourceNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSources, err.Error())
@@ -69,13 +72,13 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitMinute,
+	aggregate := &repository.AggregateConfiguration{
+		WindowUnit:   repository.WindowUnitMinute,
 		WindowAmount: 1,
-		Functions:    []domain.AggregateFunction{domain.AggregateFunctionMean},
+		Functions:    []repository.AggregateFunction{repository.AggregateFunctionMean},
 		CreateEmpty:  false,
 	}
-	statesRecords, err := api.Repository.BatteryStates(
+	statesRecords, err := api.repository.BatteryStates(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),

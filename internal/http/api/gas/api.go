@@ -2,6 +2,7 @@ package gas
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/repository"
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
@@ -24,11 +25,13 @@ const (
 
 type Api struct {
 	*api.BaseApi
+	repository repository.Gas
 }
 
-func NewApi(system *domain.System, repository domain.Repository) *Api {
+func NewApi(system *domain.System, repository repository.Gas) *Api {
 	return &Api{
-		api.NewBaseApi(system, repository),
+		api.NewBaseApi(system),
+		repository,
 	}
 }
 
@@ -40,7 +43,7 @@ func (api *Api) sources(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	sources, err := api.Repository.GasSourceNames(startTime, endTime)
+	sources, err := api.repository.GasSourceNames(startTime, endTime)
 	if err != nil {
 		log.Error(err.Error())
 		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSources, err.Error())
@@ -70,13 +73,13 @@ func (api *Api) usages(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitHour,
+	aggregate := &repository.AggregateConfiguration{
+		WindowUnit:   repository.WindowUnitHour,
 		WindowAmount: 1,
-		Functions:    []domain.AggregateFunction{domain.AggregateFunctionMin, domain.AggregateFunctionMax},
+		Functions:    []repository.AggregateFunction{repository.AggregateFunctionMin, repository.AggregateFunctionMax},
 		CreateEmpty:  false,
 	}
-	usagesRecords, err := api.Repository.GasUsages(
+	usagesRecords, err := api.repository.GasUsages(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),
@@ -124,13 +127,13 @@ func (api *Api) costs(w http.ResponseWriter, r *http.Request) {
 	if !success {
 		return
 	}
-	aggregate := &domain.AggregateConfiguration{
-		WindowUnit:   domain.WindowUnitHour,
+	aggregate := &repository.AggregateConfiguration{
+		WindowUnit:   repository.WindowUnitHour,
 		WindowAmount: 1,
-		Functions:    []domain.AggregateFunction{domain.AggregateFunctionSum},
+		Functions:    []repository.AggregateFunction{repository.AggregateFunctionSum},
 		CreateEmpty:  false,
 	}
-	costsRecords, err := api.Repository.GasCosts(
+	costsRecords, err := api.repository.GasCosts(
 		startTime,
 		endTime,
 		chi.URLParam(r, "sourceName"),

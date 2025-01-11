@@ -2,10 +2,10 @@ package timescale
 
 import (
 	"context"
-	"enman/internal/domain"
 	"enman/internal/domain/battery"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
@@ -75,7 +75,7 @@ func (t *timescaleRepository) BatterySourceNames(from time.Time, till time.Time)
 	return names, nil
 }
 
-func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sourceName string, aggregate *domain.AggregateConfiguration) ([]*domain.BatteryStatesRecord, error) {
+func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sourceName string, aggregate *repository.AggregateConfiguration) ([]*repository.BatteryStatesRecord, error) {
 	tdStates := t.tableDefinitions[tableBatteryStates]
 	tdBatteries := t.tableDefinitions[tableBatteries]
 
@@ -102,7 +102,7 @@ func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sour
 	}
 	defer rows.Close()
 
-	states := make([]*domain.BatteryStatesRecord, 0)
+	states := make([]*repository.BatteryStatesRecord, 0)
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
@@ -113,7 +113,7 @@ func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sour
 	return states, nil
 }
 
-func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType domain.MatchType) (*domain.BatteryStateRecord, error) {
+func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType repository.MatchType) (*repository.BatteryStateRecord, error) {
 	tdStates := t.tableDefinitions[tableElectricityStates]
 	tdBatteries := t.tableDefinitions[tableBatteries]
 
@@ -133,10 +133,10 @@ func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName st
 		WithJoin(sql.NewJoin(tdBatteries.Name, sql.Inner, tdStates.TablePrefixedColumn("battery"), tdBatteries.TablePrefixedColumn("name")))
 
 	switch timeMatchType {
-	case domain.LessOrEqual:
+	case repository.LessOrEqual:
 		selectStatement.OrderDescending(sql.NewColumnWithName(tdStates.TablePrefixedColumn("time")))
 		break
-	case domain.EqualOrGreater:
+	case repository.EqualOrGreater:
 		selectStatement.OrderAscending(sql.NewColumnWithName(tdStates.TablePrefixedColumn("time")))
 		break
 	default:
@@ -163,8 +163,8 @@ func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName st
 	return t.rowValuesToBatteryStateRecord(values), nil
 }
 
-func (t *timescaleRepository) rowValuesToBatteryStateRecord(values []any) *domain.BatteryStateRecord {
-	batteryState := &domain.BatteryStateRecord{
+func (t *timescaleRepository) rowValuesToBatteryStateRecord(values []any) *repository.BatteryStateRecord {
+	batteryState := &repository.BatteryStateRecord{
 		Time:  values[0].(time.Time),
 		Name:  values[1].(string),
 		Role:  values[2].(string),
@@ -178,13 +178,13 @@ func (t *timescaleRepository) rowValuesToBatteryStateRecord(values []any) *domai
 	return batteryState
 }
 
-func (t *timescaleRepository) rowValuesToBatteryStatesRecord(aggregateConfiguration *domain.AggregateConfiguration, values []any) *domain.BatteryStatesRecord {
-	batteryStates := &domain.BatteryStatesRecord{
+func (t *timescaleRepository) rowValuesToBatteryStatesRecord(aggregateConfiguration *repository.AggregateConfiguration, values []any) *repository.BatteryStatesRecord {
+	batteryStates := &repository.BatteryStatesRecord{
 		StartTime: values[0].(time.Time),
 		EndTime:   t.calculateEndTime(values[0].(time.Time), aggregateConfiguration),
 		Name:      values[1].(string),
 		Role:      values[2].(string),
-		States:    make(map[domain.AggregateFunction]*battery.State),
+		States:    make(map[repository.AggregateFunction]*battery.State),
 	}
 	nrOfFields := 5
 	for ix, aggregateFunction := range aggregateConfiguration.Functions {

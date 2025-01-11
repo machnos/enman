@@ -3,10 +3,10 @@ package price_importers
 import (
 	"context"
 	"enman/internal/config"
-	"enman/internal/domain"
 	"enman/internal/domain/arithmetic"
 	"enman/internal/domain/events"
 	"enman/internal/domain/prices"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"fmt"
 	"math"
@@ -20,7 +20,7 @@ type PriceImporter interface {
 }
 
 type BasePriceImporter struct {
-	Repository       domain.Repository
+	Repository       repository.EnergyPrice
 	EnergyProviders  []*config.EnergyProvider
 	registeredEvents sync.Map
 }

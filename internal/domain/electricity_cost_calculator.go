@@ -4,17 +4,18 @@ import (
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
 	"enman/internal/domain/prices"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"sync"
 	"time"
 )
 
 type ElectricityUsageCostCalculator struct {
-	repository     Repository
+	repository     repository.Repository
 	previousValues sync.Map
 }
 
-func NewElectricityUsageCostCalculator(repository Repository) *ElectricityUsageCostCalculator {
+func NewElectricityUsageCostCalculator(repository repository.Repository) *ElectricityUsageCostCalculator {
 	calculator := &ElectricityUsageCostCalculator{
 		repository: repository,
 	}
@@ -34,7 +35,7 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *events.EnergyPriceV
 		previousConsumptionPrice = previousValue.ConsumptionPrice()
 		previousFeedbackPrice = previousValue.FeedbackPrice()
 	} else {
-		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeElectricity, LessOrEqual)
+		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeElectricity, repository.LessOrEqual)
 		if err != nil {
 			log.Errorf("Unable to determine previous electricity price: %s", err.Error())
 			return
@@ -47,7 +48,7 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *events.EnergyPriceV
 		previousConsumptionPrice = dbPrice.ConsumptionPrice
 		previousFeedbackPrice = dbPrice.FeedbackPrice
 	}
-	startUsage, err := e.repository.ElectricityUsageAtTime(startTime, "", constants.EnergySourceRoleGrid, EqualOrGreater)
+	startUsage, err := e.repository.ElectricityUsageAtTime(startTime, "", constants.EnergySourceRoleGrid, repository.EqualOrGreater)
 	if err != nil {
 		log.Errorf("Unable to determine start usage: %s", err.Error())
 		return
@@ -55,7 +56,7 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *events.EnergyPriceV
 		log.Warning("Unable to determine start usage")
 		return
 	}
-	endUsage, err := e.repository.ElectricityUsageAtTime(endTime, "", constants.EnergySourceRoleGrid, LessOrEqual)
+	endUsage, err := e.repository.ElectricityUsageAtTime(endTime, "", constants.EnergySourceRoleGrid, repository.LessOrEqual)
 	if err != nil {
 		log.Errorf("Unable to determine end usage: %s", err.Error())
 		return

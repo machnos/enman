@@ -2,6 +2,7 @@ package api
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"fmt"
 	"github.com/go-chi/chi/v5"
@@ -30,14 +31,12 @@ type Api interface {
 
 type BaseApi struct {
 	System      *domain.System
-	Repository  domain.Repository
 	TimePattern string
 }
 
-func NewBaseApi(system *domain.System, repository domain.Repository) *BaseApi {
+func NewBaseApi(system *domain.System) *BaseApi {
 	return &BaseApi{
 		System:      system,
-		Repository:  repository,
 		TimePattern: "^\\d{4}-\\d{2}-\\d{2}(T(\\d{2}|\\d{2}:\\d{2}))?$",
 	}
 }
@@ -145,10 +144,10 @@ func (b *BaseApi) ValidateStartAndEndParams(w http.ResponseWriter, r *http.Reque
 	return startTime, endTime, true
 }
 
-func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, aggregate *domain.AggregateConfiguration) *domain.AggregateConfiguration {
+func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, aggregate *repository.AggregateConfiguration) *repository.AggregateConfiguration {
 	q := r.URL.Query()
 	if q.Has("aggregate_window_unit") {
-		unit, err := domain.ParseWindowUnit(q.Get("aggregate_window_unit"))
+		unit, err := repository.ParseWindowUnit(q.Get("aggregate_window_unit"))
 		if err == nil {
 			aggregate.WindowUnit = unit
 		} else {
@@ -172,7 +171,7 @@ func (b *BaseApi) ParseAggregateConfigurationFromRequestURL(r *http.Request, agg
 		}
 	}
 	if q.Has("aggregate_functions") {
-		function, err := domain.AggregateFunctionsOf(q.Get("aggregate_functions"))
+		function, err := repository.AggregateFunctionsOf(q.Get("aggregate_functions"))
 		if err == nil {
 			aggregate.Functions = function
 		} else {

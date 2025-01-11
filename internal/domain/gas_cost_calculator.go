@@ -4,17 +4,18 @@ import (
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
 	"enman/internal/domain/prices"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"sync"
 	"time"
 )
 
 type GasUsageCostCalculator struct {
-	repository     Repository
+	repository     repository.Repository
 	previousValues sync.Map
 }
 
-func NewGasUsageCostCalculator(repository Repository) *GasUsageCostCalculator {
+func NewGasUsageCostCalculator(repository repository.Repository) *GasUsageCostCalculator {
 	calculator := &GasUsageCostCalculator{
 		repository: repository,
 	}
@@ -32,7 +33,7 @@ func (e *GasUsageCostCalculator) HandleEvent(values *events.EnergyPriceValues) {
 		startTime = previousValue.PriceStartingTime()
 		previousConsumptionPrice = previousValue.ConsumptionPrice()
 	} else {
-		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeGas, LessOrEqual)
+		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeGas, repository.LessOrEqual)
 		if err != nil {
 			log.Errorf("Unable to determine previous electricity price: %s", err.Error())
 			return
@@ -44,7 +45,7 @@ func (e *GasUsageCostCalculator) HandleEvent(values *events.EnergyPriceValues) {
 		startTime = dbPrice.Time
 		previousConsumptionPrice = dbPrice.ConsumptionPrice
 	}
-	startUsage, err := e.repository.GasUsageAtTime(startTime, "", constants.EnergySourceRoleGrid, EqualOrGreater)
+	startUsage, err := e.repository.GasUsageAtTime(startTime, "", constants.EnergySourceRoleGrid, repository.EqualOrGreater)
 	if err != nil {
 		log.Errorf("Unable to determine start usage: %s", err.Error())
 		return
@@ -52,7 +53,7 @@ func (e *GasUsageCostCalculator) HandleEvent(values *events.EnergyPriceValues) {
 		log.Warning("Unable to determine start usage")
 		return
 	}
-	endUsage, err := e.repository.GasUsageAtTime(endTime, "", constants.EnergySourceRoleGrid, LessOrEqual)
+	endUsage, err := e.repository.GasUsageAtTime(endTime, "", constants.EnergySourceRoleGrid, repository.LessOrEqual)
 	if err != nil {
 		log.Errorf("Unable to determine end usage: %s", err.Error())
 		return
