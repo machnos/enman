@@ -59,7 +59,7 @@ func main() {
 		configuration.Grid.Voltage,
 		configuration.Grid.MaxCurrent,
 		configuration.Grid.Phases,
-		configuration.Grid.TargetConsumption,
+		configuration.Grid.ElectricityTargetConsumption,
 		energyMeters,
 		controllers.ProbeGridController(configuration.Grid.Controller),
 	)

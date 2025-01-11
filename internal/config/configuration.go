@@ -26,14 +26,14 @@ type Log struct {
 }
 
 type Grid struct {
-	Name                 string                `json:"name" yaml:"name" json:"required" validate:"required,max=50"`
-	Voltage              uint16                `json:"voltage" yaml:"voltage"`
-	MaxCurrent           float32               `json:"max_current" yaml:"max_current" validate:"gte=0"`
-	Phases               uint8                 `json:"phases" yaml:"phases"`
-	TargetConsumption    int                   `json:"target_consumption" yaml:"target_consumption"`
-	Meters               []*EnergyMeter        `json:"meters" yaml:"meters" validate:"dive" `
-	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator" yaml:"modbus_meter_simulator"`
-	Controller           *GridController       `json:"controller" yaml:"controller"`
+	Name                         string                `json:"name" yaml:"name" json:"required" validate:"required,max=50"`
+	Voltage                      uint16                `json:"voltage" yaml:"voltage"`
+	MaxCurrent                   float32               `json:"max_current" yaml:"max_current" validate:"gte=0"`
+	Phases                       uint8                 `json:"phases" yaml:"phases"`
+	ElectricityTargetConsumption int                   `json:"electricity_target_consumption" yaml:"electricity_target_consumption"`
+	Meters                       []*EnergyMeter        `json:"meters" yaml:"meters" validate:"dive" `
+	ModbusMeterSimulator         *ModbusMeterSimulator `json:"modbus_meter_simulator" yaml:"modbus_meter_simulator"`
+	Controller                   *GridController       `json:"controller" yaml:"controller"`
 }
 
 type Pvs struct {

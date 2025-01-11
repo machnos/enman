@@ -13,23 +13,23 @@ import (
 )
 
 type GridController interface {
-	SetTargetConsumption(targetConsumption int) error
+	SetElectricityTargetConsumption(electricityTargetConsumption int) error
 	GridConnected() (bool, error)
 }
 
 type Grid struct {
-	name               string
-	voltage            uint16
-	maxCurrentPerPhase float32
-	phases             uint8
-	targetConsumption  int
-	meters             []EnergyMeter
-	controller         GridController
-	electricityState   *electricity.State
-	electricityUsage   *electricity.Usage
-	gasUsage           *gas.Usage
-	waterUsage         *water.Usage
-	updateTicker       *time.Ticker
+	name                         string
+	voltage                      uint16
+	maxCurrentPerPhase           float32
+	phases                       uint8
+	electricityTargetConsumption int
+	meters                       []EnergyMeter
+	controller                   GridController
+	electricityState             *electricity.State
+	electricityUsage             *electricity.Usage
+	gasUsage                     *gas.Usage
+	waterUsage                   *water.Usage
+	updateTicker                 *time.Ticker
 }
 
 func (g *Grid) Name() string {
@@ -52,8 +52,8 @@ func (g *Grid) Phases() uint8 {
 	return g.phases
 }
 
-func (g *Grid) TargetConsumption() int {
-	return g.targetConsumption
+func (g *Grid) ElectricityTargetConsumption() int {
+	return g.electricityTargetConsumption
 }
 
 func (g *Grid) ElectricityState() *electricity.State {
@@ -67,6 +67,14 @@ func (g *Grid) GasUsage() *gas.Usage {
 }
 func (g *Grid) WaterUsage() *water.Usage {
 	return g.waterUsage
+}
+
+func (g *Grid) MaxConsumptionPerPhase() float32 {
+	return float32(g.Voltage()) * g.MaxCurrentPerPhase()
+}
+
+func (g *Grid) MaxElectricityConsumption() float32 {
+	return g.MaxConsumptionPerPhase() * float32(g.Phases())
 }
 
 func (g *Grid) StartMeasuring(context context.Context) {

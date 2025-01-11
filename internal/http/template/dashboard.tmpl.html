@@ -532,16 +532,17 @@ $(document).ready(function(){
                 })
 
                 function formatDate(date) {
-                    let hour = date.getHours();
-                    let endHour = hour + 1
-                    hour = hour < 10 ? ('0' + hour) : hour;
-                    let minutes = date.getMinutes()
+                    let hours = date.getHours();
+                    let minutes = date.getMinutes();
+                    date.setHours(date.getHours()+1, date.getMinutes()-1);
+                    let endHours = date.getHours();
+                    let endMinutes = date.getMinutes();
+
+                    hours = hours < 10 ? ('0' + hours) : hours;
                     minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                    if (endHour >= 24) {
-                        endHour = 0
-                    }
-                    endHour = endHour < 10 ? ('0' + endHour) : endHour;
-                    return hour + ':' + minutes + '-' + endHour + ':' + minutes;
+                    endHours = endHours < 10 ? ('0' + endHours) : endHours;
+                    endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                    return hours + ':' + minutes + '-' + endHours + ':' + endMinutes;
                 }
 
                 $('#container1').empty().append(graph);

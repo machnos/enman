@@ -20,7 +20,7 @@ type GridTargetConsumptionCalculator struct {
 func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionCalculator, error) {
 	calculator := &GridTargetConsumptionCalculator{
 		system:    system,
-		lastSetTo: system.Grid().targetConsumption,
+		lastSetTo: system.Grid().ElectricityTargetConsumption(),
 	}
 	if system.Grid().controller == nil {
 		return nil, fmt.Errorf("no grid controller configured")
@@ -46,7 +46,7 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 			case <-calculator.tickerDoneChannel:
 				return
 			case <-calculator.ticker.C:
-				addition := calculator.system.Grid().targetConsumption
+				addition := calculator.system.Grid().ElectricityTargetConsumption()
 				calculator.meterValues.Range(func(_, value any) bool {
 					data := value.(*meterData)
 					addition += data.addition()
@@ -54,7 +54,8 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 					return true
 				})
 				if calculator.lastSetTo != addition {
-					err := calculator.system.Grid().controller.SetTargetConsumption(addition)
+					targetConsumption := int(math.Min(float64(addition), float64(calculator.system.Grid().MaxElectricityConsumption())))
+					err := calculator.system.Grid().controller.SetElectricityTargetConsumption(targetConsumption)
 					if err != nil {
 						log.Errorf("Failed to set grid target consumption: %v", err)
 					} else {
@@ -91,12 +92,12 @@ func (g *GridTargetConsumptionCalculator) Stop() {
 	if g.ticker == nil {
 		return
 	}
-	if g.lastSetTo != g.system.Grid().targetConsumption {
-		err := g.system.Grid().controller.SetTargetConsumption(g.system.grid.TargetConsumption())
+	if g.lastSetTo != g.system.Grid().ElectricityTargetConsumption() {
+		err := g.system.Grid().controller.SetElectricityTargetConsumption(g.system.grid.ElectricityTargetConsumption())
 		if err != nil {
 			log.Errorf("Failed to reset grid target consumption to initial (configured) value: %v", err)
 		} else {
-			g.lastSetTo = g.system.Grid().targetConsumption
+			g.lastSetTo = g.system.Grid().ElectricityTargetConsumption()
 		}
 	}
 	g.ticker.Stop()

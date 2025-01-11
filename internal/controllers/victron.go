@@ -33,7 +33,7 @@ func (v *victronGridController) validGridController() error {
 	return nil
 }
 
-func (v *victronGridController) SetTargetConsumption(targetConsumption int) error {
+func (v *victronGridController) SetElectricityTargetConsumption(targetConsumption int) error {
 	if targetConsumption < math.MinInt16 || targetConsumption > math.MaxInt16 {
 		return fmt.Errorf("target consumption out of range (min: %d, max: %d)", math.MinInt16, math.MaxInt16)
 	}
