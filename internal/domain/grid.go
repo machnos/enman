@@ -77,6 +77,10 @@ func (g *Grid) MaxElectricityConsumption() float32 {
 	return g.MaxConsumptionPerPhase() * float32(g.Phases())
 }
 
+func (g *Grid) MinElectricityConsumption() float32 {
+	return g.MaxElectricityConsumption() * -1
+}
+
 func (g *Grid) StartMeasuring(context context.Context) {
 	if g.updateTicker != nil {
 		// Meter already started
