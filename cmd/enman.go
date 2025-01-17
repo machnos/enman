@@ -102,6 +102,10 @@ func main() {
 			syscall.Exit(-1)
 		}
 		system.AddBattery(battery.Name,
+			battery.Capacity,
+			battery.ChargingCoefficient,
+			battery.DischargingCoefficient,
+			battery.Voltage,
 			energyMeters,
 		)
 	}

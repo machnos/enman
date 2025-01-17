@@ -84,11 +84,15 @@ func (s *System) Batteries() []*Battery {
 	return s.batteries
 }
 
-func (s *System) AddBattery(name string, meters []EnergyMeter) *System {
+func (s *System) AddBattery(name string, capacity uint16, chargingCoefficient float32, dischargingCoefficient float32, voltage float32, meters []EnergyMeter) *System {
 	s.batteries = append(s.batteries, &Battery{
-		name:   name,
-		meters: meters,
-		state:  battery.NewState(),
+		name:                   name,
+		capacity:               capacity,
+		chargingCoefficient:    chargingCoefficient,
+		dischargingCoefficient: dischargingCoefficient,
+		voltage:                voltage,
+		meters:                 meters,
+		state:                  battery.NewState(),
 	})
 	return s
 }

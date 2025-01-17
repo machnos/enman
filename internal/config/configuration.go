@@ -57,8 +57,12 @@ type AcLoad struct {
 }
 
 type Battery struct {
-	Name   string         `json:"name" yaml:"name" validate:"required,max=50"`
-	Meters []*EnergyMeter `json:"meters" yaml:"meters" validate:"dive"`
+	Name                   string         `json:"name" yaml:"name" validate:"required,max=50"`
+	Capacity               uint16         `json:"capacity" yaml:"capacity" validate:"gt=0"`
+	ChargingCoefficient    float32        `json:"charging_coefficient" yaml:"charging_coefficient" validate:"gt=0"`
+	DischargingCoefficient float32        `json:"discharging_coefficient" yaml:"discharging_coefficient" validate:"gt=0"`
+	Voltage                float32        `json:"voltage" yaml:"voltage" validate:"gt=0"`
+	Meters                 []*EnergyMeter `json:"meters" yaml:"meters" validate:"dive"`
 }
 
 type EnergyMeter struct {
