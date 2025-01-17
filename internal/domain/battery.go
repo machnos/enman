@@ -64,6 +64,13 @@ func (b *Battery) MaxDischargePower() float32 {
 	return float32(b.Capacity()) * b.DischargingCoefficient() * b.Voltage()
 }
 
+func (b *Battery) AvailableCapacity() float32 {
+	if b.State() == nil || b.State().SoH() == 0 {
+		return float32(b.Capacity())
+	}
+	return (float32(b.Capacity()) * b.State().SoH()) / 100
+}
+
 func (b *Battery) StartMeasuring(context context.Context) {
 	if b.updateTicker != nil {
 		// Meter already started
