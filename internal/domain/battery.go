@@ -71,6 +71,38 @@ func (b *Battery) AvailableCapacity() float32 {
 	return (float32(b.Capacity()) * b.State().SoH()) / 100
 }
 
+func (b *Battery) ChargeDuration(chargePower float32, targetSoC float32) time.Duration {
+	if targetSoC >= b.state.SoC() {
+		return time.Duration(0)
+	}
+	// Charge power in watts
+	power := min(chargePower, b.MaxChargePower())
+	// State fo charge
+	soc := min(targetSoC, 100)
+	// kWh total capacity
+	kwhTotal := b.AvailableCapacity() * b.Voltage()
+	// kWh requested to be put in the battery
+	kwhChargeable := ((soc - b.State().SoC()) / 100) * kwhTotal
+	// Watt seconds requested to be put in the battery
+	wsChargeable := kwhChargeable * 3600000
+	return time.Second * time.Duration(int64(wsChargeable)/int64(power))
+}
+
+func (b *Battery) NecessaryChargePower(targetSoC float32, targetChargeTime time.Duration) float32 {
+	if targetSoC >= b.state.SoC() {
+		return 0
+	}
+	// State fo charge
+	soc := min(targetSoC, 100)
+	// kWh total capacity
+	kwhTotal := b.AvailableCapacity() * b.Voltage()
+	// kWh requested to be put in the battery
+	kwhChargeable := ((soc - b.State().SoC()) / 100) * kwhTotal
+	// Watt seconds requested to be put in the battery
+	wsChargeable := kwhChargeable * 3600000
+	return wsChargeable / float32(targetChargeTime.Seconds())
+}
+
 func (b *Battery) StartMeasuring(context context.Context) {
 	if b.updateTicker != nil {
 		// Meter already started

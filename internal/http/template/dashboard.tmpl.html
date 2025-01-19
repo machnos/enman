@@ -262,12 +262,14 @@ $(document).ready(function(){
                         value: (bucket.usages[aggregateFunctionMax].total_energy_consumed - bucket.usages[aggregateFunctionMin].total_energy_consumed),
                         provider: source + " - Consumed"
                     });
-                    markers.push({
-                        start_time: Date.parse(bucket.start_time),
-                        end_time: Date.parse(bucket.end_time),
-                        value: (bucket.usages[aggregateFunctionMax].total_energy_provided - bucket.usages[aggregateFunctionMin].total_energy_provided),
-                        provider: source + " - Provided"
-                    });
+                    if ("EvCharger" !== serie.role && "Pv" !== serie.role) {
+                        markers.push({
+                            start_time: Date.parse(bucket.start_time),
+                            end_time: Date.parse(bucket.end_time),
+                            value: (bucket.usages[aggregateFunctionMax].total_energy_provided - bucket.usages[aggregateFunctionMin].total_energy_provided),
+                            provider: source + " - Provided"
+                        });
+                    }
                 });
             });
             const graph = Plot.plot({
