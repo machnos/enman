@@ -119,10 +119,11 @@ type ModbusServer struct {
 }
 
 type Prices struct {
-	Country   string            `json:"country" yaml:"country"`
-	Area      string            `json:"area" yaml:"area"`
-	Providers []*EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
-	Entsoe    *Entsoe           `json:"entso-e" yaml:"entso-e"`
+	Country    string            `json:"country" yaml:"country"`
+	Area       string            `json:"area" yaml:"area"`
+	Providers  []*EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
+	Entsoe     *Entsoe           `json:"entso-e" yaml:"entso-e"`
+	EnergyZero bool              `json:"energy-zero" yaml:"energy-zero"`
 }
 
 type Entsoe struct {

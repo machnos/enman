@@ -23,7 +23,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -154,7 +153,7 @@ func main() {
 			}
 			rootImporters = append(rootImporters, importer)
 		}
-		if strings.ToLower(configuration.Prices.Country) == "nl" {
+		if configuration.Prices.EnergyZero {
 			importer := energyzero.NewEnergyZeroImporter(baseImporter)
 			rootImporters = append(rootImporters, importer)
 		}
