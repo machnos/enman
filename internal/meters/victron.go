@@ -32,7 +32,6 @@ func newVictronMeter(role constants.EnergySourceRole, modbusClient *modbus.Modbu
 		role,
 		nil,
 	}
-	// TODO if this is a valid meter the targetConsumption from the Grid should be synced with the percentageFromGrid on AcLoad instances.
 	return vm, vm.validMeter()
 }
 
