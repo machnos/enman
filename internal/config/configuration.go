@@ -123,7 +123,7 @@ type Prices struct {
 	Area       string            `json:"area" yaml:"area"`
 	Providers  []*EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
 	Entsoe     *Entsoe           `json:"entso-e" yaml:"entso-e"`
-	EnergyZero bool              `json:"energy-zero" yaml:"energy-zero"`
+	EnergyZero bool              `json:"energy_zero" yaml:"energy_zero"`
 }
 
 type Entsoe struct {
