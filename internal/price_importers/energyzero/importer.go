@@ -64,6 +64,10 @@ func (p *PriceImporter) importPricesForType(ctx context.Context, startDate time.
 		return nil, err
 	}
 	result := make([]*prices.EnergyPrice, 0)
+	_, hasPrices := data["prices"]
+	if !hasPrices {
+		return nil, fmt.Errorf("no prices found in energyzero response")
+	}
 	pricesData := data["Prices"].([]any)
 	for _, object := range pricesData {
 		pricePoint := object.(map[string]any)
