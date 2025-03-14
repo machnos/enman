@@ -33,6 +33,8 @@ func (p *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 }
 
 func (p *PriceImporter) importPricesForType(ctx context.Context, startDate time.Time, endDate time.Time, energyType prices.EnergyType) ([]*prices.EnergyPrice, error) {
+	const pricesTag = "Prices"
+
 	usageType := ""
 	switch energyType {
 	case prices.EnergyTypeElectricity:
@@ -64,11 +66,11 @@ func (p *PriceImporter) importPricesForType(ctx context.Context, startDate time.
 		return nil, err
 	}
 	result := make([]*prices.EnergyPrice, 0)
-	_, hasPrices := data["Prices"]
+	_, hasPrices := data[pricesTag]
 	if !hasPrices {
 		return nil, fmt.Errorf("no prices found in energyzero response")
 	}
-	pricesData := data["Prices"].([]any)
+	pricesData := data[pricesTag].([]any)
 	for _, object := range pricesData {
 		pricePoint := object.(map[string]any)
 		price := pricePoint["price"].(float64)
