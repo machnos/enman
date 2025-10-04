@@ -100,6 +100,7 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 	statement, err := sql.NewSelect(tableEnergyPrices).
 		WithColumns(sql.NewColumns(tdPrices.ColumnNames()...)...).
 		WithFilter(filter).
+		OrderAscending(sql.NewColumnWithName("time")).
 		Build()
 	if err != nil {
 		return nil, err

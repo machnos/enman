@@ -58,8 +58,8 @@ func (p *PvStateController) detectGridBasedPvProduction() {
 		p.gridBasedEnabled = false
 		return
 	}
-	// If any of the batteries is below the enable threshold SoC we consider oversupply possible.
-	// If all the batteries are over the disable threshold SoC we consider oversupply impossible.
+	// If any of the batteries is below the enabled threshold SoC we consider oversupply possible.
+	// If all the batteries are over the disabled threshold SoC we consider oversupply impossible.
 	allOverThreshold := true
 	for _, battery := range p.system.Batteries() {
 		if battery.State().SoC() < p.batteryRestartPercentage {

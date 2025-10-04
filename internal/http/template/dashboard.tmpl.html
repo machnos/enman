@@ -490,6 +490,7 @@ $(document).ready(function(){
         }).done(function(data) {
             if (data && data.prices) {
                 let markers = [];
+                let intervalMinutes = 60;
                 $.each(data.prices, function (series, prices) {
                     $.each(prices, function (i, price) {
                         markers.push({
@@ -499,10 +500,14 @@ $(document).ready(function(){
                         });
                     });
                 });
+                if (markers.length > 1) {
+                    const diffInMs = markers[1].time - markers[0].time;
+                    intervalMinutes = Math.round(diffInMs / 60000);
+                }
                 const graph = Plot.plot({
                     x: {
                         type: "time",
-                        interval: "hour"
+                        interval: intervalMinutes + ' minutes'
                     },
                     y: {
                         label: "Price in €"
@@ -521,11 +526,11 @@ $(document).ready(function(){
                             x: "time",
                             y: "value",
                             z: "provider",
-                            interval: "hour",
+                            interval: intervalMinutes + ' minutes',
                             fill: "value",
                             channels: {
                                 title: function(d) {
-                                    return 'Time: ' + formatDate(new Date(d.time))  + '\n Price: €' + d.value;
+                                    return 'Time: ' + formatDate(new Date(d.time), intervalMinutes)  + '\n Price: €' + d.value;
                                 }
                             },
                             tip: true
@@ -533,12 +538,12 @@ $(document).ready(function(){
                     ]
                 })
 
-                function formatDate(date) {
+                function formatDate(date, intervalMinutes) {
                     let hours = date.getHours();
                     let minutes = date.getMinutes();
-                    date.setHours(date.getHours()+1, date.getMinutes()-1);
-                    let endHours = date.getHours();
-                    let endMinutes = date.getMinutes();
+                    const endDate = new Date(date.getTime() + intervalMinutes*60000);
+                    let endHours = endDate.getHours();
+                    let endMinutes = endDate.getMinutes();
 
                     hours = hours < 10 ? ('0' + hours) : hours;
                     minutes = minutes < 10 ? ('0' + minutes) : minutes;

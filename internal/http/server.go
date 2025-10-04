@@ -13,19 +13,20 @@ import (
 	"enman/internal/http/api/prices"
 	"enman/internal/log"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/sessions"
 	"html/template"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/sessions"
 )
 
 const (
 	d3           = "d3/d3-7.9.0.min.js"
 	jquery       = "jquery/jquery-3.6.4.min.js"
-	plot         = "plot/plot-0.6.16.min.js"
+	plot         = "plot/plot-0.6.17.min.js"
 	bootstrapJs  = "bootstrap/bootstrap.bundle-5.3.3.min.js"
 	bootstrapCss = "bootstrap/bootstrap-5.3.3.min.css"
 )
