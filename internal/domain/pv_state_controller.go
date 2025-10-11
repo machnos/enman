@@ -14,10 +14,14 @@ type PvStateController struct {
 	disableFormula           string
 	batteryCutoffPercentage  float32
 	batteryRestartPercentage float32
-	gridBasedEnabled         bool
-	priceBasedEnabled        bool
-	priceBasedPVControl      *priceBasedPVControl
-	updateTicker             *time.Ticker
+	// Boolean indicating energy can flow to the grid
+	gridBasedEnabled bool
+	// Boolean indicating energy can flow to batteries
+	batteryBasedEnabled bool
+	// Boolean indicating energy can flow to the grid based on the price
+	priceBasedEnabled   bool
+	priceBasedPVControl *priceBasedPVControl
+	updateTicker        *time.Ticker
 }
 
 func NewPvStateController(system *System, disableFormula string, batteryCutoffPercentage float32, batteryRestartPercentage float32) *PvStateController {
@@ -27,6 +31,7 @@ func NewPvStateController(system *System, disableFormula string, batteryCutoffPe
 		batteryCutoffPercentage:  batteryCutoffPercentage,
 		batteryRestartPercentage: batteryRestartPercentage,
 		gridBasedEnabled:         true,
+		batteryBasedEnabled:      false,
 		priceBasedEnabled:        true,
 	}
 	controller.priceBasedPVControl = newPriceBasedPVControl(controller)
@@ -35,6 +40,7 @@ func NewPvStateController(system *System, disableFormula string, batteryCutoffPe
 
 func (p *PvStateController) detectGridBasedPvProduction() {
 	if p.system.Grid().controller == nil {
+		// No grid controller. We assume the grid is connected.
 		p.gridBasedEnabled = true
 		return
 	}
@@ -49,39 +55,48 @@ func (p *PvStateController) detectGridBasedPvProduction() {
 		}
 		p.gridBasedEnabled = true
 		return
-	}
-	// We don't have a grid connection at this point
-	if len(p.system.Batteries()) < 1 {
+	} else {
 		if p.gridBasedEnabled {
-			log.Info("No batteries found and grid is lost. Pv production based on grid connection will be disabled.")
+			log.Infof("Grid is not connected. Pv production based on grid connection will be disabled.")
 		}
 		p.gridBasedEnabled = false
+		return
+	}
+}
+
+func (p *PvStateController) detectBatteryBasedPvProduction() {
+	// We don't have a grid connection at this point
+	if len(p.system.Batteries()) < 1 {
+		if p.batteryBasedEnabled {
+			log.Info("No batteries found. Pv production based on battery SoC will be disabled.")
+		}
+		p.batteryBasedEnabled = false
 		return
 	}
 	// If any of the batteries is below the enabled threshold SoC we consider oversupply possible.
 	// If all the batteries are over the disabled threshold SoC we consider oversupply impossible.
-	allOverThreshold := true
+	allBatteriesOverCutOffPercentage := true
 	for _, battery := range p.system.Batteries() {
 		if battery.State().SoC() < p.batteryRestartPercentage {
-			if !p.gridBasedEnabled {
-				log.Infof("Grid is lost but battery below %.0f SoC detected. Pv production based on grid connection will be enabled.", p.batteryRestartPercentage)
+			if !p.batteryBasedEnabled {
+				log.Infof("Battery below %.0f SoC detected. Pv production based on battery SoC will be enabled.", p.batteryRestartPercentage)
 			}
-			p.gridBasedEnabled = true
+			p.batteryBasedEnabled = true
 			return
 		} else if battery.State().SoC() < p.batteryCutoffPercentage {
-			allOverThreshold = false
+			allBatteriesOverCutOffPercentage = false
 			break
 		}
 	}
-	if allOverThreshold {
-		if p.gridBasedEnabled {
-			log.Infof("Grid is lost and all batteries are over %.0f SoC. Pv production based on grid connection will be disabled.", p.batteryCutoffPercentage)
+	if allBatteriesOverCutOffPercentage {
+		if p.batteryBasedEnabled {
+			log.Infof("All batteries are over %.0f SoC. Pv production based on battery SoC will be disabled.", p.batteryCutoffPercentage)
 		}
-		p.gridBasedEnabled = false
+		p.batteryBasedEnabled = false
 		return
 	}
-	// Grid is lost, but not all batteries are over their threshold.
-	// Do nothing at this point. Batteries are charged until their all above p.batteryCutoffPercentage
+	// Not all batteries are over cutoff percentage, but no of them is below batteryRestartPercentage
+	// Do nothing at this point. Batteries are charged until they are all above batteryCutoffPercentage
 }
 
 func (p *PvStateController) Start(context context.Context) {
@@ -107,7 +122,7 @@ func (p *PvStateController) Start(context context.Context) {
 				return
 			case _ = <-p.updateTicker.C:
 				p.detectGridBasedPvProduction()
-				enabled := p.priceBasedEnabled && p.gridBasedEnabled
+				enabled := p.priceBasedEnabled && p.gridBasedEnabled && p.batteryBasedEnabled
 				for _, pv := range p.system.Pvs() {
 					if pv.controller != nil {
 						if enabled {
