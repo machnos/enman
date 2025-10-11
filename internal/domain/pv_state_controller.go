@@ -31,7 +31,7 @@ func NewPvStateController(system *System, disableFormula string, batteryCutoffPe
 		batteryCutoffPercentage:  batteryCutoffPercentage,
 		batteryRestartPercentage: batteryRestartPercentage,
 		gridBasedEnabled:         true,
-		batteryBasedEnabled:      false,
+		batteryBasedEnabled:      true,
 		priceBasedEnabled:        true,
 	}
 	controller.priceBasedPVControl = newPriceBasedPVControl(controller)
