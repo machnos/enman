@@ -20,11 +20,12 @@ import (
 	"enman/internal/price_importers/energyzero"
 	"enman/internal/price_importers/entsoe"
 	"flag"
-	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {

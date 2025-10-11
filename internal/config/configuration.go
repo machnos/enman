@@ -2,11 +2,12 @@ package config
 
 import (
 	"encoding/json"
-	gpv "github.com/go-playground/validator/v10"
-	"gopkg.in/yaml.v3"
 	"os"
 	"strings"
 	"time"
+
+	gpv "github.com/go-playground/validator/v10"
+	"gopkg.in/yaml.v3"
 )
 
 type Configuration struct {

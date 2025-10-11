@@ -1,9 +1,10 @@
 package http
 
 import (
-	"github.com/gorilla/sessions"
 	"net/http"
 	"net/url"
+
+	"github.com/gorilla/sessions"
 )
 
 type Middleware struct {
