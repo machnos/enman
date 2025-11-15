@@ -123,7 +123,12 @@ func (p *PvStateController) Start(context context.Context) {
 			case _ = <-p.updateTicker.C:
 				p.detectGridBasedPvProduction()
 				p.detectBatteryBasedPvProduction()
-				enabled := p.priceBasedEnabled && (p.gridBasedEnabled || p.batteryBasedEnabled)
+				enabled := p.batteryBasedEnabled
+				if !enabled {
+					// We can't store energy in the batteries
+					// Check if the grid is available, and if so, if prices are ok to provided back to grid.
+					enabled = p.gridBasedEnabled && p.priceBasedEnabled
+				}
 				for _, pv := range p.system.Pvs() {
 					if pv.controller != nil {
 						if enabled {
