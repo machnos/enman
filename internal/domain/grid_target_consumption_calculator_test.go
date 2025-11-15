@@ -19,10 +19,10 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	system.SetGrid("Grid", 230, 25, 3, targetConsumption, nil, mockController)
 	system.AddAcLoad("EvCharger1", constants.EnergySourceRoleEvCharger, percentageFromGrid, nil)
 	calculator, err := NewGridTargetConsumptionCalculator(system)
-	defer calculator.Stop()
 	if err != nil {
 		t.Error(err)
 	}
+	defer calculator.Stop()
 	totalPower := 0
 	loops := 10
 	mockController.wg.Add(1)
@@ -49,7 +49,7 @@ type MockGridController struct {
 	wg                sync.WaitGroup
 }
 
-func (m *MockGridController) SetTargetConsumption(targetConsumption int) error {
+func (m *MockGridController) SetElectricityTargetConsumption(targetConsumption int) error {
 	defer m.wg.Done()
 	m.targetConsumption = targetConsumption
 	return nil
