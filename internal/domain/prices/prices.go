@@ -56,8 +56,13 @@ func (epp *EnergyPriceProvider) EnergyTypesAsStrings() []string {
 
 type EnergyPrice struct {
 	Time             time.Time
+	EndTime          time.Time
 	ProviderName     string
 	EnergyType       EnergyType
 	ConsumptionPrice float32
 	FeedbackPrice    float32
+}
+
+func (ep *EnergyPrice) Duration() time.Duration {
+	return ep.EndTime.Sub(ep.Time)
 }

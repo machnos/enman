@@ -191,6 +191,7 @@ func (e *PriceImporter) ImportPrices(ctx context.Context, startDate time.Time, e
 				pointStart := start.Add(interval * time.Duration(point.Position-1))
 				entsoePrice := &prices.EnergyPrice{
 					Time:             pointStart.Truncate(time.Minute),
+					EndTime:          pointStart.Add(interval),
 					ProviderName:     "ENTSO-E",
 					EnergyType:       prices.EnergyTypeElectricity,
 					ConsumptionPrice: price,

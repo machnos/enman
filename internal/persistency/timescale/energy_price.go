@@ -30,6 +30,7 @@ func (t *timescaleRepository) newEnergyPricesDefinition() *sql.TableDefinition {
 		Name: tableEnergyPrices,
 		Columns: []*sql.ColumnDefinition{
 			{"time", "TIMESTAMPTZ", false},
+			{"end_time", "TIMESTAMPTZ", false},
 			{"provider", "VARCHAR(50)", false},
 			{"energy_type", "VARCHAR(20)", false},
 			{"consumption_price", "DOUBLE PRECISION", true},
@@ -118,6 +119,10 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 			return nil, err
 		}
 		energyPrices = append(energyPrices, t.rowValuesToEnergyPrice(values))
+		maxIx := len(energyPrices) - 1
+		if maxIx >= 1 {
+			energyPrices[maxIx-1].EndTime = energyPrices[maxIx].Time
+		}
 	}
 	return energyPrices, nil
 }
@@ -171,6 +176,7 @@ func (t *timescaleRepository) StoreEnergyPrice(price *prices.EnergyPrice) error 
 	t.registerEnergyPriceProvider(price.ProviderName)
 	_, err := t.dbPool.Exec(context.Background(), t.insertQueries[tableEnergyPrices],
 		price.Time,
+		price.EndTime,
 		price.ProviderName,
 		price.EnergyType.String(),
 		price.ConsumptionPrice,
@@ -180,16 +186,17 @@ func (t *timescaleRepository) StoreEnergyPrice(price *prices.EnergyPrice) error 
 }
 
 func (t *timescaleRepository) rowValuesToEnergyPrice(values []any) *prices.EnergyPrice {
-	energyType, err := prices.ParseEnergyType(values[2].(string))
+	energyType, err := prices.ParseEnergyType(values[3].(string))
 	if err != nil {
 		log.Warning(err.Error())
 	}
 	return &prices.EnergyPrice{
 		Time:             values[0].(time.Time),
-		ProviderName:     values[1].(string),
+		EndTime:          values[1].(time.Time),
+		ProviderName:     values[2].(string),
 		EnergyType:       energyType,
-		ConsumptionPrice: float32(values[3].(float64)),
-		FeedbackPrice:    float32(values[4].(float64)),
+		ConsumptionPrice: float32(values[4].(float64)),
+		FeedbackPrice:    float32(values[5].(float64)),
 	}
 }
 
