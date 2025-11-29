@@ -53,12 +53,13 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 					data.reset()
 					return true
 				})
+
 				if calculator.lastSetTo != addition {
 					targetConsumption := 0
 					if addition >= 0 {
 						targetConsumption = min(addition, int(calculator.system.Grid().MaxElectricityConsumption()))
 					} else {
-						targetConsumption = max(addition, int(calculator.system.Grid().MinElectricityConsumption()))
+						targetConsumption = max(addition, int(calculator.system.Grid().MaxElectricityProduction()*-1))
 					}
 					err := calculator.system.Grid().controller.SetElectricityTargetConsumption(targetConsumption)
 					if err != nil {

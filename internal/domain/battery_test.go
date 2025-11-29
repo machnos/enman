@@ -64,7 +64,7 @@ func TestBattery_ChargeDuration(t *testing.T) {
 	// The SoC = 50% so we need to add 1.92kWh to the battery.
 
 	// We charge with 1000 watts, so we expect the charge to be exactly 1,92 hours -> 6912 seconds
-	duration := b.ChargeDuration(1000, 100)
+	duration, _ := b.ChargeDuration(1000, 100)
 	expectedDuration := time.Duration(6912) * time.Second
 	if expectedDuration != duration {
 		t.Errorf("Expected a charge duration of %v, got %v", expectedDuration, duration)

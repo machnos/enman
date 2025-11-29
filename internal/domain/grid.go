@@ -77,8 +77,12 @@ func (g *Grid) MaxElectricityConsumption() float32 {
 	return g.MaxConsumptionPerPhase() * float32(g.Phases())
 }
 
-func (g *Grid) MinElectricityConsumption() float32 {
-	return g.MaxElectricityConsumption() * -1
+func (g *Grid) MaxProductionPerPhase() float32 {
+	return float32(g.Voltage()) * g.MaxCurrentPerPhase()
+}
+
+func (g *Grid) MaxElectricityProduction() float32 {
+	return g.MaxProductionPerPhase() * float32(g.Phases())
 }
 
 func (g *Grid) StartMeasuring(context context.Context) {
