@@ -23,7 +23,13 @@ type Configuration struct {
 }
 
 type Log struct {
-	Level uint8 `json:"level" yaml:"level"`
+	Level    uint8         `json:"level" yaml:"level"`
+	Packages []*LogPackage `json:"packages" yaml:"packages" validate:"dive"`
+}
+
+type LogPackage struct {
+	Name  string `json:"name" yaml:"name" validate:"required"`
+	Level uint8  `json:"level" yaml:"level"`
 }
 
 type Grid struct {

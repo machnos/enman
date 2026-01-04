@@ -46,9 +46,76 @@ func (l Level) String() string {
 
 var ActiveLevel = LvlInfo
 var Writer io.Writer = os.Stdout
+var packageLevels = make(map[string]Level) // Hierarchical package-specific log levels
+
+// SetPackageLevel sets the log level for a specific package
+func SetPackageLevel(packageName string, level Level) {
+	packageLevels[packageName] = level
+}
+
+// SetPackageLevels sets multiple package log levels at once
+func SetPackageLevels(levels map[string]Level) {
+	packageLevels = levels
+}
+
+// getEffectiveLevel returns the appropriate log level for a caller
+// It checks for package-specific levels first, then falls back to root level
+func getEffectiveLevel(caller string) Level {
+	// Check for exact package matches and parent package matches
+	// e.g., for "enman/internal/price_importers/entsoe.(*PriceImporter).ImportPrices"
+	// we check: "enman/internal/price_importers/entsoe", "enman/internal/price_importers", etc.
+
+	for len(caller) > 0 {
+		// Extract package path by removing function/method names
+		lastSlash := -1
+		for i := len(caller) - 1; i >= 0; i-- {
+			if caller[i] == '/' {
+				lastSlash = i
+				break
+			}
+			// Stop at function/method separators
+			if caller[i] == '.' || caller[i] == '(' {
+				break
+			}
+		}
+
+		if lastSlash == -1 {
+			break
+		}
+
+		// Try to find a match for this package level
+		packagePath := caller[:lastSlash]
+		if level, exists := packageLevels[packagePath]; exists {
+			return level
+		}
+
+		// Move to parent package
+		lastSlash = -1
+		for i := len(packagePath) - 1; i >= 0; i-- {
+			if packagePath[i] == '/' {
+				lastSlash = i
+				break
+			}
+		}
+
+		if lastSlash == -1 {
+			break
+		}
+		caller = packagePath[:lastSlash]
+	}
+
+	// Fall back to root level if no package-specific level found
+	return ActiveLevel
+}
 
 func TraceEnabled() bool {
-	return ActiveLevel <= LvlTrace
+	pc, _, _, ok := runtime.Caller(1)
+	details := runtime.FuncForPC(pc)
+	caller := "?"
+	if ok && details != nil {
+		caller = details.Name()
+	}
+	return getEffectiveLevel(caller) <= LvlTrace
 }
 
 func Trace(message string) {
@@ -66,7 +133,13 @@ func Tracef(format string, a ...any) {
 }
 
 func DebugEnabled() bool {
-	return ActiveLevel <= LvlDebug
+	pc, _, _, ok := runtime.Caller(1)
+	details := runtime.FuncForPC(pc)
+	caller := "?"
+	if ok && details != nil {
+		caller = details.Name()
+	}
+	return getEffectiveLevel(caller) <= LvlDebug
 }
 
 func Debug(message string) {
@@ -84,7 +157,13 @@ func Debugf(format string, a ...any) {
 }
 
 func InfoEnabled() bool {
-	return ActiveLevel <= LvlInfo
+	pc, _, _, ok := runtime.Caller(1)
+	details := runtime.FuncForPC(pc)
+	caller := "?"
+	if ok && details != nil {
+		caller = details.Name()
+	}
+	return getEffectiveLevel(caller) <= LvlInfo
 }
 
 func Info(message string) {
@@ -102,7 +181,13 @@ func Infof(format string, a ...any) {
 }
 
 func WarningEnabled() bool {
-	return ActiveLevel <= LvlWarning
+	pc, _, _, ok := runtime.Caller(1)
+	details := runtime.FuncForPC(pc)
+	caller := "?"
+	if ok && details != nil {
+		caller = details.Name()
+	}
+	return getEffectiveLevel(caller) <= LvlWarning
 }
 
 func Warning(message string) {
@@ -120,7 +205,13 @@ func Warningf(format string, a ...any) {
 }
 
 func ErrorEnabled() bool {
-	return ActiveLevel <= LvlError
+	pc, _, _, ok := runtime.Caller(1)
+	details := runtime.FuncForPC(pc)
+	caller := "?"
+	if ok && details != nil {
+		caller = details.Name()
+	}
+	return getEffectiveLevel(caller) <= LvlError
 }
 
 func Error(message string) {
@@ -138,7 +229,13 @@ func Errorf(format string, a ...any) {
 }
 
 func FatalEnabled() bool {
-	return ActiveLevel <= LvlFatal
+	pc, _, _, ok := runtime.Caller(1)
+	details := runtime.FuncForPC(pc)
+	caller := "?"
+	if ok && details != nil {
+		caller = details.Name()
+	}
+	return getEffectiveLevel(caller) <= LvlFatal
 }
 
 func Fatal(message string) {
@@ -162,5 +259,12 @@ func log(level Level, message string) {
 	if ok && details != nil {
 		caller = details.Name()
 	}
+
+	// Check if this log level should be logged based on package-specific or root level
+	effectiveLevel := getEffectiveLevel(caller)
+	if level < effectiveLevel {
+		return
+	}
+
 	_, _ = Writer.Write([]byte(fmt.Sprintf("%s - %s - (%s): %s\n", time.Now().Format(dateLayout), level, caller, message)))
 }

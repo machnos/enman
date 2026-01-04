@@ -49,6 +49,15 @@ func main() {
 		log.ActiveLevel = log.Level(configuration.Log.Level)
 	}
 
+	// Initialize package-specific log levels
+	if configuration.Log != nil && configuration.Log.Packages != nil {
+		packageLevels := make(map[string]log.Level)
+		for _, pkg := range configuration.Log.Packages {
+			packageLevels[pkg.Name] = log.Level(pkg.Level)
+		}
+		log.SetPackageLevels(packageLevels)
+	}
+
 	// Setup system
 	system := domain.NewSystem(time.Now().Location())
 	energyMeters, err := meters.ProbeEnergyMeters(constants.EnergySourceRoleGrid, configuration.Grid.Meters)
