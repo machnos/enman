@@ -158,8 +158,6 @@ func feedTestPipe(t *testing.T, in chan []byte, out io.WriteCloser) {
 			return
 		}
 	}
-
-	return
 }
 
 func TestModbusRTUSerialCharTime(t *testing.T) {

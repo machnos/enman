@@ -27,7 +27,7 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	loops := 10
 	mockController.wg.Add(1)
 	for i := 0; i < loops; i++ {
-		power := int(rand.Int31n(math.MaxInt16))
+		power := min(int(rand.Int31n(math.MaxInt16)), int(system.Grid().MaxElectricityConsumption()))
 		totalPower += power
 		events.ElectricityMeterReadings.Trigger(events.NewElectricityMeterValues().
 			SetName("EvCharger1").
@@ -40,7 +40,7 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	avg := totalPower / loops
 	expected := (avg * int(percentageFromGrid) / 100) + targetConsumption
 	if mockController.targetConsumption != expected {
-		t.Errorf("target consumpetion expected = %d, got %d", expected, mockController.targetConsumption)
+		t.Errorf("target consumption expected = %d, got %d", expected, mockController.targetConsumption)
 	}
 }
 

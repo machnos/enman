@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
 	"enman/internal/config"
 	"enman/internal/domain"
@@ -36,6 +37,16 @@ const (
 var staticContent embed.FS
 var templates *template.Template
 
+// generateRandomSecret generates a cryptographically secure random secret
+func generateRandomSecret(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	// Convert to hex string for better compatibility
+	return fmt.Sprintf("%x", bytes), nil
+}
+
 type Server struct {
 	system      *domain.System
 	repository  repository.Repository
@@ -45,10 +56,22 @@ type Server struct {
 }
 
 func NewServer(config *config.Http, system *domain.System, repository repository.Repository) (*Server, error) {
+	// Get or generate session secret
+	sessionSecret := config.SessionSecret
+	if sessionSecret == "" {
+		// Generate a secure random secret if not provided in configuration
+		secret, err := generateRandomSecret(32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate session secret: %w", err)
+		}
+		sessionSecret = secret
+		log.Warning("No session secret provided in configuration. Generated a random one. For production, set 'session_secret' in http configuration.")
+	}
+
 	s := &Server{
 		system:      system,
 		repository:  repository,
-		cookieStore: sessions.NewCookieStore([]byte("my_secret_key")),
+		cookieStore: sessions.NewCookieStore([]byte(sessionSecret)),
 	}
 
 	contextRoot := config.ContextRoot

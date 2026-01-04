@@ -112,7 +112,7 @@ func (rt *rtuTransport) ReadRequest() (*pdu, error) {
 	if !ok {
 		return nil, ErrConfigurationError
 	}
-SkipFrameError:
+
 	for {
 		rxbuf := make([]byte, maxRTUFrameLength)
 		// if the line was active less than 3.5 char times ago,
@@ -125,21 +125,14 @@ SkipFrameError:
 		byteCount, err := wrapper.port.Read(rxbuf)
 		if err != nil {
 			log.Error(err.Error())
-		}
-
-		if err != nil {
 			return nil, err
 		}
 		if byteCount <= 4 {
 			err = ErrShortFrame
 			return nil, err
 		}
-		if err != nil && err != io.ErrUnexpectedEOF {
-			return nil, err
-		}
 
 		if byteCount != 0 {
-
 			// Set the length of the packet to the number of read bytes.
 			packet := rxbuf[:byteCount]
 			var crc crc
@@ -149,15 +142,6 @@ SkipFrameError:
 			// compare CRC values
 			if !crc.isEqual(packet[(byteCount-2)], packet[(byteCount-1)]) {
 				return nil, ErrBadCRC
-			}
-			//frame, err := NewRTUFrame(packet)
-			if err != nil {
-				log.Errorf("bad serial frame error %v", err)
-				//The next line prevents RTU server from exiting when it receives a bad frame. Simply discard the erroneous
-				//frame and wait for next frame by jumping back to the beginning of the 'for' loop.
-				log.Error("Keep the RTU server running!!")
-				continue SkipFrameError
-				//return
 			}
 
 			rt.lastActivity = time.Now()
@@ -169,7 +153,6 @@ SkipFrameError:
 			}, nil
 		}
 	}
-	return nil, nil
 }
 
 // Writes a response to the rtu link.

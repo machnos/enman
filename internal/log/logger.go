@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -44,13 +45,27 @@ func (l Level) String() string {
 	return fmt.Sprintf("%d", l)
 }
 
-var ActiveLevel = LvlInfo
-var Writer io.Writer = os.Stdout
-var packageLevels = make(map[string]Level)    // Hierarchical package-specific log levels
-var callerLevelCache = make(map[string]Level) // Cache of resolved log levels per caller
+var (
+	ActiveLevel                   = LvlInfo
+	Writer           io.Writer    = os.Stdout
+	packageLevels                 = make(map[string]Level) // Hierarchical package-specific log levels
+	callerLevelCache              = make(map[string]Level) // Cache of resolved log levels per caller
+	logMutex         sync.RWMutex                          // Protects concurrent access to log state
+)
+
+// SetActiveLevel sets the root log level for all packages
+func SetActiveLevel(level Level) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+	ActiveLevel = level
+	// Invalidate cache when root level changes
+	callerLevelCache = make(map[string]Level)
+}
 
 // SetPackageLevel sets the log level for a specific package
 func SetPackageLevel(packageName string, level Level) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	packageLevels[packageName] = level
 	// Clear cache when package levels change
 	callerLevelCache = make(map[string]Level)
@@ -58,23 +73,53 @@ func SetPackageLevel(packageName string, level Level) {
 
 // SetPackageLevels sets multiple package log levels at once
 func SetPackageLevels(levels map[string]Level) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
 	packageLevels = levels
 	// Clear cache when package levels change
 	callerLevelCache = make(map[string]Level)
+}
+
+// SetWriter changes the output writer for log messages
+func SetWriter(w io.Writer) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+	if w != nil {
+		Writer = w
+	}
+}
+
+// getCaller extracts the function/method name from the call stack
+// depth: number of frames to skip (2 for direct calls, 3+ for wrapper functions)
+func getCaller(depth int) string {
+	pc, _, _, ok := runtime.Caller(depth)
+	if !ok {
+		return "?"
+	}
+	details := runtime.FuncForPC(pc)
+	if details == nil {
+		return "?"
+	}
+	return details.Name()
 }
 
 // getEffectiveLevel returns the appropriate log level for a caller
 // It checks for package-specific levels first, then falls back to root level
 // Results are cached to avoid expensive string parsing on repeated calls
 func getEffectiveLevel(caller string) Level {
+	logMutex.RLock()
+
 	// Check cache first
 	if level, exists := callerLevelCache[caller]; exists {
+		logMutex.RUnlock()
 		return level
 	}
+
 	// Check for exact package matches and parent package matches
 	// e.g., for "enman/internal/price_importers/entsoe.(*PriceImporter).ImportPrices"
 	// we check: "enman/internal/price_importers/entsoe", "enman/internal/price_importers", etc.
 
+	originalCaller := caller
 	for len(caller) > 0 {
 		// Extract package path by removing function/method names
 		lastSlash := -1
@@ -97,7 +142,10 @@ func getEffectiveLevel(caller string) Level {
 		packagePath := caller[:lastSlash]
 		if level, exists := packageLevels[packagePath]; exists {
 			// Cache the result before returning
-			callerLevelCache[caller] = level
+			logMutex.RUnlock()
+			logMutex.Lock()
+			callerLevelCache[originalCaller] = level
+			logMutex.Unlock()
 			return level
 		}
 
@@ -119,168 +167,153 @@ func getEffectiveLevel(caller string) Level {
 	// Fall back to root level if no package-specific level found
 	result := ActiveLevel
 
+	logMutex.RUnlock()
+	logMutex.Lock()
 	// Cache the result
-	callerLevelCache[caller] = result
+	callerLevelCache[originalCaller] = result
+	logMutex.Unlock()
 	return result
 }
 
 func TraceEnabled() bool {
-	pc, _, _, ok := runtime.Caller(1)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+	caller := getCaller(2)
 	return getEffectiveLevel(caller) <= LvlTrace
 }
 
 func Trace(message string) {
-	if !TraceEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlTrace {
 		return
 	}
-	log(LvlTrace, message)
+	logWithCaller(LvlTrace, caller, message)
 }
 
 func Tracef(format string, a ...any) {
-	if !TraceEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlTrace {
 		return
 	}
-	log(LvlTrace, fmt.Sprintf(format, a...))
+	logWithCaller(LvlTrace, caller, fmt.Sprintf(format, a...))
 }
 
 func DebugEnabled() bool {
-	pc, _, _, ok := runtime.Caller(1)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+	caller := getCaller(2)
 	return getEffectiveLevel(caller) <= LvlDebug
 }
 
 func Debug(message string) {
-	if !DebugEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlDebug {
 		return
 	}
-	log(LvlDebug, message)
+	logWithCaller(LvlDebug, caller, message)
 }
 
 func Debugf(format string, a ...any) {
-	if !DebugEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlDebug {
 		return
 	}
-	log(LvlDebug, fmt.Sprintf(format, a...))
+	logWithCaller(LvlDebug, caller, fmt.Sprintf(format, a...))
 }
 
 func InfoEnabled() bool {
-	pc, _, _, ok := runtime.Caller(1)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+	caller := getCaller(2)
 	return getEffectiveLevel(caller) <= LvlInfo
 }
 
 func Info(message string) {
-	if !InfoEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlInfo {
 		return
 	}
-	log(LvlInfo, message)
+	logWithCaller(LvlInfo, caller, message)
 }
 
 func Infof(format string, a ...any) {
-	if !InfoEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlInfo {
 		return
 	}
-	log(LvlInfo, fmt.Sprintf(format, a...))
+	logWithCaller(LvlInfo, caller, fmt.Sprintf(format, a...))
 }
 
 func WarningEnabled() bool {
-	pc, _, _, ok := runtime.Caller(1)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+	caller := getCaller(2)
 	return getEffectiveLevel(caller) <= LvlWarning
 }
 
 func Warning(message string) {
-	if !WarningEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlWarning {
 		return
 	}
-	log(LvlWarning, message)
+	logWithCaller(LvlWarning, caller, message)
 }
 
 func Warningf(format string, a ...any) {
-	if !WarningEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlWarning {
 		return
 	}
-	log(LvlWarning, fmt.Sprintf(format, a...))
+	logWithCaller(LvlWarning, caller, fmt.Sprintf(format, a...))
 }
 
 func ErrorEnabled() bool {
-	pc, _, _, ok := runtime.Caller(1)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+	caller := getCaller(2)
 	return getEffectiveLevel(caller) <= LvlError
 }
 
 func Error(message string) {
-	if !ErrorEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlError {
 		return
 	}
-	log(LvlError, message)
+	logWithCaller(LvlError, caller, message)
 }
 
 func Errorf(format string, a ...any) {
-	if !ErrorEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlError {
 		return
 	}
-	log(LvlError, fmt.Sprintf(format, a...))
+	logWithCaller(LvlError, caller, fmt.Sprintf(format, a...))
 }
 
 func FatalEnabled() bool {
-	pc, _, _, ok := runtime.Caller(1)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+	caller := getCaller(2)
 	return getEffectiveLevel(caller) <= LvlFatal
 }
 
 func Fatal(message string) {
-	if !FatalEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlFatal {
 		return
 	}
-	log(LvlFatal, message)
+	logWithCaller(LvlFatal, caller, message)
 }
 
 func Fatalf(format string, a ...any) {
-	if !FatalEnabled() {
+	caller := getCaller(2)
+	if getEffectiveLevel(caller) > LvlFatal {
 		return
 	}
-	log(LvlFatal, fmt.Sprintf(format, a...))
+	logWithCaller(LvlFatal, caller, fmt.Sprintf(format, a...))
 }
 
-func log(level Level, message string) {
-	pc, _, _, ok := runtime.Caller(2)
-	details := runtime.FuncForPC(pc)
-	caller := "?"
-	if ok && details != nil {
-		caller = details.Name()
-	}
+// logWithCaller writes a log message with the caller information
+// Thread-safe with mutex protection and fallback to stderr on write errors
+func logWithCaller(level Level, caller string, message string) {
+	logEntry := fmt.Sprintf("%s - %s - (%s): %s\n", time.Now().Format(dateLayout), level, caller, message)
 
-	// Check if this log level should be logged based on package-specific or root level
-	effectiveLevel := getEffectiveLevel(caller)
-	if level < effectiveLevel {
-		return
-	}
+	logMutex.Lock()
+	writer := Writer
+	logMutex.Unlock()
 
-	_, _ = Writer.Write([]byte(fmt.Sprintf("%s - %s - (%s): %s\n", time.Now().Format(dateLayout), level, caller, message)))
+	// Attempt to write to the configured writer
+	if _, err := writer.Write([]byte(logEntry)); err != nil {
+		// Fallback to stderr if primary writer fails
+		_, _ = os.Stderr.WriteString(fmt.Sprintf("[LOG ERROR] Failed to write to primary logger: %v\n", err))
+		_, _ = os.Stderr.WriteString(logEntry)
+	}
 }

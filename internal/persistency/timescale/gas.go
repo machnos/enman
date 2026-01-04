@@ -23,8 +23,8 @@ func (t *timescaleRepository) newGasSourcesDefinition() *sql.TableDefinition {
 	return &sql.TableDefinition{
 		Name: tableGasSources,
 		Columns: []*sql.ColumnDefinition{
-			{"name", "VARCHAR(50)", false},
-			{"role", "VARCHAR(25)", false},
+			{Name: "name", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "role", SqlType: "VARCHAR(25)", Nullable: false},
 		},
 		PrimaryKey: []string{"name"},
 	}
@@ -34,13 +34,13 @@ func (t *timescaleRepository) newGasUsagesDefinition() *sql.TableDefinition {
 	td := &sql.TableDefinition{
 		Name: tableGasUsages,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"gas_source", "VARCHAR(50)", false},
-			{"gas_consumed", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "gas_source", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "gas_consumed", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "gas_source"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"gas_source"}, tableGasSources, []string{"name"}},
+			{SourceColumns: []string{"gas_source"}, TargetTable: tableGasSources, TargetColumns: []string{"name"}},
 		},
 	}
 	return td
@@ -50,15 +50,15 @@ func (t *timescaleRepository) newGasCostsDefinition() *sql.TableDefinition {
 	return &sql.TableDefinition{
 		Name: tableGasCosts,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"gas_provider", "VARCHAR(50)", false},
-			{"total_gas_consumed", "DOUBLE PRECISION", true},
-			{"consumption_price_per_m3", "DOUBLE PRECISION", true},
-			{"consumption_costs", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "gas_provider", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "total_gas_consumed", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "consumption_price_per_m3", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "consumption_costs", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "gas_provider"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"gas_provider"}, tableEnergyPriceProviders, []string{"name"}},
+			{SourceColumns: []string{"gas_provider"}, TargetTable: tableEnergyPriceProviders, TargetColumns: []string{"name"}},
 		},
 	}
 }

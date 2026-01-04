@@ -24,8 +24,8 @@ func (t *timescaleRepository) newElectricitySourcesDefinition() *sql.TableDefini
 	return &sql.TableDefinition{
 		Name: tableElectricitySources,
 		Columns: []*sql.ColumnDefinition{
-			{"name", "VARCHAR(50)", false},
-			{"role", "VARCHAR(25)", false},
+			{Name: "name", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "role", SqlType: "VARCHAR(25)", Nullable: false},
 		},
 		PrimaryKey: []string{"name"},
 	}
@@ -35,14 +35,14 @@ func (t *timescaleRepository) newElectricityStatesDefinition() *sql.TableDefinit
 	td := &sql.TableDefinition{
 		Name: tableElectricityStates,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"electricity_source", "VARCHAR(50)", false},
-			{"total_current", "DOUBLE PRECISION", true},
-			{"total_power", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "electricity_source", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "total_current", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "total_power", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "electricity_source"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"electricity_source"}, tableElectricitySources, []string{"name"}},
+			{SourceColumns: []string{"electricity_source"}, TargetTable: tableElectricitySources, TargetColumns: []string{"name"}},
 		},
 	}
 	td.Columns = append(td.Columns, t.columnDefinitionPerPhase("current", "DOUBLE PRECISION", true)...)
@@ -55,14 +55,14 @@ func (t *timescaleRepository) newElectricityUsagesDefinition() *sql.TableDefinit
 	td := &sql.TableDefinition{
 		Name: tableElectricityUsages,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"electricity_source", "VARCHAR(50)", false},
-			{"total_energy_consumed", "DOUBLE PRECISION", true},
-			{"total_energy_provided", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "electricity_source", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "total_energy_consumed", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "total_energy_provided", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "electricity_source"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"electricity_source"}, tableElectricitySources, []string{"name"}},
+			{SourceColumns: []string{"electricity_source"}, TargetTable: tableElectricitySources, TargetColumns: []string{"name"}},
 		},
 	}
 	td.Columns = append(td.Columns, t.columnDefinitionPerPhase("energy_consumed", "DOUBLE PRECISION", true)...)
@@ -74,18 +74,18 @@ func (t *timescaleRepository) newElectricityCostsDefinition() *sql.TableDefiniti
 	return &sql.TableDefinition{
 		Name: tableElectricityCosts,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"electricity_provider", "VARCHAR(50)", false},
-			{"total_energy_consumed", "DOUBLE PRECISION", true},
-			{"consumption_price_per_kwh", "DOUBLE PRECISION", true},
-			{"consumption_costs", "DOUBLE PRECISION", true},
-			{"total_energy_provided", "DOUBLE PRECISION", true},
-			{"feedback_price_per_kwh", "DOUBLE PRECISION", true},
-			{"feedback_costs", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "electricity_provider", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "total_energy_consumed", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "consumption_price_per_kwh", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "consumption_costs", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "total_energy_provided", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "feedback_price_per_kwh", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "feedback_costs", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "electricity_provider"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"electricity_provider"}, tableEnergyPriceProviders, []string{"name"}},
+			{SourceColumns: []string{"electricity_provider"}, TargetTable: tableEnergyPriceProviders, TargetColumns: []string{"name"}},
 		},
 	}
 }

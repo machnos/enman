@@ -21,8 +21,8 @@ func (t *timescaleRepository) newWaterSourcesDefinition() *sql.TableDefinition {
 	return &sql.TableDefinition{
 		Name: tableWaterSources,
 		Columns: []*sql.ColumnDefinition{
-			{"name", "VARCHAR(50)", false},
-			{"role", "VARCHAR(25)", false},
+			{Name: "name", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "role", SqlType: "VARCHAR(25)", Nullable: false},
 		},
 		PrimaryKey: []string{"name"},
 	}
@@ -32,13 +32,13 @@ func (t *timescaleRepository) newWaterUsagesDefinition() *sql.TableDefinition {
 	td := &sql.TableDefinition{
 		Name: tableWaterUsages,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"water_source", "VARCHAR(50)", false},
-			{"water_consumed", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "water_source", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "water_consumed", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "water_source"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"water_source"}, tableWaterSources, []string{"name"}},
+			{SourceColumns: []string{"water_source"}, TargetTable: tableWaterSources, TargetColumns: []string{"name"}},
 		},
 	}
 	return td

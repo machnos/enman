@@ -69,7 +69,7 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 				// Add price-based battery charging if enabled
 				if calculator.priceBasedCalculator != nil {
 					// Calculate available charge power from grid (negative consumption means grid can supply more)
-					availablePower := float32(calculator.system.Grid().MaxElectricityConsumption()) - float32(addition)
+					availablePower := calculator.system.Grid().MaxElectricityConsumption() - float32(addition)
 					priceAddition := calculator.priceBasedCalculator.CalculateAddition(availablePower)
 					addition += priceAddition
 				}

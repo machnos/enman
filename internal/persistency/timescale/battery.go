@@ -21,8 +21,8 @@ func (t *timescaleRepository) newBatteriesDefinition() *sql.TableDefinition {
 	return &sql.TableDefinition{
 		Name: tableBatteries,
 		Columns: []*sql.ColumnDefinition{
-			{"name", "VARCHAR(50)", false},
-			{"role", "VARCHAR(25)", false},
+			{Name: "name", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "role", SqlType: "VARCHAR(25)", Nullable: false},
 		},
 		PrimaryKey: []string{"name"},
 	}
@@ -32,17 +32,17 @@ func (t *timescaleRepository) newBatteryStatesDefinition() *sql.TableDefinition 
 	td := &sql.TableDefinition{
 		Name: tableBatteryStates,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"battery", "VARCHAR(50)", false},
-			{"current", "DOUBLE PRECISION", true},
-			{"power", "DOUBLE PRECISION", true},
-			{"voltage", "DOUBLE PRECISION", true},
-			{"soc", "DOUBLE PRECISION", true},
-			{"soh", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "battery", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "current", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "power", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "voltage", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "soc", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "soh", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "battery"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"battery"}, tableBatteries, []string{"name"}},
+			{SourceColumns: []string{"battery"}, TargetTable: tableBatteries, TargetColumns: []string{"name"}},
 		},
 	}
 	return td

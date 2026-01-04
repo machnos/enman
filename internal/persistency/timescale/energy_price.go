@@ -19,7 +19,7 @@ func (t *timescaleRepository) newEnergyProvidersDefinition() *sql.TableDefinitio
 	return &sql.TableDefinition{
 		Name: tableEnergyPriceProviders,
 		Columns: []*sql.ColumnDefinition{
-			{"name", "VARCHAR(50)", false},
+			{Name: "name", SqlType: "VARCHAR(50)", Nullable: false},
 		},
 		PrimaryKey: []string{"name"},
 	}
@@ -29,18 +29,19 @@ func (t *timescaleRepository) newEnergyPricesDefinition() *sql.TableDefinition {
 	return &sql.TableDefinition{
 		Name: tableEnergyPrices,
 		Columns: []*sql.ColumnDefinition{
-			{"time", "TIMESTAMPTZ", false},
-			{"end_time", "TIMESTAMPTZ", false},
-			{"provider", "VARCHAR(50)", false},
-			{"energy_type", "VARCHAR(20)", false},
-			{"consumption_price", "DOUBLE PRECISION", true},
-			{"feedback_price", "DOUBLE PRECISION", true},
+			{Name: "time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "end_time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "provider", SqlType: "VARCHAR(50)", Nullable: false},
+			{Name: "energy_type", SqlType: "VARCHAR(20)", Nullable: false},
+			{Name: "consumption_price", SqlType: "DOUBLE PRECISION", Nullable: true},
+			{Name: "feedback_price", SqlType: "DOUBLE PRECISION", Nullable: true},
 		},
 		PrimaryKey: []string{"time", "provider", "energy_type"},
 		ForeignKeys: []*sql.ForeignKey{
-			{[]string{"provider"}, tableEnergyPriceProviders, []string{"name"}},
+			{SourceColumns: []string{"provider"}, TargetTable: tableEnergyPriceProviders, TargetColumns: []string{"name"}},
 		},
 	}
+
 }
 
 func (t *timescaleRepository) EnergyPriceProviders(from time.Time, till time.Time) ([]*prices.EnergyPriceProvider, error) {
