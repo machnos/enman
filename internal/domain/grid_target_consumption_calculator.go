@@ -2,6 +2,7 @@ package domain
 
 import (
 	"enman/internal/domain/events"
+	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"fmt"
 	"math"
@@ -10,14 +11,22 @@ import (
 )
 
 type GridTargetConsumptionCalculator struct {
-	system            *System
-	ticker            *time.Ticker
-	tickerDoneChannel chan bool
-	meterValues       sync.Map
-	lastSetTo         int
+	system               *System
+	ticker               *time.Ticker
+	tickerDoneChannel    chan bool
+	meterValues          sync.Map
+	lastSetTo            int
+	priceBasedCalculator *PriceBasedElectricityConsumptionCalculator
 }
 
-func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionCalculator, error) {
+func NewGridTargetConsumptionCalculator(system *System, peakPriceDetectionStdDevMultiplier float32, socThreshold float32) (*GridTargetConsumptionCalculator, error) {
+	if peakPriceDetectionStdDevMultiplier <= 0 {
+		peakPriceDetectionStdDevMultiplier = 1.0
+	}
+	if socThreshold < 0 || socThreshold > 100 {
+		socThreshold = 25.0
+	}
+
 	calculator := &GridTargetConsumptionCalculator{
 		system:    system,
 		lastSetTo: system.Grid().ElectricityTargetConsumption(),
@@ -40,6 +49,11 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 			})
 		}
 	}
+
+	// Initialize price-based calculator (will be enabled only if requirements are met)
+	// Use peakPriceDetectionStdDevMultiplier and socThreshold from configuration, defaults to 1.0 and 25.0
+	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(nil, "", system.Batteries(), peakPriceDetectionStdDevMultiplier, socThreshold)
+
 	go func() {
 		for {
 			select {
@@ -53,6 +67,14 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 					data.reset()
 					return true
 				})
+
+				// Add price-based battery charging if enabled
+				if calculator.priceBasedCalculator != nil {
+					// Calculate available charge power from grid (negative consumption means grid can supply more)
+					availablePower := float32(calculator.system.Grid().MaxElectricityConsumption()) - float32(addition)
+					priceAddition := calculator.priceBasedCalculator.CalculateAddition(availablePower)
+					addition += priceAddition
+				}
 
 				if calculator.lastSetTo != addition {
 					targetConsumption := 0
@@ -92,6 +114,27 @@ func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.Electricity
 	}
 	data := value.(*meterData)
 	data.values = append(data.values, int(values.State().TotalPower()))
+}
+
+// EnablePriceBasedCharging enables price-based battery charging by providing
+// the energy price repository, the energy provider name, the standard deviation multiplier, and the SoC threshold.
+func (g *GridTargetConsumptionCalculator) EnablePriceBasedCharging(repo repository.EnergyPrice, providerName string, stdDevMultiplier float32, socThreshold float32) {
+	if g.priceBasedCalculator == nil {
+		log.Warningf("Price-based calculator not initialized, cannot enable price-based charging")
+		return
+	}
+	if repo == nil || providerName == "" {
+		log.Warningf("Invalid repository or provider name for price-based charging")
+		return
+	}
+	if stdDevMultiplier <= 0 {
+		stdDevMultiplier = 1.0
+	}
+	if socThreshold < 0 || socThreshold > 100 {
+		socThreshold = 25.0
+	}
+	g.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, providerName, g.system.Batteries(), stdDevMultiplier, socThreshold)
+	log.Infof("Price-based battery charging enabled with provider: %s, stdDev multiplier: %.1f, SoC threshold: %.1f%%", providerName, stdDevMultiplier, socThreshold)
 }
 
 func (g *GridTargetConsumptionCalculator) Stop() {

@@ -16,7 +16,7 @@ type Configuration struct {
 	Grid          *Grid           `json:"grid" yaml:"grid"`
 	Pvs           *Pvs            `json:"pvs" yaml:"pvs"`
 	AcLoads       []*AcLoad       `json:"ac_loads" yaml:"ac_loads" validate:"dive"`
-	Batteries     []*Battery      `json:"batteries" yaml:"batteries" validate:"dive"`
+	Batteries     Batteries       `json:"batteries" yaml:"batteries" validate:"dive"`
 	Persistency   *Persistency    `json:"persistency" yaml:"persistency"`
 	ModbusServers []*ModbusServer `json:"modbus_servers" yaml:"modbus_servers" validate:"dive"`
 	Prices        *Prices         `json:"prices" yaml:"prices"`
@@ -55,6 +55,12 @@ type AcLoad struct {
 	PercentageFromGrid   uint8                 `json:"percentage_from_grid" yaml:"percentage_from_grid" validate:"gte=0,lte=100"`
 	Meters               []*EnergyMeter        `json:"meters" yaml:"meters" validate:"dive"`
 	ModbusMeterSimulator *ModbusMeterSimulator `json:"modbus_meter_simulator" yaml:"modbus_meter_simulator"`
+}
+
+type Batteries struct {
+	Batteries                                     []*Battery `json:"banks" yaml:"banks" validate:"dive"`
+	PeakPriceDetectionStandardDeviationMultiplier float32    `json:"peak_price_detection_standard_deviation_multiplier" yaml:"peak_price_detection_standard_deviation_multiplier" validate:"gt=0"`
+	SurvivalChargingSocThreshold                  float32    `json:"survival_charging_soc_threshold" yaml:"survival_charging_soc_threshold" validate:"gte=0,lte=100"`
 }
 
 type Battery struct {

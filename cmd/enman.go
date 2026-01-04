@@ -95,7 +95,7 @@ func main() {
 			energyMeters,
 		)
 	}
-	for _, battery := range configuration.Batteries {
+	for _, battery := range configuration.Batteries.Batteries {
 		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRoleBattery, battery.Meters)
 		if err != nil {
 			log.Fatalf("unable to probe battery meter: %s", err.Error())
@@ -129,7 +129,15 @@ func main() {
 	})
 
 	// Setup grid target consumption calculator
-	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
+	stdDevMultiplier := float32(1.0)
+	if configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
+		stdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
+	}
+	socThreshold := float32(25.0)
+	if configuration.Batteries.SurvivalChargingSocThreshold > 0 {
+		socThreshold = configuration.Batteries.SurvivalChargingSocThreshold
+	}
+	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, stdDevMultiplier, socThreshold)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
 	}
