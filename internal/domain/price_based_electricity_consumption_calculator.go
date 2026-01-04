@@ -15,6 +15,9 @@ type PriceBasedElectricityConsumptionCalculator struct {
 	enabled                       bool
 	peakDetectionStdDevMultiplier float32
 	socThreshold                  float32
+	cachedEnergyPrices            []*prices.EnergyPrice
+	cachedPricesTime              time.Time
+	cacheTTL                      time.Duration
 }
 
 // priceWithIndex is a helper struct for sorting prices by cost
@@ -58,6 +61,7 @@ func NewPriceBasedElectricityConsumptionCalculator(
 		enabled:                       enabled,
 		peakDetectionStdDevMultiplier: peakDetectionStdDevMultiplier,
 		socThreshold:                  socThreshold,
+		cacheTTL:                      1 * time.Hour,
 	}
 }
 
@@ -65,6 +69,7 @@ func NewPriceBasedElectricityConsumptionCalculator(
 // based on current electricity prices compared to available prices.
 // It charges the battery only during the cheapest price periods available in the next 48 hours,
 // and only if the entire charging duration can be completed within those cheapest periods.
+// Energy prices are cached for 1 hour to avoid redundant API calls.
 func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(availableChargePower float32) int {
 	if !p.enabled {
 		return 0
@@ -78,10 +83,24 @@ func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(available
 	now := time.Now()
 	endTime := now.Add(48 * time.Hour)
 
-	energyPrices, err := p.repository.EnergyPrices(now, endTime, p.providerName, prices.EnergyTypeElectricity)
-	if err != nil {
-		log.Warningf("Failed to retrieve energy prices for price-based charging: %v", err)
-		return 0
+	// Check if cached prices are still valid
+	var energyPrices []*prices.EnergyPrice
+	if p.cachedEnergyPrices != nil && now.Before(p.cachedPricesTime.Add(p.cacheTTL)) {
+		log.Debugf("Using cached energy prices (cached at %v, TTL: %v)", p.cachedPricesTime, p.cacheTTL)
+		energyPrices = p.cachedEnergyPrices
+	} else {
+		// Cache expired or not yet set, fetch new prices
+		var err error
+		energyPrices, err = p.repository.EnergyPrices(now, endTime, p.providerName, prices.EnergyTypeElectricity)
+		if err != nil {
+			log.Warningf("Failed to retrieve energy prices for price-based charging: %v", err)
+			return 0
+		}
+
+		// Update cache
+		p.cachedEnergyPrices = energyPrices
+		p.cachedPricesTime = now
+		log.Debugf("Fetched and cached %d energy prices", len(energyPrices))
 	}
 
 	if len(energyPrices) < 1 {
@@ -186,21 +205,25 @@ func findCheapestSlots(energyPrices []*prices.EnergyPrice, requiredDuration time
 	// Use different strategies based on SoC
 	if avgSoC < socThreshold {
 		log.Debugf("Low SoC (%.2f%%) detected, using survival charging strategy (threshold: %.2f%%)", avgSoC, socThreshold)
-		return findSurvivalChargingSlots(energyPrices, requiredDuration, stdDevMultiplier)
+		return findSurvivalChargingSlots(energyPrices, requiredDuration, batteries, stdDevMultiplier)
 	}
 
 	log.Debugf("SoC sufficient (%.2f%%), using optimal charging strategy (threshold: %.2f%%)", avgSoC, socThreshold)
-	return findOptimalChargingSlots(energyPrices, requiredDuration)
+	return findOptimalChargingSlots(energyPrices, requiredDuration, batteries)
 }
 
 // findSurvivalChargingSlots prioritizes charging before expensive price periods.
 // It identifies expensive periods using intelligent peak detection and charges
 // just enough before them to survive the peak.
 // peakDetectionStdDevMultiplier controls sensitivity: avg + (peakDetectionStdDevMultiplier × stdDev)
-func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration, stdDevMultiplier float32) []int {
+func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration, batteries []*Battery, stdDevMultiplier float32) []int {
 	if len(energyPrices) == 0 {
 		return []int{}
 	}
+
+	// Get average round-trip efficiency
+	roundTripEfficiency := getAverageRoundTripEfficiency(batteries)
+	log.Debugf("Average battery round-trip efficiency: %.2f%%", roundTripEfficiency)
 
 	// Calculate price statistics for intelligent peak detection
 	totalPrice := float32(0)
@@ -244,7 +267,7 @@ func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDurat
 
 	if len(peakPeriods) == 0 {
 		log.Debugf("No significant peaks detected, falling back to optimal strategy")
-		return findOptimalChargingSlots(energyPrices, requiredDuration)
+		return findOptimalChargingSlots(energyPrices, requiredDuration, batteries)
 	}
 
 	log.Debugf("Found %d peak period blocks", len(peakPeriods))
@@ -314,6 +337,35 @@ func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDurat
 	log.Debugf("Survival charging: selected %d slots: need %v, have %v",
 		len(selectedIndices), requiredDuration, accumulatedDuration)
 
+	// For survival charging, we must charge even if not economically optimal
+	// But log if it's viable so the user is aware
+	if len(selectedIndices) > 0 {
+		cheapestPrice := energyPrices[selectedIndices[0]].ConsumptionPrice
+		maxPrice := energyPrices[selectedIndices[0]].ConsumptionPrice
+		for _, idx := range selectedIndices {
+			if energyPrices[idx].ConsumptionPrice < cheapestPrice {
+				cheapestPrice = energyPrices[idx].ConsumptionPrice
+			}
+			if energyPrices[idx].ConsumptionPrice > maxPrice {
+				maxPrice = energyPrices[idx].ConsumptionPrice
+			}
+		}
+		// Find the overall peak price to check viability
+		peakPrice := energyPrices[0].ConsumptionPrice
+		for _, ep := range energyPrices {
+			if ep.ConsumptionPrice > peakPrice {
+				peakPrice = ep.ConsumptionPrice
+			}
+		}
+		if isEconomicallyViable(cheapestPrice, peakPrice, roundTripEfficiency) {
+			log.Debugf("Survival charging is economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f)",
+				cheapestPrice, peakPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
+		} else {
+			log.Warningf("Survival charging NOT economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f) - charging required for battery survival",
+				cheapestPrice, peakPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
+		}
+	}
+
 	return selectedIndices
 }
 
@@ -345,10 +397,15 @@ func findPeakPeriods(energyPrices []*prices.EnergyPrice, threshold float32) [][]
 }
 
 // findOptimalChargingSlots selects the absolute cheapest price periods.
-func findOptimalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration) []int {
+// It considers battery round-trip efficiency to ensure economic viability.
+func findOptimalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration, batteries []*Battery) []int {
 	if len(energyPrices) == 0 {
 		return []int{}
 	}
+
+	// Get average round-trip efficiency
+	roundTripEfficiency := getAverageRoundTripEfficiency(batteries)
+	log.Debugf("Average battery round-trip efficiency: %.2f%%", roundTripEfficiency)
 
 	pricesWithIndices := make([]priceWithIndex, len(energyPrices))
 	for i := range energyPrices {
@@ -360,6 +417,25 @@ func findOptimalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDurati
 
 	// Sort by price (ascending)
 	sortByPrice(pricesWithIndices)
+
+	// Find the cheapest and peak prices for economic viability check
+	cheapestPrice := pricesWithIndices[0].price
+	maxPrice := energyPrices[0].ConsumptionPrice
+	for _, ep := range energyPrices {
+		if ep.ConsumptionPrice > maxPrice {
+			maxPrice = ep.ConsumptionPrice
+		}
+	}
+
+	// Check if charging is economically viable
+	if !isEconomicallyViable(cheapestPrice, maxPrice, roundTripEfficiency) {
+		log.Debugf("Battery charging not economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f)",
+			cheapestPrice, maxPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
+		return []int{}
+	}
+
+	log.Debugf("Battery charging is economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f)",
+		cheapestPrice, maxPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
 
 	// Select the cheapest slots until we have enough duration
 	accumulatedDuration := time.Duration(0)
@@ -389,4 +465,32 @@ func sortByPrice(prices []priceWithIndex) {
 			}
 		}
 	}
+}
+
+// getAverageRoundTripEfficiency calculates the average round-trip efficiency from all batteries
+func getAverageRoundTripEfficiency(batteries []*Battery) float32 {
+	if len(batteries) == 0 {
+		return 100 // Default to 100% if no batteries
+	}
+	totalEfficiency := float32(0)
+	for _, battery := range batteries {
+		totalEfficiency += battery.RoundTripEfficiency()
+	}
+	return totalEfficiency / float32(len(batteries))
+}
+
+// isEconomicallyViable checks if charging during cheapest period is more economical than peak period
+// Formula: cheapestPrice * (100 / roundTripEfficiency) < peakPrice
+// Example: cheapest=25 cents, peak=27 cents, efficiency=75%
+//
+//	(25 * 100/75) = 33.33 cents > 27 cents, so NOT viable
+//
+// Returns true if charging is economically justified
+func isEconomicallyViable(cheapestPrice float32, peakPrice float32, roundTripEfficiency float32) bool {
+	if roundTripEfficiency <= 0 || roundTripEfficiency > 100 {
+		// Invalid efficiency, reject charging to be safe
+		return false
+	}
+	effectiveCost := cheapestPrice * (100 / roundTripEfficiency)
+	return effectiveCost < peakPrice
 }

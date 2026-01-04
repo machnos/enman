@@ -69,6 +69,7 @@ type Battery struct {
 	ChargingCoefficient    float32        `json:"charging_coefficient" yaml:"charging_coefficient" validate:"gt=0"`
 	DischargingCoefficient float32        `json:"discharging_coefficient" yaml:"discharging_coefficient" validate:"gt=0"`
 	Voltage                float32        `json:"voltage" yaml:"voltage" validate:"gt=0"`
+	RoundTripEfficiency    float32        `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=100"`
 	Meters                 []*EnergyMeter `json:"meters" yaml:"meters" validate:"dive"`
 }
 

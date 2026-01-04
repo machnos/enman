@@ -19,12 +19,12 @@ type GridTargetConsumptionCalculator struct {
 	priceBasedCalculator *PriceBasedElectricityConsumptionCalculator
 }
 
-func NewGridTargetConsumptionCalculator(system *System, peakPriceDetectionStdDevMultiplier float32, socThreshold float32) (*GridTargetConsumptionCalculator, error) {
+func NewGridTargetConsumptionCalculator(system *System, repo repository.Repository, peakPriceDetectionStdDevMultiplier float32, survivalSocThreshold float32) (*GridTargetConsumptionCalculator, error) {
 	if peakPriceDetectionStdDevMultiplier <= 0 {
 		peakPriceDetectionStdDevMultiplier = 1.0
 	}
-	if socThreshold < 0 || socThreshold > 100 {
-		socThreshold = 25.0
+	if survivalSocThreshold < 0 || survivalSocThreshold > 100 {
+		survivalSocThreshold = 25.0
 	}
 
 	calculator := &GridTargetConsumptionCalculator{
@@ -50,9 +50,7 @@ func NewGridTargetConsumptionCalculator(system *System, peakPriceDetectionStdDev
 		}
 	}
 
-	// Initialize price-based calculator (will be enabled only if requirements are met)
-	// Use peakPriceDetectionStdDevMultiplier and socThreshold from configuration, defaults to 1.0 and 25.0
-	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(nil, "", system.Batteries(), peakPriceDetectionStdDevMultiplier, socThreshold)
+	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries(), peakPriceDetectionStdDevMultiplier, survivalSocThreshold)
 
 	go func() {
 		for {

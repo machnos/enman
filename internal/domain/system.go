@@ -2,7 +2,6 @@ package domain
 
 import (
 	"context"
-	"enman/internal/domain/battery"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/electricity"
 	"enman/internal/domain/gas"
@@ -84,16 +83,8 @@ func (s *System) Batteries() []*Battery {
 	return s.batteries
 }
 
-func (s *System) AddBattery(name string, capacity uint16, chargingCoefficient float32, dischargingCoefficient float32, voltage float32, meters []EnergyMeter) *System {
-	s.batteries = append(s.batteries, &Battery{
-		name:                   name,
-		capacity:               capacity,
-		chargingCoefficient:    chargingCoefficient,
-		dischargingCoefficient: dischargingCoefficient,
-		voltage:                voltage,
-		meters:                 meters,
-		state:                  battery.NewState(),
-	})
+func (s *System) AddBattery(battery *Battery) *System {
+	s.batteries = append(s.batteries, battery)
 	return s
 }
 

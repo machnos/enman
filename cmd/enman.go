@@ -101,13 +101,14 @@ func main() {
 			log.Fatalf("unable to probe battery meter: %s", err.Error())
 			syscall.Exit(-1)
 		}
-		system.AddBattery(battery.Name,
+		system.AddBattery(domain.NewBattery(battery.Name,
 			battery.Capacity,
 			battery.ChargingCoefficient,
 			battery.DischargingCoefficient,
 			battery.Voltage,
+			battery.RoundTripEfficiency,
 			energyMeters,
-		)
+		))
 	}
 
 	// Setup repository
@@ -129,15 +130,15 @@ func main() {
 	})
 
 	// Setup grid target consumption calculator
-	stdDevMultiplier := float32(1.0)
+	peakPriceStdDevMultiplier := float32(1.0)
 	if configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
-		stdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
+		peakPriceStdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
 	}
-	socThreshold := float32(25.0)
-	if configuration.Batteries.SurvivalChargingSocThreshold > 0 {
-		socThreshold = configuration.Batteries.SurvivalChargingSocThreshold
+	survivalSocThreshold := float32(25.0)
+	if configuration.Batteries.SurvivalChargingSocThreshold > 0 && configuration.Batteries.SurvivalChargingSocThreshold <= 100 {
+		survivalSocThreshold = configuration.Batteries.SurvivalChargingSocThreshold
 	}
-	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, stdDevMultiplier, socThreshold)
+	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, repo, peakPriceStdDevMultiplier, survivalSocThreshold)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
 	}
