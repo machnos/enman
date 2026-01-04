@@ -82,6 +82,9 @@ func (t *timescaleRepository) EnergyPriceProviders(from time.Time, till time.Tim
 		}
 		currentProvider.EnergyTypes = append(currentProvider.EnergyTypes, energyType)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	if currentProvider.Name != "" {
 		providers = append(providers, currentProvider)
 	}
@@ -124,6 +127,9 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 		if maxIx >= 1 {
 			energyPrices[maxIx-1].EndTime = energyPrices[maxIx].Time
 		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return energyPrices, nil
 }

@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+// mapAliasesOnColumn validates and maps column references to table aliases.
+// This prevents SQL injection by ensuring column names are not user-controlled.
+//
+// Format: "table.column" where table must be a known table alias (e.g., "t0", "t1")
+// or the column name must exist in the single table context.
+// Returns error if the table alias is unknown or format is invalid.
 func mapAliasesOnColumn(column string, tables map[string]string) (string, error) {
 	parts := strings.Split(column, ".")
 	if len(parts) > 2 {
@@ -23,12 +29,16 @@ func mapAliasesOnColumn(column string, tables map[string]string) (string, error)
 	return fmt.Sprintf("%s.%s", value, parts[1]), nil
 }
 
+// Column represents a database column in a SELECT statement.
+// Columns are defined with compile-time string literals and cannot be user-controlled.
+// Optional: columnFunction applies aggregate or transformation functions (e.g., SUM(), AVG()).
 type Column struct {
 	name           string
 	as             string
 	columnFunction func(string) string
 }
 
+// NewColumn creates a column with optional alias and function transformation.
 func NewColumn(name string, as string, columnFunction func(string) string) *Column {
 	return &Column{
 		name:           name,
@@ -37,6 +47,7 @@ func NewColumn(name string, as string, columnFunction func(string) string) *Colu
 	}
 }
 
+// NewColumns creates multiple Column instances from compile-time string names.
 func NewColumns(names ...string) []*Column {
 	columns := make([]*Column, 0)
 	for _, name := range names {

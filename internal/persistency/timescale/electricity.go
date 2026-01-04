@@ -114,6 +114,9 @@ func (t *timescaleRepository) ElectricitySourceNames(from time.Time, till time.T
 		}
 		names = append(names, name)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	return names, nil
 }
 
@@ -156,6 +159,9 @@ func (t *timescaleRepository) ElectricityUsages(
 			return nil, err
 		}
 		usages = append(usages, t.rowValuesToElectricityUsagesRecord(aggregate, values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return usages, nil
 }
@@ -245,6 +251,9 @@ func (t *timescaleRepository) ElectricityStates(from time.Time, till time.Time, 
 		}
 		states = append(states, t.rowValuesToElectricityStatesRecord(aggregate, values))
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	return states, nil
 }
 
@@ -282,6 +291,9 @@ func (t *timescaleRepository) ElectricityCosts(from time.Time, till time.Time, p
 			return nil, err
 		}
 		costs = append(costs, t.rowValuesToElectricityCostsRecord(aggregate, values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return costs, nil
 }

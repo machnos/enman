@@ -3,7 +3,7 @@ package main
 import (
 	"enman/internal/modbus"
 	"fmt"
-	"syscall"
+	"os"
 )
 
 func main() {
@@ -12,14 +12,20 @@ func main() {
 	})
 	if err != nil {
 		println(err.Error())
-		syscall.Exit(-1)
+		os.Exit(-1)
 		return
 	}
 	err = client.Open()
 	if err != nil {
 		println(err.Error())
-		syscall.Exit(-1)
+		os.Exit(-1)
 	}
+	defer func(client *modbus.ModbusClient) {
+		err := client.Close()
+		if err != nil {
+
+		}
+	}(client)
 	unitIdBattery := uint8(225)
 	unitIdVeBus := uint8(227)
 
@@ -87,5 +93,4 @@ func main() {
 	} else {
 		fmt.Printf("Grid lost: %d", value)
 	}
-	_ = client.Close()
 }

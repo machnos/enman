@@ -69,6 +69,9 @@ func (t *timescaleRepository) WaterSourceNames(from time.Time, till time.Time) (
 		}
 		names = append(names, name)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	return names, nil
 }
 
@@ -107,6 +110,9 @@ func (t *timescaleRepository) WaterUsages(from time.Time, till time.Time, source
 			return nil, err
 		}
 		usages = append(usages, t.rowValuesToWaterUsagesRecord(aggregate, values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return usages, nil
 }

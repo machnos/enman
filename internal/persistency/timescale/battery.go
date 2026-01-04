@@ -72,6 +72,9 @@ func (t *timescaleRepository) BatterySourceNames(from time.Time, till time.Time)
 		}
 		names = append(names, name)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	return names, nil
 }
 
@@ -109,6 +112,9 @@ func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sour
 			return nil, err
 		}
 		states = append(states, t.rowValuesToBatteryStatesRecord(aggregate, values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return states, nil
 }

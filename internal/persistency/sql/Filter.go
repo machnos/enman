@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// ComparisonOperator is an enum for safe SQL comparison operators.
+// Only whitelisted operators are allowed, preventing injection through operator values.
 type ComparisonOperator string
 
 const (
@@ -17,6 +19,12 @@ const (
 	GreaterThanOrEqual ComparisonOperator = ">="
 )
 
+// FilterFunction builds WHERE clause conditions with parameterized values.
+//
+// Security: All user values are passed as parameters ($1, $2, etc.) rather than
+// being concatenated into the SQL string. Column names are validated against
+// known table aliases via mapAliasesOnColumn(). Comparison operators are
+// restricted to enum constants.
 type FilterFunction struct {
 	column       string
 	comparison   ComparisonOperator

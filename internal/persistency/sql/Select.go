@@ -5,6 +5,17 @@ import (
 	"strings"
 )
 
+// Select builds parameterized SQL SELECT statements safely.
+//
+// Security: This query builder prevents SQL injection through:
+//  1. Table names are hardcoded constants from the timescale package (e.g., "electricity_states")
+//     and passed to NewSelect(). Users cannot control table names.
+//  2. Column names come from Column structs which are instantiated with compile-time string literals.
+//     mapAliasesOnColumn() validates column references against known table aliases.
+//  3. All user values are parameterized using $1, $2, etc. (see FilterFunction.doBuild())
+//  4. Comparison operators are enum types (ComparisonOperator) with whitelisted constants.
+//
+// This design ensures no string concatenation of user input into SQL queries.
 type Select struct {
 	table          string
 	tableAliases   map[string]string
@@ -17,6 +28,8 @@ type Select struct {
 	orderAscending bool
 }
 
+// NewSelect creates a new SELECT builder for the given table.
+// Note: table parameter must be a hardcoded table name constant (not user input).
 func NewSelect(table string) *Select {
 	var s = &Select{
 		tableAliases: make(map[string]string),

@@ -88,6 +88,9 @@ func (t *timescaleRepository) GasSourceNames(from time.Time, till time.Time) ([]
 		}
 		names = append(names, name)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
 	return names, nil
 }
 
@@ -126,6 +129,9 @@ func (t *timescaleRepository) GasUsages(from time.Time, till time.Time, sourceNa
 			return nil, err
 		}
 		usages = append(usages, t.rowValuesToGasUsagesRecord(aggregate, values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return usages, nil
 }
@@ -214,6 +220,9 @@ func (t *timescaleRepository) GasCosts(from time.Time, till time.Time, providerN
 			return nil, err
 		}
 		costs = append(costs, t.rowValuesToGasCostsRecord(aggregate, values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 	return costs, nil
 }

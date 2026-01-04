@@ -107,29 +107,50 @@ func getCaller(depth int) string {
 // It checks for package-specific levels first, then falls back to root level
 // Results are cached to avoid expensive string parsing on repeated calls
 func getEffectiveLevel(caller string) Level {
+	// Fast path: check cache without upgrading locks
 	logMutex.RLock()
-
-	// Check cache first
 	if level, exists := callerLevelCache[caller]; exists {
 		logMutex.RUnlock()
 		return level
 	}
 
+	// Take a snapshot of packageLevels and ActiveLevel while holding read lock
+	packageLevelsCopy := make(map[string]Level)
+	for k, v := range packageLevels {
+		packageLevelsCopy[k] = v
+	}
+	activeLevel := ActiveLevel
+	logMutex.RUnlock()
+
+	// Compute the effective level outside the lock
+	level := computeEffectiveLevel(caller, packageLevelsCopy, activeLevel)
+
+	// Cache the result with a brief write lock
+	logMutex.Lock()
+	callerLevelCache[caller] = level
+	logMutex.Unlock()
+
+	return level
+}
+
+// computeEffectiveLevel determines the log level for a caller based on package-specific
+// and root level settings. This function is lock-free and can be called outside the critical section.
+func computeEffectiveLevel(caller string, packageLevels map[string]Level, activeLevel Level) Level {
 	// Check for exact package matches and parent package matches
 	// e.g., for "enman/internal/price_importers/entsoe.(*PriceImporter).ImportPrices"
 	// we check: "enman/internal/price_importers/entsoe", "enman/internal/price_importers", etc.
 
-	originalCaller := caller
-	for len(caller) > 0 {
+	currentPath := caller
+	for len(currentPath) > 0 {
 		// Extract package path by removing function/method names
 		lastSlash := -1
-		for i := len(caller) - 1; i >= 0; i-- {
-			if caller[i] == '/' {
+		for i := len(currentPath) - 1; i >= 0; i-- {
+			if currentPath[i] == '/' {
 				lastSlash = i
 				break
 			}
 			// Stop at function/method separators
-			if caller[i] == '.' || caller[i] == '(' {
+			if currentPath[i] == '.' || currentPath[i] == '(' {
 				break
 			}
 		}
@@ -139,13 +160,8 @@ func getEffectiveLevel(caller string) Level {
 		}
 
 		// Try to find a match for this package level
-		packagePath := caller[:lastSlash]
+		packagePath := currentPath[:lastSlash]
 		if level, exists := packageLevels[packagePath]; exists {
-			// Cache the result before returning
-			logMutex.RUnlock()
-			logMutex.Lock()
-			callerLevelCache[originalCaller] = level
-			logMutex.Unlock()
 			return level
 		}
 
@@ -161,18 +177,11 @@ func getEffectiveLevel(caller string) Level {
 		if lastSlash == -1 {
 			break
 		}
-		caller = packagePath[:lastSlash]
+		currentPath = packagePath[:lastSlash]
 	}
 
 	// Fall back to root level if no package-specific level found
-	result := ActiveLevel
-
-	logMutex.RUnlock()
-	logMutex.Lock()
-	// Cache the result
-	callerLevelCache[originalCaller] = result
-	logMutex.Unlock()
-	return result
+	return activeLevel
 }
 
 func TraceEnabled() bool {

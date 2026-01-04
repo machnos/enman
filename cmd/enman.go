@@ -42,7 +42,7 @@ func main() {
 	configuration, err := config.LoadConfiguration(*configFile)
 	if err != nil {
 		log.Fatalf("Unable to load configuration file: %s", err.Error())
-		syscall.Exit(-1)
+		os.Exit(1)
 		return
 	}
 	if configuration.Log != nil && configuration.Log.Level != 0 {
@@ -63,7 +63,7 @@ func main() {
 	energyMeters, err := meters.ProbeEnergyMeters(constants.EnergySourceRoleGrid, configuration.Grid.Meters)
 	if err != nil {
 		log.Fatalf("unable to probe grid meter: %s", err.Error())
-		syscall.Exit(-1)
+		return
 	}
 	system.SetGrid(configuration.Grid.Name,
 		configuration.Grid.Voltage,
@@ -79,7 +79,7 @@ func main() {
 			energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRolePv, pv.Meters)
 			if err != nil {
 				log.Fatalf("unable to probe pv meter: %s", err.Error())
-				syscall.Exit(-1)
+				return
 			}
 			system.AddPv(pv.Name, energyMeters, controllers.ProbePvController(pv.Controller))
 		}
@@ -96,7 +96,7 @@ func main() {
 		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRole(acLoad.Role), acLoad.Meters)
 		if err != nil {
 			log.Fatalf("unable to probe ac load meter: %s", err.Error())
-			syscall.Exit(-1)
+			return
 		}
 		system.AddAcLoad(acLoad.Name,
 			constants.EnergySourceRole(acLoad.Role),
@@ -108,7 +108,7 @@ func main() {
 		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRoleBattery, battery.Meters)
 		if err != nil {
 			log.Fatalf("unable to probe battery meter: %s", err.Error())
-			syscall.Exit(-1)
+			return
 		}
 		system.AddBattery(domain.NewBattery(battery.Name,
 			battery.Capacity,
@@ -125,7 +125,7 @@ func main() {
 	err = repo.Initialize()
 	if err != nil {
 		log.Fatalf("Unable to initialize database: %s", err.Error())
-		syscall.Exit(-1)
+		return
 	}
 
 	// Setup domain event listeners
@@ -140,11 +140,11 @@ func main() {
 
 	// Setup grid target consumption calculator
 	peakPriceStdDevMultiplier := float32(1.0)
-	if configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
+	if len(configuration.Batteries.Batteries) > 0 && configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
 		peakPriceStdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
 	}
 	survivalSocThreshold := float32(25.0)
-	if configuration.Batteries.SurvivalChargingSocThreshold > 0 && configuration.Batteries.SurvivalChargingSocThreshold <= 100 {
+	if len(configuration.Batteries.Batteries) > 0 && configuration.Batteries.SurvivalChargingSocThreshold > 0 && configuration.Batteries.SurvivalChargingSocThreshold <= 100 {
 		survivalSocThreshold = configuration.Batteries.SurvivalChargingSocThreshold
 	}
 	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, repo, peakPriceStdDevMultiplier, survivalSocThreshold)
@@ -180,10 +180,12 @@ func main() {
 		year, month, day := tNow.Date()
 		startOfToday := time.Date(year, month, day, 0, 0, 0, 0, tNow.Location())
 		endOfTomorrow := startOfToday.AddDate(0, 0, 2).Add(time.Nanosecond * -1)
-		go func() {
+
+		// Initial price import in a managed goroutine
+		syncGroup.Go(func() error {
 			rootPrices := make([]*prices.EnergyPrice, 0)
 			for _, rootImporter := range rootImporters {
-				p, err := rootImporter.ImportPrices(ctx, startOfToday, endOfTomorrow)
+				p, err := rootImporter.ImportPrices(syncGroupContext, startOfToday, endOfTomorrow)
 				if err != nil {
 					log.Errorf("Failed to import prices: %v", err.Error())
 				} else {
@@ -191,14 +193,17 @@ func main() {
 				}
 			}
 			baseImporter.UpdateProviderPrices(syncGroupContext, rootPrices)
-		}()
-		ticker := time.NewTicker(1 * time.Hour)
-		go func() {
+			return nil
+		})
+
+		// Periodic price import in a managed goroutine
+		syncGroup.Go(func() error {
+			ticker := time.NewTicker(1 * time.Hour)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-syncGroupContext.Done():
-					ticker.Stop()
-					return
+					return nil
 				case <-ticker.C:
 					tNow = time.Now()
 					year, month, day = tNow.Date()
@@ -206,7 +211,7 @@ func main() {
 					endOfTomorrow = startOfToday.AddDate(0, 0, 2).Add(time.Nanosecond * -1)
 					rootPrices := make([]*prices.EnergyPrice, 0)
 					for _, rootImporter := range rootImporters {
-						p, err := rootImporter.ImportPrices(ctx, startOfToday, endOfTomorrow)
+						p, err := rootImporter.ImportPrices(syncGroupContext, startOfToday, endOfTomorrow)
 						if err != nil {
 							log.Errorf("Failed to import prices: %v", err.Error())
 						} else {
@@ -216,7 +221,7 @@ func main() {
 					baseImporter.UpdateProviderPrices(syncGroupContext, rootPrices)
 				}
 			}
-		}()
+		})
 	}
 
 	modbusServers, _ := createModbusServers(configuration, system)
