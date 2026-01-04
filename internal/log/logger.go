@@ -46,21 +46,31 @@ func (l Level) String() string {
 
 var ActiveLevel = LvlInfo
 var Writer io.Writer = os.Stdout
-var packageLevels = make(map[string]Level) // Hierarchical package-specific log levels
+var packageLevels = make(map[string]Level)    // Hierarchical package-specific log levels
+var callerLevelCache = make(map[string]Level) // Cache of resolved log levels per caller
 
 // SetPackageLevel sets the log level for a specific package
 func SetPackageLevel(packageName string, level Level) {
 	packageLevels[packageName] = level
+	// Clear cache when package levels change
+	callerLevelCache = make(map[string]Level)
 }
 
 // SetPackageLevels sets multiple package log levels at once
 func SetPackageLevels(levels map[string]Level) {
 	packageLevels = levels
+	// Clear cache when package levels change
+	callerLevelCache = make(map[string]Level)
 }
 
 // getEffectiveLevel returns the appropriate log level for a caller
 // It checks for package-specific levels first, then falls back to root level
+// Results are cached to avoid expensive string parsing on repeated calls
 func getEffectiveLevel(caller string) Level {
+	// Check cache first
+	if level, exists := callerLevelCache[caller]; exists {
+		return level
+	}
 	// Check for exact package matches and parent package matches
 	// e.g., for "enman/internal/price_importers/entsoe.(*PriceImporter).ImportPrices"
 	// we check: "enman/internal/price_importers/entsoe", "enman/internal/price_importers", etc.
@@ -86,6 +96,8 @@ func getEffectiveLevel(caller string) Level {
 		// Try to find a match for this package level
 		packagePath := caller[:lastSlash]
 		if level, exists := packageLevels[packagePath]; exists {
+			// Cache the result before returning
+			callerLevelCache[caller] = level
 			return level
 		}
 
@@ -105,7 +117,11 @@ func getEffectiveLevel(caller string) Level {
 	}
 
 	// Fall back to root level if no package-specific level found
-	return ActiveLevel
+	result := ActiveLevel
+
+	// Cache the result
+	callerLevelCache[caller] = result
+	return result
 }
 
 func TraceEnabled() bool {
