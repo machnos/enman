@@ -4,9 +4,19 @@ import (
 	"enman/internal/domain/prices"
 	"enman/internal/domain/repository"
 	"enman/internal/log"
+	"fmt"
 	"math"
 	"time"
 )
+
+// ChargingDip represents a low-price period and the peak it can serve
+type ChargingDip struct {
+	StartIndex  int     // Index in the energyPrices array
+	EndIndex    int     // Index in the energyPrices array
+	PeakIndex   int     // Index of the peak this dip charges for
+	Price       float32 // Average price during this dip
+	IsProcessed bool    // Whether we've already charged in this dip today
+}
 
 type PriceBasedElectricityConsumptionCalculator struct {
 	repository                    repository.EnergyPrice
@@ -18,12 +28,10 @@ type PriceBasedElectricityConsumptionCalculator struct {
 	cachedEnergyPrices            []*prices.EnergyPrice
 	cachedPricesTime              time.Time
 	cacheTTL                      time.Duration
-}
-
-// priceWithIndex is a helper struct for sorting prices by cost
-type priceWithIndex struct {
-	index int
-	price float32
+	lastAnalyzedPricesTime        time.Time     // Track when we last analyzed the prices
+	lastAnalyzedPricesStart       time.Time     // Track the start time of the last analyzed price window
+	lastAnalyzedPricesEnd         time.Time     // Track the end time of the last analyzed price window
+	chargingDips                  []ChargingDip // Dips for the current 48-hour window
 }
 
 // NewPriceBasedElectricityConsumptionCalculator creates a new calculator for determining
@@ -62,13 +70,17 @@ func NewPriceBasedElectricityConsumptionCalculator(
 		peakDetectionStdDevMultiplier: peakDetectionStdDevMultiplier,
 		socThreshold:                  socThreshold,
 		cacheTTL:                      1 * time.Hour,
+		lastAnalyzedPricesTime:        time.Time{},
+		lastAnalyzedPricesStart:       time.Time{},
+		lastAnalyzedPricesEnd:         time.Time{},
+		chargingDips:                  []ChargingDip{},
 	}
 }
 
 // CalculateAddition determines how much power should be allocated to battery charging
-// based on current electricity prices compared to available prices.
-// It charges the battery only during the cheapest price periods available in the next 48 hours,
-// and only if the entire charging duration can be completed within those cheapest periods.
+// based on daily analysis of price dips and peaks.
+// Once per day, it identifies optimal charging dips before price peaks.
+// At each moment, it decides whether to charge based on current dip and SoC status.
 // Energy prices are cached for 1 hour to avoid redundant API calls.
 func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(availableChargePower float32) int {
 	if !p.enabled {
@@ -108,6 +120,31 @@ func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(available
 		return 0
 	}
 
+	// Check if we have truly new prices (start or end of window changed)
+	// This happens once per day when new prices arrive, not on every cache refresh
+	var pricesChanged bool
+	if len(energyPrices) > 0 {
+		currentWindowStart := energyPrices[0].Time
+		currentWindowEnd := energyPrices[len(energyPrices)-1].EndTime
+
+		if p.lastAnalyzedPricesStart != currentWindowStart || p.lastAnalyzedPricesEnd != currentWindowEnd {
+			pricesChanged = true
+			log.Infof("New prices detected: price window changed from [%v, %v] to [%v, %v]",
+				p.lastAnalyzedPricesStart, p.lastAnalyzedPricesEnd, currentWindowStart, currentWindowEnd)
+		}
+	}
+
+	// Analyze dips and peaks only if prices have actually changed (new timeslots)
+	if pricesChanged {
+		log.Infof("New prices retrieved, analyzing dips and peaks for 48-hour window")
+		p.analyzeChargingDips(energyPrices)
+		p.lastAnalyzedPricesTime = now
+		if len(energyPrices) > 0 {
+			p.lastAnalyzedPricesStart = energyPrices[0].Time
+			p.lastAnalyzedPricesEnd = energyPrices[len(energyPrices)-1].EndTime
+		}
+	}
+
 	// Find the current price period
 	var currentPrice *prices.EnergyPrice
 	currentPriceIndex := -1
@@ -124,40 +161,64 @@ func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(available
 		return 0
 	}
 
-	// Calculate total charging duration needed for all batteries
-	totalChargeDuration := time.Duration(0)
-	for _, battery := range p.batteries {
-		duration, _ := battery.ChargeDuration(availableChargePower, 100)
-		if duration > 0 {
-			totalChargeDuration += duration
-		}
-	}
-
-	if totalChargeDuration == 0 {
-		log.Debugf("No charging duration needed for batteries")
-		return 0
-	}
-
-	// Find the cheapest slots that match the total charging duration
-	cheapestSlots := findCheapestSlots(energyPrices, totalChargeDuration, p.batteries, p.peakDetectionStdDevMultiplier, p.socThreshold)
-	if len(cheapestSlots) == 0 {
-		log.Debugf("Could not find enough price periods for required charging duration of %v", totalChargeDuration)
-		return 0
-	}
-
-	// Check if current price period is one of the cheapest slots
-	isInCheapestSlots := false
-	for _, slotIndex := range cheapestSlots {
-		if slotIndex == currentPriceIndex {
-			isInCheapestSlots = true
+	// Check if we're currently in a charging dip
+	var currentDip *ChargingDip
+	for i := range p.chargingDips {
+		if currentPriceIndex >= p.chargingDips[i].StartIndex && currentPriceIndex <= p.chargingDips[i].EndIndex {
+			currentDip = &p.chargingDips[i]
 			break
 		}
 	}
 
-	if !isInCheapestSlots {
-		log.Debugf("Current time is not in the cheapest price slots, skipping battery charging")
+	if currentDip == nil {
+		log.Debugf("Current time is not in any identified charging dip")
 		return 0
 	}
+
+	// Determine if we should charge in this dip
+	shouldCharge := false
+	reason := ""
+
+	// Calculate average SoC
+	totalSoC := float32(0)
+	for _, battery := range p.batteries {
+		totalSoC += battery.State().SoC()
+	}
+	avgSoC := totalSoC / float32(len(p.batteries))
+
+	// Check peak that this dip serves
+	peakPrice := float32(0)
+	if currentDip.PeakIndex < len(energyPrices) {
+		peakPrice = energyPrices[currentDip.PeakIndex].ConsumptionPrice
+	}
+
+	// Strategy 1: Survival charging - if SoC is too low for the upcoming peak
+	if avgSoC < p.socThreshold {
+		shouldCharge = true
+		reason = "Survival charging: SoC below threshold"
+	} else {
+		// Strategy 2: Normal charging - if we haven't charged this dip yet and it's economically viable
+		if !currentDip.IsProcessed {
+			roundTripEfficiency := getAverageRoundTripEfficiency(p.batteries)
+			if isEconomicallyViable(currentDip.Price, peakPrice, roundTripEfficiency) {
+				shouldCharge = true
+				reason = "Normal charging: Economically viable dip"
+				currentDip.IsProcessed = true
+			} else {
+				reason = fmt.Sprintf("Dip not economically viable (dip: €%.4f, peak: €%.4f)", currentDip.Price, peakPrice)
+			}
+		} else {
+			reason = "Dip already processed today"
+		}
+	}
+
+	if !shouldCharge {
+		log.Debugf("Not charging: %s", reason)
+		return 0
+	}
+
+	log.Infof("Charging battery in dip: %s (price: €%.4f, peak: €%.4f, SoC: %.2f%%)",
+		reason, currentDip.Price, peakPrice, avgSoC)
 
 	// Calculate how much power each battery can accept
 	totalAddition := 0
@@ -177,55 +238,23 @@ func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(available
 		totalAddition += powerToAdd
 		remainingChargePower -= batteryChargePower
 
-		log.Debugf("Adding %d W for battery charging (duration: %v, current price: %.4f)",
+		log.Debugf("Adding %d W for battery charging (duration: %v, current price: €%.4f)",
 			powerToAdd, chargeDuration, currentPrice.ConsumptionPrice)
 	}
 
 	return totalAddition
 }
 
-// findCheapestSlots returns the indices of price periods to charge during based on battery SoC.
-// If SoC < socThreshold: Charges enough before expensive periods to survive them (survival strategy)
-// If SoC >= socThreshold: Charges during the absolute cheapest periods (optimal strategy)
-// peakDetectionStdDevMultiplier controls peak detection sensitivity (0.5=conservative, 1.0=optimal, 1.5=aggressive)
-func findCheapestSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration, batteries []*Battery, stdDevMultiplier float32, socThreshold float32) []int {
-	if len(energyPrices) == 0 || len(batteries) == 0 {
-		return []int{}
+// analyzeChargingDips identifies price dips and their corresponding peaks in the 48-hour window
+func (p *PriceBasedElectricityConsumptionCalculator) analyzeChargingDips(energyPrices []*prices.EnergyPrice) {
+	p.chargingDips = []ChargingDip{}
+
+	if len(energyPrices) < 2 {
+		log.Debugf("Not enough price data for dip analysis")
+		return
 	}
 
-	// Calculate average SoC across all batteries
-	totalSoC := float32(0)
-	for _, battery := range batteries {
-		totalSoC += battery.State().SoC()
-	}
-	avgSoC := totalSoC / float32(len(batteries))
-
-	log.Debugf("Average battery SoC: %.2f%%", avgSoC)
-
-	// Use different strategies based on SoC
-	if avgSoC < socThreshold {
-		log.Debugf("Low SoC (%.2f%%) detected, using survival charging strategy (threshold: %.2f%%)", avgSoC, socThreshold)
-		return findSurvivalChargingSlots(energyPrices, requiredDuration, batteries, stdDevMultiplier)
-	}
-
-	log.Debugf("SoC sufficient (%.2f%%), using optimal charging strategy (threshold: %.2f%%)", avgSoC, socThreshold)
-	return findOptimalChargingSlots(energyPrices, requiredDuration, batteries)
-}
-
-// findSurvivalChargingSlots prioritizes charging before expensive price periods.
-// It identifies expensive periods using intelligent peak detection and charges
-// just enough before them to survive the peak.
-// peakDetectionStdDevMultiplier controls sensitivity: avg + (peakDetectionStdDevMultiplier × stdDev)
-func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration, batteries []*Battery, stdDevMultiplier float32) []int {
-	if len(energyPrices) == 0 {
-		return []int{}
-	}
-
-	// Get average round-trip efficiency
-	roundTripEfficiency := getAverageRoundTripEfficiency(batteries)
-	log.Debugf("Average battery round-trip efficiency: %.2f%%", roundTripEfficiency)
-
-	// Calculate price statistics for intelligent peak detection
+	// Calculate price statistics
 	totalPrice := float32(0)
 	maxPrice := energyPrices[0].ConsumptionPrice
 	minPrice := energyPrices[0].ConsumptionPrice
@@ -242,7 +271,7 @@ func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDurat
 
 	avgPrice := totalPrice / float32(len(energyPrices))
 
-	// Calculate standard deviation for intelligent thresholding
+	// Calculate standard deviation
 	varianceSum := float32(0)
 	for _, ep := range energyPrices {
 		diff := ep.ConsumptionPrice - avgPrice
@@ -250,123 +279,81 @@ func findSurvivalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDurat
 	}
 	stdDev := float32(math.Sqrt(float64(varianceSum / float32(len(energyPrices)))))
 
-	log.Debugf("Price statistics: min=€%.4f, avg=€%.4f, max=€%.4f, stdDev=€%.4f",
+	log.Debugf("Price statistics (48-hour window): min=€%.4f, avg=€%.4f, max=€%.4f, stdDev=€%.4f",
 		minPrice, avgPrice, maxPrice, stdDev)
 
-	// Detect peaks: prices significantly above average using configurable multiplier
-	// Formula: avg + (multiplier × stdDev)
-	// multiplier 0.5: conservative (detects more peaks)
-	// multiplier 1.0: optimal (balanced)
-	// multiplier 1.5: aggressive (only extreme peaks)
-	peakThreshold := avgPrice + (stdDevMultiplier * stdDev)
+	// Detect peaks using configurable threshold
+	peakThreshold := avgPrice + (p.peakDetectionStdDevMultiplier * stdDev)
+	dipThreshold := avgPrice - (p.peakDetectionStdDevMultiplier * stdDev)
 
-	log.Debugf("Peak detection threshold: €%.4f (avg + %.1f × stdDev)", peakThreshold, stdDevMultiplier)
+	log.Debugf("Peak threshold: €%.4f, Dip threshold: €%.4f", peakThreshold, dipThreshold)
 
-	// Find consecutive peak periods (not just individual periods)
+	// Find peaks and dips
 	peakPeriods := findPeakPeriods(energyPrices, peakThreshold)
 
-	if len(peakPeriods) == 0 {
-		log.Debugf("No significant peaks detected, falling back to optimal strategy")
-		return findOptimalChargingSlots(energyPrices, requiredDuration, batteries)
-	}
-
-	log.Debugf("Found %d peak period blocks", len(peakPeriods))
+	log.Debugf("Found %d peak periods", len(peakPeriods))
 	for i, period := range peakPeriods {
-		peakPrice := energyPrices[period[0]].ConsumptionPrice
-		for _, idx := range period {
-			if energyPrices[idx].ConsumptionPrice > peakPrice {
-				peakPrice = energyPrices[idx].ConsumptionPrice
-			}
-		}
-		log.Debugf("Peak block %d: indices %d-%d, max price €%.4f",
-			i+1, period[0], period[len(period)-1], peakPrice)
-	}
-
-	// Strategy: Charge before the first peak using cheapest available slots
-	firstPeakStart := peakPeriods[0][0]
-	selectedIndices := make([]int, 0)
-	accumulatedDuration := time.Duration(0)
-
-	// Get only prices before the first peak
-	pricesWithIndices := make([]priceWithIndex, 0)
-	for i := 0; i < firstPeakStart && i < len(energyPrices); i++ {
-		pricesWithIndices = append(pricesWithIndices, priceWithIndex{
-			index: i,
-			price: energyPrices[i].ConsumptionPrice,
-		})
-	}
-
-	// Sort by price
-	sortByPrice(pricesWithIndices)
-
-	// Select cheapest slots before the peak
-	for _, pwi := range pricesWithIndices {
-		selectedIndices = append(selectedIndices, pwi.index)
-		accumulatedDuration += energyPrices[pwi.index].Duration()
-
-		if accumulatedDuration >= requiredDuration {
-			break
+		if len(period) > 0 {
+			log.Debugf("Peak block %d: indices %d-%d, price range €%.4f-€%.4f",
+				i+1, period[0], period[len(period)-1],
+				energyPrices[period[0]].ConsumptionPrice,
+				energyPrices[period[len(period)-1]].ConsumptionPrice)
 		}
 	}
 
-	// If we don't have enough time before the peak, also add cheap periods after
-	if accumulatedDuration < requiredDuration {
-		log.Debugf("Not enough cheap time before peak, adding periods after (accumulated: %v, need: %v)",
-			accumulatedDuration, requiredDuration)
-
-		lastPeakEnd := peakPeriods[len(peakPeriods)-1][len(peakPeriods[len(peakPeriods)-1])-1]
-
-		pricesAfter := make([]priceWithIndex, 0)
-		for i := lastPeakEnd + 1; i < len(energyPrices); i++ {
-			pricesAfter = append(pricesAfter, priceWithIndex{
-				index: i,
-				price: energyPrices[i].ConsumptionPrice,
-			})
+	// For each peak, find the preceding dip
+	for peakIdx, peakPeriod := range peakPeriods {
+		if len(peakPeriod) == 0 {
+			continue
 		}
-		sortByPrice(pricesAfter)
 
-		for _, pwi := range pricesAfter {
-			if accumulatedDuration >= requiredDuration {
+		peakStartIndex := peakPeriod[0]
+
+		// Look backward from the peak for the best dip
+		bestDipStart := -1
+		bestDipEnd := -1
+		lowestDipPrice := float32(math.MaxFloat32)
+
+		for i := peakStartIndex - 1; i >= 0; i-- {
+			// Stop at previous peak
+			if peakIdx > 0 && i <= peakPeriods[peakIdx-1][len(peakPeriods[peakIdx-1])-1] {
 				break
 			}
-			selectedIndices = append(selectedIndices, pwi.index)
-			accumulatedDuration += energyPrices[pwi.index].Duration()
+
+			if energyPrices[i].ConsumptionPrice < dipThreshold {
+				// This is a dip region
+				if bestDipEnd == -1 {
+					bestDipEnd = i
+				}
+				bestDipStart = i
+
+				if energyPrices[i].ConsumptionPrice < lowestDipPrice {
+					lowestDipPrice = energyPrices[i].ConsumptionPrice
+				}
+			}
+		}
+
+		if bestDipStart != -1 && bestDipEnd != -1 {
+			// Calculate average price in the dip
+			dipPriceSum := float32(0)
+			for i := bestDipStart; i <= bestDipEnd; i++ {
+				dipPriceSum += energyPrices[i].ConsumptionPrice
+			}
+			avgDipPrice := dipPriceSum / float32(bestDipEnd-bestDipStart+1)
+
+			dip := ChargingDip{
+				StartIndex:  bestDipStart,
+				EndIndex:    bestDipEnd,
+				PeakIndex:   peakStartIndex,
+				Price:       avgDipPrice,
+				IsProcessed: false,
+			}
+			p.chargingDips = append(p.chargingDips, dip)
+
+			log.Infof("Identified dip for peak: dip indices %d-%d (avg price €%.4f), peak index %d (price €%.4f)",
+				bestDipStart, bestDipEnd, avgDipPrice, peakStartIndex, energyPrices[peakStartIndex].ConsumptionPrice)
 		}
 	}
-
-	log.Debugf("Survival charging: selected %d slots: need %v, have %v",
-		len(selectedIndices), requiredDuration, accumulatedDuration)
-
-	// For survival charging, we must charge even if not economically optimal
-	// But log if it's viable so the user is aware
-	if len(selectedIndices) > 0 {
-		cheapestPrice := energyPrices[selectedIndices[0]].ConsumptionPrice
-		maxPrice := energyPrices[selectedIndices[0]].ConsumptionPrice
-		for _, idx := range selectedIndices {
-			if energyPrices[idx].ConsumptionPrice < cheapestPrice {
-				cheapestPrice = energyPrices[idx].ConsumptionPrice
-			}
-			if energyPrices[idx].ConsumptionPrice > maxPrice {
-				maxPrice = energyPrices[idx].ConsumptionPrice
-			}
-		}
-		// Find the overall peak price to check viability
-		peakPrice := energyPrices[0].ConsumptionPrice
-		for _, ep := range energyPrices {
-			if ep.ConsumptionPrice > peakPrice {
-				peakPrice = ep.ConsumptionPrice
-			}
-		}
-		if isEconomicallyViable(cheapestPrice, peakPrice, roundTripEfficiency) {
-			log.Debugf("Survival charging is economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f)",
-				cheapestPrice, peakPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
-		} else {
-			log.Warningf("Survival charging NOT economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f) - charging required for battery survival",
-				cheapestPrice, peakPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
-		}
-	}
-
-	return selectedIndices
 }
 
 // findPeakPeriods identifies consecutive periods where prices are above the threshold.
@@ -394,77 +381,6 @@ func findPeakPeriods(energyPrices []*prices.EnergyPrice, threshold float32) [][]
 	}
 
 	return peakPeriods
-}
-
-// findOptimalChargingSlots selects the absolute cheapest price periods.
-// It considers battery round-trip efficiency to ensure economic viability.
-func findOptimalChargingSlots(energyPrices []*prices.EnergyPrice, requiredDuration time.Duration, batteries []*Battery) []int {
-	if len(energyPrices) == 0 {
-		return []int{}
-	}
-
-	// Get average round-trip efficiency
-	roundTripEfficiency := getAverageRoundTripEfficiency(batteries)
-	log.Debugf("Average battery round-trip efficiency: %.2f%%", roundTripEfficiency)
-
-	pricesWithIndices := make([]priceWithIndex, len(energyPrices))
-	for i := range energyPrices {
-		pricesWithIndices[i] = priceWithIndex{
-			index: i,
-			price: energyPrices[i].ConsumptionPrice,
-		}
-	}
-
-	// Sort by price (ascending)
-	sortByPrice(pricesWithIndices)
-
-	// Find the cheapest and peak prices for economic viability check
-	cheapestPrice := pricesWithIndices[0].price
-	maxPrice := energyPrices[0].ConsumptionPrice
-	for _, ep := range energyPrices {
-		if ep.ConsumptionPrice > maxPrice {
-			maxPrice = ep.ConsumptionPrice
-		}
-	}
-
-	// Check if charging is economically viable
-	if !isEconomicallyViable(cheapestPrice, maxPrice, roundTripEfficiency) {
-		log.Debugf("Battery charging not economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f)",
-			cheapestPrice, maxPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
-		return []int{}
-	}
-
-	log.Debugf("Battery charging is economically viable: cheapest=€%.4f, peak=€%.4f, efficiency=%.2f%% (effective cost=€%.4f)",
-		cheapestPrice, maxPrice, roundTripEfficiency, cheapestPrice*(100/roundTripEfficiency))
-
-	// Select the cheapest slots until we have enough duration
-	accumulatedDuration := time.Duration(0)
-	selectedIndices := make([]int, 0)
-
-	for _, pwi := range pricesWithIndices {
-		selectedIndices = append(selectedIndices, pwi.index)
-		accumulatedDuration += energyPrices[pwi.index].Duration()
-
-		if accumulatedDuration >= requiredDuration {
-			break
-		}
-	}
-
-	log.Debugf("Optimal charging: selected %d slots: need %v, have %v",
-		len(selectedIndices), requiredDuration, accumulatedDuration)
-
-	return selectedIndices
-}
-
-// sortByPrice sorts the slice of priceWithIndex in ascending order by price
-func sortByPrice(prices []priceWithIndex) {
-	for i := 0; i < len(prices); i++ {
-		for j := i + 1; j < len(prices); j++ {
-			if prices[j].price < prices[i].price {
-				prices[i], prices[j] = prices[j], prices[i]
-			}
-		}
-	}
 }
 
 // getAverageRoundTripEfficiency calculates the average round-trip efficiency from all batteries
