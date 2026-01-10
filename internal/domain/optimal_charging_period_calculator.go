@@ -2,9 +2,11 @@ package domain
 
 import (
 	"context"
+	"enman/internal/domain/events"
 	"enman/internal/domain/prices"
 	"enman/internal/domain/repository"
 	"enman/internal/log"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -23,6 +25,8 @@ type OptimalChargingPeriodCalculator struct {
 	currentPeriods                []*ChargingPeriod
 	periodsLock                   sync.RWMutex
 	lastCalculationTime           time.Time
+	ctx                           context.Context
+	scheduledEvents               sync.Map // Tracks scheduled period events to avoid duplicates
 }
 
 // ChargingPeriod represents a continuous period with optimal prices for charging
@@ -59,6 +63,7 @@ func (o *OptimalChargingPeriodCalculator) Start(ctx context.Context) {
 		return
 	}
 
+	o.ctx = ctx
 	o.ticker = time.NewTicker(1 * time.Hour)
 	o.tickerDoneChannel = make(chan bool)
 
@@ -224,12 +229,77 @@ func (o *OptimalChargingPeriodCalculator) calculatePriceStatistics(priceList []*
 	return mean, stdDev
 }
 
-// updateChargingPeriods compares new periods with current ones
+// scheduleChargingPeriodEvent schedules a charging period event to fire at the specified time
+// Similar to FirePriceChangedEvent in BasePriceImporter
+func (o *OptimalChargingPeriodCalculator) scheduleChargingPeriodEvent(period *ChargingPeriod, eventType events.ChargingPeriodEventType) {
+	if o.ctx == nil {
+		log.Tracef("Cannot schedule event - context not initialized")
+		return
+	}
+
+	// Determine which time to schedule the event for
+	var eventTime time.Time
+	var eventKey string
+
+	if eventType == events.ChargingPeriodStart {
+		eventTime = period.StartTime
+		eventKey = fmt.Sprintf("charging-start-%v-%v", period.StartTime, period.EndTime)
+	} else {
+		eventTime = period.EndTime
+		eventKey = fmt.Sprintf("charging-stop-%v-%v", period.StartTime, period.EndTime)
+	}
+
+	// Check if event is in the past
+	if time.Now().After(eventTime) {
+		log.Tracef("Not scheduling charging period event because it is in the past: %s", eventKey)
+		return
+	}
+
+	// Check if event is already scheduled
+	_, ok := o.scheduledEvents.Load(eventKey)
+	if ok {
+		log.Tracef("Not scheduling charging period event because it was already scheduled: %s", eventKey)
+		return
+	}
+
+	log.Tracef("Scheduling charging period event: %s", eventKey)
+	o.scheduledEvents.Store(eventKey, true)
+
+	// Schedule the event to fire at the specified time
+	go func() {
+		timer := time.NewTimer(time.Until(eventTime))
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			event := events.NewChargingPeriodValues().
+				SetPeriodType(eventType).
+				SetStartTime(period.StartTime).
+				SetEndTime(period.EndTime)
+
+			if eventType == events.ChargingPeriodStart {
+				log.Infof("Firing charging period START event: %v to %v", period.StartTime, period.EndTime)
+			} else {
+				log.Infof("Firing charging period STOP event: %v to %v", period.StartTime, period.EndTime)
+			}
+
+			events.ChargingPeriodChanges.Trigger(event)
+			o.scheduledEvents.Delete(eventKey)
+			return
+
+		case <-o.ctx.Done():
+			o.scheduledEvents.Delete(eventKey)
+			return
+		}
+	}()
+}
+
+// updateChargingPeriods compares new periods with current ones and schedules events
 func (o *OptimalChargingPeriodCalculator) updateChargingPeriods(newPeriods []*ChargingPeriod, now time.Time) {
 	o.periodsLock.Lock()
 	defer o.periodsLock.Unlock()
 
-	// Find periods that have started
+	// Find periods that have started - schedule start events
 	for _, newPeriod := range newPeriods {
 		found := false
 		for _, currentPeriod := range o.currentPeriods {
@@ -239,15 +309,15 @@ func (o *OptimalChargingPeriodCalculator) updateChargingPeriods(newPeriods []*Ch
 			}
 		}
 
-		// New period that wasn't in current list
+		// New period that wasn't in current list - schedule start event
 		if !found && newPeriod.StartTime.After(now) {
 			log.Infof("Optimal charging period identified: %v to %v", newPeriod.StartTime, newPeriod.EndTime)
-
-			// TODO: Fire event when charging period events are implemented
+			o.scheduleChargingPeriodEvent(newPeriod, events.ChargingPeriodStart)
+			o.scheduleChargingPeriodEvent(newPeriod, events.ChargingPeriodStop)
 		}
 	}
 
-	// Find periods that have ended
+	// Find periods that have ended - cancel scheduled stop events if period is removed
 	for _, currentPeriod := range o.currentPeriods {
 		found := false
 		for _, newPeriod := range newPeriods {
@@ -257,11 +327,12 @@ func (o *OptimalChargingPeriodCalculator) updateChargingPeriods(newPeriods []*Ch
 			}
 		}
 
-		// Period no longer in new list - fire end event
+		// Period no longer in new list
 		if !found && currentPeriod.EndTime.After(now) {
 			log.Infof("Optimal charging period ended: %v to %v", currentPeriod.StartTime, currentPeriod.EndTime)
-
-			// TODO: Fire event when charging period events are implemented
+			// Remove any scheduled events for this period
+			eventKey := fmt.Sprintf("charging-stop-%v-%v", currentPeriod.StartTime, currentPeriod.EndTime)
+			o.scheduledEvents.Delete(eventKey)
 		}
 	}
 
