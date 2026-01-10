@@ -70,6 +70,9 @@ func (o *OptimalChargingPeriodCalculator) Start(ctx context.Context) {
 	// Initial calculation
 	o.calculateOptimalPeriods()
 
+	// Check if currently in an active charging period and fire start event if needed
+	o.fireActiveChargingPeriodEventOnStart()
+
 	go func() {
 		for {
 			select {
@@ -90,6 +93,29 @@ func (o *OptimalChargingPeriodCalculator) Stop() {
 	}
 	o.ticker.Stop()
 	o.tickerDoneChannel <- true
+}
+
+// fireActiveChargingPeriodEventOnStart checks if the application starts during an active charging period
+// and fires the start event immediately if it does
+func (o *OptimalChargingPeriodCalculator) fireActiveChargingPeriodEventOnStart() {
+	now := time.Now()
+	activePeriod := o.GetPeriodForTime(now)
+
+	if activePeriod != nil {
+		log.Infof("Application started during active charging period: %v to %v", activePeriod.StartTime, activePeriod.EndTime)
+
+		// Fire the charging period start event immediately
+		event := events.NewChargingPeriodValues().
+			SetPeriodType(events.ChargingPeriodStart).
+			SetStartTime(activePeriod.StartTime).
+			SetEndTime(activePeriod.EndTime)
+
+		log.Infof("Firing charging period START event on startup: %v to %v", activePeriod.StartTime, activePeriod.EndTime)
+		events.ChargingPeriodChanges.Trigger(event)
+
+		// Schedule the stop event for when the period ends
+		o.scheduleChargingPeriodEvent(activePeriod, events.ChargingPeriodStop)
+	}
 }
 
 // calculateOptimalPeriods fetches new prices and calculates optimal charging windows
