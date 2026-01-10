@@ -17,7 +17,8 @@ type EnergyPriceValues struct {
 	eventTime          time.Time
 	energyProviderName string
 	energyType         prices.EnergyType
-	priceStartingTime  time.Time
+	priceStartTime     time.Time
+	priceEndTime       time.Time
 	consumptionPrice   float32
 	feedbackPrice      float32
 	interval           time.Duration
@@ -69,11 +70,20 @@ func (epv *EnergyPriceValues) FeedbackPrice() float32 {
 	return epv.feedbackPrice
 }
 
-func (epv *EnergyPriceValues) SetPriceStartingTime(priceStartingTime time.Time) *EnergyPriceValues {
-	epv.priceStartingTime = priceStartingTime
+func (epv *EnergyPriceValues) SetPriceStartTime(priceStartTime time.Time) *EnergyPriceValues {
+	epv.priceStartTime = priceStartTime
 	return epv
 }
 
-func (epv *EnergyPriceValues) PriceStartingTime() time.Time {
-	return epv.priceStartingTime
+func (epv *EnergyPriceValues) PriceStartTime() time.Time {
+	return epv.priceStartTime
+}
+
+func (epv *EnergyPriceValues) SetPriceEndTime(priceEndTime time.Time) *EnergyPriceValues {
+	epv.priceEndTime = priceEndTime
+	return epv
+}
+
+func (epv *EnergyPriceValues) PriceEndingTime() time.Time {
+	return epv.priceEndTime
 }

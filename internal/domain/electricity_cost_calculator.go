@@ -28,14 +28,14 @@ func (e *ElectricityUsageCostCalculator) HandleEvent(values *events.EnergyPriceV
 	var startTime time.Time
 	previousConsumptionPrice := float32(0)
 	previousFeedbackPrice := float32(0)
-	endTime := values.PriceStartingTime()
+	endTime := values.PriceStartTime()
 	if value, ok := e.previousValues.Load(cacheKey); ok {
 		previousValue := value.(*events.EnergyPriceValues)
-		startTime = previousValue.PriceStartingTime()
+		startTime = previousValue.PriceStartTime()
 		previousConsumptionPrice = previousValue.ConsumptionPrice()
 		previousFeedbackPrice = previousValue.FeedbackPrice()
 	} else {
-		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeElectricity, repository.LessOrEqual)
+		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeElectricity, repository.LessOrEqual)
 		if err != nil {
 			log.Errorf("Unable to determine previous electricity price: %s", err.Error())
 			return

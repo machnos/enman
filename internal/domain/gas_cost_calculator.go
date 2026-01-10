@@ -27,13 +27,13 @@ func (e *GasUsageCostCalculator) HandleEvent(values *events.EnergyPriceValues) {
 	defer func() { e.previousValues.Store(cacheKey, values) }()
 	var startTime time.Time
 	previousConsumptionPrice := float32(0)
-	endTime := values.PriceStartingTime()
+	endTime := values.PriceStartTime()
 	if value, ok := e.previousValues.Load(cacheKey); ok {
 		previousValue := value.(*events.EnergyPriceValues)
-		startTime = previousValue.PriceStartingTime()
+		startTime = previousValue.PriceStartTime()
 		previousConsumptionPrice = previousValue.ConsumptionPrice()
 	} else {
-		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartingTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeGas, repository.LessOrEqual)
+		dbPrice, err := e.repository.EnergyPriceAtTime(values.PriceStartTime().Add(time.Minute*-1), values.EnergyProviderName(), prices.EnergyTypeGas, repository.LessOrEqual)
 		if err != nil {
 			log.Errorf("Unable to determine previous electricity price: %s", err.Error())
 			return

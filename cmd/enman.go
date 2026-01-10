@@ -165,8 +165,6 @@ func main() {
 			optimalChargingPeriodCalculator.Start(syncGroupContext)
 			return nil
 		})
-		log.Infof("Optimal charging period calculator started with price threshold multiplier: %.1f, and round-trip efficiency: %.1f%%",
-			peakPriceStdDevMultiplier, roundTripEfficiency)
 	}
 
 	// Set price importers

@@ -123,10 +123,6 @@ func (t *timescaleRepository) EnergyPrices(from time.Time, till time.Time, provi
 			return nil, err
 		}
 		energyPrices = append(energyPrices, t.rowValuesToEnergyPrice(values))
-		maxIx := len(energyPrices) - 1
-		if maxIx >= 1 {
-			energyPrices[maxIx-1].EndTime = energyPrices[maxIx].Time
-		}
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err

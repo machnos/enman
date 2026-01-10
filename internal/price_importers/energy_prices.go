@@ -31,8 +31,9 @@ func (b *BasePriceImporter) FirePriceChangedEvent(ctx context.Context, price *pr
 		SetFeedbackPrice(price.FeedbackPrice).
 		SetEnergyProviderName(price.ProviderName).
 		SetEnergyType(price.EnergyType).
-		SetPriceStartingTime(price.Time)
-	eventKey := fmt.Sprintf("%v-%v-%v", event.EnergyProviderName(), event.EnergyType().String(), event.PriceStartingTime())
+		SetPriceStartTime(price.Time).
+		SetPriceEndTime(price.EndTime)
+	eventKey := fmt.Sprintf("%v-%v-%v", event.EnergyProviderName(), event.EnergyType().String(), event.PriceStartTime())
 	if time.Now().After(price.Time) {
 		log.Tracef("Not registering price change task because it was in the past %s", eventKey)
 		return
@@ -63,6 +64,7 @@ func (b *BasePriceImporter) calculateProviderPrice(provider config.EnergyProvide
 		ProviderName: provider.Name,
 		EnergyType:   providerUpdateData.energyType,
 		Time:         providerUpdateData.time,
+		EndTime:      providerUpdateData.endTime,
 	}
 	priceModels := make([]*config.PriceModel, 0)
 	// Filter on PriceModels with the same EnergyType
@@ -119,6 +121,7 @@ func (b *BasePriceImporter) UpdateProviderPrices(ctx context.Context, rootPrices
 			timeData = map[prices.EnergyType]*providerUpdateData{}
 			timeData[rootPrice.EnergyType] = &providerUpdateData{
 				startTime,
+				rootPrice.EndTime,
 				rootPrice.EnergyType,
 				map[string]float64{
 					rootPrice.ProviderName: float64(rootPrice.ConsumptionPrice),
@@ -133,6 +136,7 @@ func (b *BasePriceImporter) UpdateProviderPrices(ctx context.Context, rootPrices
 			if !ok {
 				timeData[rootPrice.EnergyType] = &providerUpdateData{
 					startTime,
+					rootPrice.EndTime,
 					rootPrice.EnergyType,
 					map[string]float64{
 						rootPrice.ProviderName: float64(rootPrice.ConsumptionPrice),
@@ -166,6 +170,7 @@ func (b *BasePriceImporter) UpdateProviderPrices(ctx context.Context, rootPrices
 
 type providerUpdateData struct {
 	time                  time.Time
+	endTime               time.Time
 	energyType            prices.EnergyType
 	baseConsumptionPrices map[string]float64
 	baseFeedbackPrices    map[string]float64
