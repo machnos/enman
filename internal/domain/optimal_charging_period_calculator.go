@@ -223,10 +223,6 @@ func (o *OptimalChargingPeriodCalculator) identifyChargingPeriods(priceList []*p
 
 	// Handle case where last prices are cheap (period extends to end of data)
 	if periodStart != nil {
-		endTime := priceList[len(priceList)-1].EndTime
-		if endTime.IsZero() {
-			endTime = priceList[len(priceList)-1].Time.Add(priceList[0].EndTime.Sub(priceList[0].Time))
-		}
 		period := &ChargingPeriod{
 			StartTime: *periodStart,
 			EndTime:   priceList[len(priceList)-1].EndTime,

@@ -3,6 +3,7 @@ package domain
 import (
 	"enman/internal/domain/events"
 	"enman/internal/domain/repository"
+	"math"
 	"time"
 )
 
@@ -27,9 +28,15 @@ func NewPriceBasedElectricityConsumptionCalculator(
 	}
 }
 
-func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(availableChargePower float32) int {
-
-	return 0
+func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(availableChargePower float32) float32 {
+	if !p.inChargeWindow || p.batteries == nil || len(p.batteries) == 0 {
+		return 0
+	}
+	additions := float32(0)
+	for _, battery := range p.batteries {
+		additions += battery.NecessaryChargePower(100, p.chargeWindowEndTime.Sub(time.Now()))
+	}
+	return float32(math.Min(float64(availableChargePower), float64(additions)))
 }
 
 func (p *PriceBasedElectricityConsumptionCalculator) HandleEvent(values *events.ChargingPeriodValues) {

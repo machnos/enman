@@ -44,6 +44,7 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 	}
 
 	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries())
+	events.ChargingPeriodChanges.Register(calculator.priceBasedCalculator, func(values *events.ChargingPeriodValues) bool { return true })
 
 	go func() {
 		for {
@@ -64,7 +65,7 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 					// Calculate available charge power from grid (negative consumption means grid can supply more)
 					availablePower := calculator.system.Grid().MaxElectricityConsumption() - float32(addition)
 					priceAddition := calculator.priceBasedCalculator.CalculateAddition(availablePower)
-					addition += priceAddition
+					addition += int(priceAddition)
 				}
 
 				if calculator.lastSetTo != addition {
@@ -107,27 +108,6 @@ func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.Electricity
 	data.values = append(data.values, int(values.State().TotalPower()))
 }
 
-// EnablePriceBasedCharging enables price-based battery charging by providing
-// the energy price repository, the energy provider name, the standard deviation multiplier, and the SoC threshold.
-func (g *GridTargetConsumptionCalculator) EnablePriceBasedCharging(repo repository.EnergyPrice, providerName string, stdDevMultiplier float32, socThreshold float32) {
-	if g.priceBasedCalculator == nil {
-		log.Warningf("Price-based calculator not initialized, cannot enable price-based charging")
-		return
-	}
-	if repo == nil || providerName == "" {
-		log.Warningf("Invalid repository or provider name for price-based charging")
-		return
-	}
-	if stdDevMultiplier <= 0 {
-		stdDevMultiplier = 1.0
-	}
-	if socThreshold < 0 || socThreshold > 100 {
-		socThreshold = 25.0
-	}
-	g.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, providerName, g.system.Batteries())
-	log.Infof("Price-based battery charging enabled with provider: %s, stdDev multiplier: %.1f, SoC threshold: %.1f%%", providerName, stdDevMultiplier, socThreshold)
-}
-
 func (g *GridTargetConsumptionCalculator) Stop() {
 	if g.ticker == nil {
 		return
@@ -147,6 +127,7 @@ func (g *GridTargetConsumptionCalculator) Stop() {
 			events.ElectricityMeterReadings.Deregister(g)
 		}
 	}
+	events.ChargingPeriodChanges.Deregister(g.priceBasedCalculator)
 }
 
 type meterData struct {
