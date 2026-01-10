@@ -66,7 +66,6 @@ type AcLoad struct {
 type Batteries struct {
 	Batteries                                     []*Battery `json:"banks" yaml:"banks" validate:"dive"`
 	PeakPriceDetectionStandardDeviationMultiplier float32    `json:"peak_price_detection_standard_deviation_multiplier" yaml:"peak_price_detection_standard_deviation_multiplier" validate:"gte=0"`
-	SurvivalChargingSocThreshold                  float32    `json:"survival_charging_soc_threshold" yaml:"survival_charging_soc_threshold" validate:"gte=0,lte=100"`
 }
 
 type Battery struct {
