@@ -19,14 +19,7 @@ type GridTargetConsumptionCalculator struct {
 	priceBasedCalculator *PriceBasedElectricityConsumptionCalculator
 }
 
-func NewGridTargetConsumptionCalculator(system *System, repo repository.Repository, peakPriceDetectionStdDevMultiplier float32, survivalSocThreshold float32) (*GridTargetConsumptionCalculator, error) {
-	if peakPriceDetectionStdDevMultiplier <= 0 {
-		peakPriceDetectionStdDevMultiplier = 1.0
-	}
-	if survivalSocThreshold < 0 || survivalSocThreshold > 100 {
-		survivalSocThreshold = 25.0
-	}
-
+func NewGridTargetConsumptionCalculator(system *System, repo repository.Repository) (*GridTargetConsumptionCalculator, error) {
 	calculator := &GridTargetConsumptionCalculator{
 		system:    system,
 		lastSetTo: system.Grid().ElectricityTargetConsumption(),
@@ -50,7 +43,7 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 		}
 	}
 
-	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries(), peakPriceDetectionStdDevMultiplier, survivalSocThreshold)
+	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries())
 
 	go func() {
 		for {
@@ -131,7 +124,7 @@ func (g *GridTargetConsumptionCalculator) EnablePriceBasedCharging(repo reposito
 	if socThreshold < 0 || socThreshold > 100 {
 		socThreshold = 25.0
 	}
-	g.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, providerName, g.system.Batteries(), stdDevMultiplier, socThreshold)
+	g.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, providerName, g.system.Batteries())
 	log.Infof("Price-based battery charging enabled with provider: %s, stdDev multiplier: %.1f, SoC threshold: %.1f%%", providerName, stdDevMultiplier, socThreshold)
 }
 

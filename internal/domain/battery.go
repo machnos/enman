@@ -17,21 +17,17 @@ type Battery struct {
 	chargingCoefficient    float32
 	dischargingCoefficient float32
 	voltage                float32
-	roundTripEfficiency    float32
 	state                  *battery.State
 	meters                 []EnergyMeter
 	updateTicker           *time.Ticker
 }
 
-func NewBattery(name string, capacity uint16, chargingCoefficient, dischargingCoefficient, voltage, roundTripEfficiency float32, meters []EnergyMeter) *Battery {
+func NewBattery(name string, capacity uint16, chargingCoefficient, dischargingCoefficient, voltage float32, meters []EnergyMeter) *Battery {
 	if chargingCoefficient <= 0 {
 		chargingCoefficient = 1
 	}
 	if dischargingCoefficient <= 0 {
 		dischargingCoefficient = 1
-	}
-	if roundTripEfficiency <= 0 || roundTripEfficiency > 100 {
-		roundTripEfficiency = 100
 	}
 	return &Battery{
 		name:                   name,
@@ -39,7 +35,6 @@ func NewBattery(name string, capacity uint16, chargingCoefficient, dischargingCo
 		chargingCoefficient:    chargingCoefficient,
 		dischargingCoefficient: dischargingCoefficient,
 		voltage:                voltage,
-		roundTripEfficiency:    roundTripEfficiency,
 		state:                  battery.NewState(),
 		meters:                 meters,
 	}
@@ -67,10 +62,6 @@ func (b *Battery) DischargingCoefficient() float32 {
 
 func (b *Battery) Voltage() float32 {
 	return b.voltage
-}
-
-func (b *Battery) RoundTripEfficiency() float32 {
-	return b.roundTripEfficiency
 }
 
 func (b *Battery) State() *battery.State {

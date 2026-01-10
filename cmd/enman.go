@@ -104,7 +104,7 @@ func main() {
 			energyMeters,
 		)
 	}
-	for _, battery := range configuration.Batteries.Batteries {
+	for _, battery := range configuration.Batteries.Banks {
 		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRoleBattery, battery.Meters)
 		if err != nil {
 			log.Fatalf("unable to probe battery meter: %s", err.Error())
@@ -115,7 +115,6 @@ func main() {
 			battery.ChargingCoefficient,
 			battery.DischargingCoefficient,
 			battery.Voltage,
-			battery.RoundTripEfficiency,
 			energyMeters,
 		))
 	}
@@ -139,17 +138,35 @@ func main() {
 	})
 
 	// Setup grid target consumption calculator
-	peakPriceStdDevMultiplier := float32(1.0)
-	if len(configuration.Batteries.Batteries) > 0 && configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
-		peakPriceStdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
-	}
-	survivalSocThreshold := float32(25.0)
-	if len(configuration.Batteries.Batteries) > 0 && configuration.Batteries.SurvivalChargingSocThreshold > 0 && configuration.Batteries.SurvivalChargingSocThreshold <= 100 {
-		survivalSocThreshold = configuration.Batteries.SurvivalChargingSocThreshold
-	}
-	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, repo, peakPriceStdDevMultiplier, survivalSocThreshold)
+	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, repo)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
+	}
+
+	// Setup optimal charging period calculator (calculates price-based optimal charging windows)
+	var optimalChargingPeriodCalculator *domain.OptimalChargingPeriodCalculator
+	if len(system.Batteries()) > 0 {
+		peakPriceStdDevMultiplier := float32(1.0)
+		if len(configuration.Batteries.Banks) > 0 && configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
+			peakPriceStdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
+		}
+		roundTripEfficiency := float32(95)
+		if len(configuration.Batteries.Banks) > 0 && configuration.Batteries.RoundTripEfficiency > 0 && configuration.Batteries.RoundTripEfficiency <= 100 {
+			roundTripEfficiency = configuration.Batteries.RoundTripEfficiency
+		}
+
+		optimalChargingPeriodCalculator = domain.NewOptimalChargingPeriodCalculator(
+			repo,
+			system.Grid().Name(),
+			peakPriceStdDevMultiplier,
+			roundTripEfficiency,
+		)
+		syncGroup.Go(func() error {
+			optimalChargingPeriodCalculator.Start(syncGroupContext)
+			return nil
+		})
+		log.Infof("Optimal charging period calculator started with price threshold multiplier: %.1f, and round-trip efficiency: %.1f%%",
+			peakPriceStdDevMultiplier, roundTripEfficiency)
 	}
 
 	// Set price importers
