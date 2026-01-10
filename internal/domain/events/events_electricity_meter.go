@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/electricity"
 	"errors"
@@ -9,6 +10,11 @@ import (
 
 var ElectricityMeterReadings = genericEventHandler[ElectricityMeterValueChangeListener, *ElectricityMeterValues]{
 	listeners: make(map[ElectricityMeterValueChangeListener]func(values *ElectricityMeterValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	ElectricityMeterReadings.SetContext(context.Background())
 }
 
 type ElectricityMeterValueChangeListener interface {

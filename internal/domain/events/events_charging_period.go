@@ -1,11 +1,17 @@
 package events
 
 import (
+	"context"
 	"time"
 )
 
 var ChargingPeriodChanges = genericEventHandler[ChargingPeriodChangeListener, *ChargingPeriodValues]{
 	listeners: make(map[ChargingPeriodChangeListener]func(values *ChargingPeriodValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	ChargingPeriodChanges.SetContext(context.Background())
 }
 
 type ChargingPeriodChangeListener interface {

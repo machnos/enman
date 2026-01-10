@@ -57,10 +57,11 @@ func NewOptimalChargingPeriodCalculator(
 }
 
 // Start begins the hourly polling of prices and calculation of optimal charging periods
-func (o *OptimalChargingPeriodCalculator) Start(ctx context.Context) {
+// Returns when the context is cancelled (via errgroup coordination)
+func (o *OptimalChargingPeriodCalculator) Start(ctx context.Context) error {
 	if o.ticker != nil {
 		// Already started
-		return
+		return nil
 	}
 	log.Infof("Optimal charging period calculator started with price threshold multiplier: %.1f, and round-trip efficiency: %.1f%%",
 		o.peakDetectionStdDevMultiplier, o.roundTripEfficiency)
@@ -75,26 +76,29 @@ func (o *OptimalChargingPeriodCalculator) Start(ctx context.Context) {
 	// Check if currently in an active charging period and fire start event if needed
 	o.fireActiveChargingPeriodEventOnStart()
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				o.Stop()
-				return
-			case <-o.ticker.C:
-				o.calculateOptimalPeriods()
-			}
+	// Run polling loop - this goroutine will block until context is cancelled
+	for {
+		select {
+		case <-ctx.Done():
+			o.cleanup()
+			return nil
+		case <-o.ticker.C:
+			o.calculateOptimalPeriods()
 		}
-	}()
+	}
 }
 
-// Stop stops the hourly polling
-func (o *OptimalChargingPeriodCalculator) Stop() {
+// cleanup stops the hourly polling and cleans up resources
+func (o *OptimalChargingPeriodCalculator) cleanup() {
 	if o.ticker == nil {
 		return
 	}
 	o.ticker.Stop()
-	o.tickerDoneChannel <- true
+	// Drain any pending signals
+	select {
+	case <-o.tickerDoneChannel:
+	default:
+	}
 }
 
 // fireActiveChargingPeriodEventOnStart checks if the application starts during an active charging period

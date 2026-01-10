@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/electricity"
 	"enman/internal/domain/events"
@@ -18,11 +19,25 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	mockController := &MockGridController{}
 	system.SetGrid("Grid", 230, 25, 3, targetConsumption, nil, mockController)
 	system.AddAcLoad("EvCharger1", constants.EnergySourceRoleEvCharger, percentageFromGrid, nil)
-	calculator, err := NewGridTargetConsumptionCalculator(system, nil, 1.0, 25.0)
+	calculator, err := NewGridTargetConsumptionCalculator(system, nil)
 	if err != nil {
 		t.Error(err)
 	}
+
+	// Create context for the calculator
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start calculator in a goroutine
+	go func() {
+		_ = calculator.Start(ctx)
+	}()
+
+	// Give calculator time to start
+	time.Sleep(100 * time.Millisecond)
+
 	defer calculator.Stop()
+
 	totalPower := 0
 	loops := 10
 	mockController.wg.Add(1)

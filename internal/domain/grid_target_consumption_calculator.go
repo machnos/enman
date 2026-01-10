@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"enman/internal/domain/events"
 	"enman/internal/domain/repository"
 	"enman/internal/log"
@@ -13,7 +14,6 @@ import (
 type GridTargetConsumptionCalculator struct {
 	system               *System
 	ticker               *time.Ticker
-	tickerDoneChannel    chan bool
 	meterValues          sync.Map
 	lastSetTo            int
 	priceBasedCalculator *PriceBasedElectricityConsumptionCalculator
@@ -27,8 +27,6 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 	if system.Grid().controller == nil {
 		return nil, fmt.Errorf("no grid controller configured")
 	}
-	calculator.ticker = time.NewTicker(5 * time.Second)
-	calculator.tickerDoneChannel = make(chan bool)
 
 	for _, acLoad := range system.AcLoads() {
 		if acLoad.PercentageFromGrid() > 0 && acLoad.PercentageFromGrid() <= 100 {
@@ -37,8 +35,9 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 				make([]int, 0),
 				sync.Mutex{},
 			})
+			acLoadCopy := acLoad // Fix Issue #3: Copy loop variable before capturing in closure
 			events.ElectricityMeterReadings.Register(calculator, func(values *events.ElectricityMeterValues) bool {
-				return acLoad.Name() == values.Name() && acLoad.Role() == values.Role()
+				return acLoadCopy.Name() == values.Name() && acLoadCopy.Role() == values.Role()
 			})
 		}
 	}
@@ -46,46 +45,63 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries())
 	events.ChargingPeriodChanges.Register(calculator.priceBasedCalculator, func(values *events.ChargingPeriodValues) bool { return true })
 
-	go func() {
-		for {
-			select {
-			case <-calculator.tickerDoneChannel:
-				return
-			case <-calculator.ticker.C:
-				addition := calculator.system.Grid().ElectricityTargetConsumption()
-				calculator.meterValues.Range(func(_, value any) bool {
-					data := value.(*meterData)
-					addition += data.addition()
-					data.reset()
-					return true
-				})
+	return calculator, nil
+}
 
-				// Add price-based battery charging if enabled
-				if calculator.priceBasedCalculator != nil {
-					// Calculate available charge power from grid (negative consumption means grid can supply more)
-					availablePower := calculator.system.Grid().MaxElectricityConsumption() - float32(addition)
-					priceAddition := calculator.priceBasedCalculator.CalculateAddition(availablePower)
-					addition += int(priceAddition)
+// Start begins the polling loop - returns when context is cancelled (for errgroup integration)
+func (g *GridTargetConsumptionCalculator) Start(ctx context.Context) error {
+	if g.ticker != nil {
+		// Already started
+		return nil
+	}
+
+	g.ticker = time.NewTicker(5 * time.Second)
+	defer g.ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Graceful shutdown: reset to initial value
+			if g.lastSetTo != g.system.Grid().ElectricityTargetConsumption() {
+				err := g.system.Grid().controller.SetElectricityTargetConsumption(g.system.Grid().ElectricityTargetConsumption())
+				if err != nil {
+					log.Errorf("Failed to reset grid target consumption to initial (configured) value: %v", err)
 				}
+			}
+			return nil
+		case <-g.ticker.C:
+			addition := g.system.Grid().ElectricityTargetConsumption()
+			g.meterValues.Range(func(_, value any) bool {
+				data := value.(*meterData)
+				addition += data.addition()
+				data.reset()
+				return true
+			})
 
-				if calculator.lastSetTo != addition {
-					targetConsumption := 0
-					if addition >= 0 {
-						targetConsumption = min(addition, int(calculator.system.Grid().MaxElectricityConsumption()))
-					} else {
-						targetConsumption = max(addition, int(calculator.system.Grid().MaxElectricityProduction()*-1))
-					}
-					err := calculator.system.Grid().controller.SetElectricityTargetConsumption(targetConsumption)
-					if err != nil {
-						log.Errorf("Failed to set grid target consumption: %v", err)
-					} else {
-						calculator.lastSetTo = addition
-					}
+			// Add price-based battery charging if enabled
+			if g.priceBasedCalculator != nil {
+				// Calculate available charge power from grid (negative consumption means grid can supply more)
+				availablePower := g.system.Grid().MaxElectricityConsumption() - float32(addition)
+				priceAddition := g.priceBasedCalculator.CalculateAddition(availablePower)
+				addition += int(priceAddition)
+			}
+
+			if g.lastSetTo != addition {
+				targetConsumption := 0
+				if addition >= 0 {
+					targetConsumption = min(addition, int(g.system.Grid().MaxElectricityConsumption()))
+				} else {
+					targetConsumption = max(addition, int(g.system.Grid().MaxElectricityProduction()*-1))
+				}
+				err := g.system.Grid().controller.SetElectricityTargetConsumption(targetConsumption)
+				if err != nil {
+					log.Errorf("Failed to set grid target consumption: %v", err)
+				} else {
+					g.lastSetTo = addition
 				}
 			}
 		}
-	}()
-	return calculator, nil
+	}
 }
 
 func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.ElectricityMeterValues) {
@@ -108,26 +124,12 @@ func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.Electricity
 	data.values = append(data.values, int(values.State().TotalPower()))
 }
 
+// Stop deregisters event handlers (called during cleanup)
 func (g *GridTargetConsumptionCalculator) Stop() {
-	if g.ticker == nil {
-		return
+	events.ElectricityMeterReadings.Deregister(g)
+	if g.priceBasedCalculator != nil {
+		events.ChargingPeriodChanges.Deregister(g.priceBasedCalculator)
 	}
-	if g.lastSetTo != g.system.Grid().ElectricityTargetConsumption() {
-		err := g.system.Grid().controller.SetElectricityTargetConsumption(g.system.grid.ElectricityTargetConsumption())
-		if err != nil {
-			log.Errorf("Failed to reset grid target consumption to initial (configured) value: %v", err)
-		} else {
-			g.lastSetTo = g.system.Grid().ElectricityTargetConsumption()
-		}
-	}
-	g.ticker.Stop()
-	g.tickerDoneChannel <- true
-	for _, acLoad := range g.system.AcLoads() {
-		if acLoad.PercentageFromGrid() > 0 {
-			events.ElectricityMeterReadings.Deregister(g)
-		}
-	}
-	events.ChargingPeriodChanges.Deregister(g.priceBasedCalculator)
 }
 
 type meterData struct {

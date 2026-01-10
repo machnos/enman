@@ -1,12 +1,18 @@
 package events
 
 import (
+	"context"
 	"enman/internal/domain/prices"
 	"time"
 )
 
 var EnergyPrices = genericEventHandler[EnergyPriceChangeListener, *EnergyPriceValues]{
 	listeners: make(map[EnergyPriceChangeListener]func(values *EnergyPriceValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	EnergyPrices.SetContext(context.Background())
 }
 
 type EnergyPriceChangeListener interface {

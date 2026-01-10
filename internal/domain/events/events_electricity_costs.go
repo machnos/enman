@@ -1,11 +1,17 @@
 package events
 
 import (
+	"context"
 	"time"
 )
 
 var ElectricityCosts = genericEventHandler[ElectricityCostsChangeListener, *ElectricityCostsValues]{
 	listeners: make(map[ElectricityCostsChangeListener]func(values *ElectricityCostsValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	ElectricityCosts.SetContext(context.Background())
 }
 
 type ElectricityCostsChangeListener interface {

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/water"
 	"errors"
@@ -9,6 +10,11 @@ import (
 
 var WaterMeterReadings = genericEventHandler[WaterMeterValueChangeListener, *WaterMeterValues]{
 	listeners: make(map[WaterMeterValueChangeListener]func(values *WaterMeterValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	WaterMeterReadings.SetContext(context.Background())
 }
 
 type WaterMeterValueChangeListener interface {

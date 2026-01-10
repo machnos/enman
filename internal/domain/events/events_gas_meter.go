@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/gas"
 	"errors"
@@ -9,6 +10,11 @@ import (
 
 var GasMeterReadings = genericEventHandler[GasMeterValueChangeListener, *GasMeterValues]{
 	listeners: make(map[GasMeterValueChangeListener]func(values *GasMeterValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	GasMeterReadings.SetContext(context.Background())
 }
 
 type GasMeterValueChangeListener interface {

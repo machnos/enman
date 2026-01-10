@@ -141,6 +141,11 @@ func main() {
 	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, repo)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
+	} else {
+		syncGroup.Go(func() error {
+			return gridTargetConsumptionCalculator.Start(syncGroupContext)
+		})
+		defer gridTargetConsumptionCalculator.Stop()
 	}
 
 	// Setup optimal charging period calculator (calculates price-based optimal charging windows)
@@ -162,8 +167,7 @@ func main() {
 			roundTripEfficiency,
 		)
 		syncGroup.Go(func() error {
-			optimalChargingPeriodCalculator.Start(syncGroupContext)
-			return nil
+			return optimalChargingPeriodCalculator.Start(syncGroupContext)
 		})
 	}
 

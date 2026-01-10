@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"enman/internal/domain/battery"
 	"enman/internal/domain/constants"
 	"errors"
@@ -9,6 +10,11 @@ import (
 
 var BatteryMeterReadings = genericEventHandler[BatteryMeterValueChangeListener, *BatteryMeterValues]{
 	listeners: make(map[BatteryMeterValueChangeListener]func(values *BatteryMeterValues) bool),
+}
+
+func init() {
+	// Initialize with a background context - will be set by application during startup
+	BatteryMeterReadings.SetContext(context.Background())
 }
 
 type BatteryMeterValueChangeListener interface {
