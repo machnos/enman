@@ -173,22 +173,23 @@ func (o *OptimalChargingPeriodCalculator) identifyChargingPeriods(priceList []*p
 		return priceList[i].Time.Before(priceList[j].Time)
 	})
 
-	// Calculate mean and standard deviation of prices
-	meanPrice, stdDev := o.calculatePriceStatistics(priceList)
+	// Calculate mean, standard deviation, and max price
+	meanPrice, stdDev, maxPrice := o.calculatePriceStatistics(priceList)
 
 	// Identify price threshold for cheap periods (mean - stdDev * multiplier)
 	priceThreshold := meanPrice - (stdDev * float64(o.peakDetectionStdDevMultiplier))
 
 	// Calculate economically viable threshold accounting for round-trip efficiency
-	// When charging at priceThreshold and discharging at meanPrice, the effective cost
-	// is: (cost_to_charge / round_trip_efficiency). This must be less than peak price
-	// for it to be economically viable.
-	// Formula: cost_to_charge < (peak_price * round_trip_efficiency / 100)
+	// When charging at a low price and discharging at the peak (maximum) price,
+	// the economics must work out: charge_price / efficiency ≤ discharge_price (max)
+	// Rearranged: charge_price ≤ max_price * efficiency / 100
+	// This threshold ensures we only charge when it's economically viable to discharge
+	// at peak prices after accounting for battery round-trip losses.
 	efficiencyFactor := float64(o.roundTripEfficiency) / 100.0
-	economicThreshold := meanPrice * efficiencyFactor
+	economicThreshold := maxPrice * efficiencyFactor
 
-	log.Debugf("Price statistics - Mean: %.4f, StdDev: %.4f, Base Threshold: %.4f, Economic Threshold (%.0f%% efficiency): %.4f",
-		meanPrice, stdDev, priceThreshold, o.roundTripEfficiency, economicThreshold)
+	log.Debugf("Price statistics - Mean: %.4f, StdDev: %.4f, Max: %.4f, Base Threshold: %.4f, Economic Threshold (%.0f%% efficiency): %.4f",
+		meanPrice, stdDev, maxPrice, priceThreshold, o.roundTripEfficiency, economicThreshold)
 
 	// Group consecutive cheap periods
 	periods := make([]*ChargingPeriod, 0)
@@ -237,16 +238,21 @@ func (o *OptimalChargingPeriodCalculator) identifyChargingPeriods(priceList []*p
 	return periods
 }
 
-// calculatePriceStatistics computes mean and standard deviation of prices
-func (o *OptimalChargingPeriodCalculator) calculatePriceStatistics(priceList []*prices.EnergyPrice) (float64, float64) {
+// calculatePriceStatistics computes mean, standard deviation, and max price
+func (o *OptimalChargingPeriodCalculator) calculatePriceStatistics(priceList []*prices.EnergyPrice) (float64, float64, float64) {
 	if len(priceList) == 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 
-	// Calculate mean
+	// Calculate mean and find max
 	var sum float64
+	maxPrice := float64(priceList[0].ConsumptionPrice)
 	for _, p := range priceList {
-		sum += float64(p.ConsumptionPrice)
+		price := float64(p.ConsumptionPrice)
+		sum += price
+		if price > maxPrice {
+			maxPrice = price
+		}
 	}
 	mean := sum / float64(len(priceList))
 
@@ -258,7 +264,7 @@ func (o *OptimalChargingPeriodCalculator) calculatePriceStatistics(priceList []*
 	}
 	stdDev := math.Sqrt(variance / float64(len(priceList)))
 
-	return mean, stdDev
+	return mean, stdDev, maxPrice
 }
 
 // scheduleChargingPeriodEvent schedules a charging period event to fire at the specified time
