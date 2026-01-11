@@ -43,7 +43,6 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 	}
 
 	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries())
-	events.ChargingPeriodChanges.Register(calculator.priceBasedCalculator, func(values *events.ChargingPeriodValues) bool { return true })
 
 	return calculator, nil
 }
@@ -127,9 +126,6 @@ func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.Electricity
 // Stop deregisters event handlers (called during cleanup)
 func (g *GridTargetConsumptionCalculator) Stop() {
 	events.ElectricityMeterReadings.Deregister(g)
-	if g.priceBasedCalculator != nil {
-		events.ChargingPeriodChanges.Deregister(g.priceBasedCalculator)
-	}
 }
 
 type meterData struct {

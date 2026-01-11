@@ -148,35 +148,6 @@ func main() {
 		defer gridTargetConsumptionCalculator.Stop()
 	}
 
-	// Setup optimal charging period calculator (calculates price-based optimal charging windows)
-	var optimalChargingPeriodCalculator *domain.OptimalChargingPeriodCalculator
-	if len(system.Batteries()) > 0 {
-		peakPriceStdDevMultiplier := float32(1.0)
-		if len(configuration.Batteries.Banks) > 0 && configuration.Prices != nil && configuration.Prices.PeakPriceDetectionStandardDeviationMultiplier > 0 {
-			peakPriceStdDevMultiplier = configuration.Prices.PeakPriceDetectionStandardDeviationMultiplier
-		}
-		roundTripEfficiency := float32(95)
-		if len(configuration.Batteries.Banks) > 0 && configuration.Batteries.RoundTripEfficiency > 0 && configuration.Batteries.RoundTripEfficiency <= 100 {
-			roundTripEfficiency = configuration.Batteries.RoundTripEfficiency
-		}
-		survivalChargingSOCThreshold := float32(30)
-		if len(configuration.Batteries.Banks) > 0 && configuration.Batteries.SurvivalChargingSOCThreshold > 0 {
-			survivalChargingSOCThreshold = configuration.Batteries.SurvivalChargingSOCThreshold
-		}
-
-		optimalChargingPeriodCalculator = domain.NewOptimalChargingPeriodCalculator(
-			repo,
-			system.Grid().Name(),
-			peakPriceStdDevMultiplier,
-			roundTripEfficiency,
-			survivalChargingSOCThreshold,
-			system,
-		)
-		syncGroup.Go(func() error {
-			return optimalChargingPeriodCalculator.Start(syncGroupContext)
-		})
-	}
-
 	// Set price importers
 	if configuration.Prices != nil {
 		baseImporter := &price_importers.BasePriceImporter{
