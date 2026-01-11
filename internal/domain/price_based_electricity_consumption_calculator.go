@@ -3,6 +3,7 @@ package domain
 import (
 	"enman/internal/domain/events"
 	"enman/internal/domain/repository"
+	"enman/internal/log"
 	"math"
 	"time"
 )
@@ -42,8 +43,10 @@ func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(available
 func (p *PriceBasedElectricityConsumptionCalculator) HandleEvent(values *events.ChargingPeriodValues) {
 	p.inChargeWindow = values.PeriodType() == events.ChargingPeriodStart
 	if p.inChargeWindow {
+		log.Info("Entering price based charging window")
 		p.chargeWindowEndTime = values.EndTime()
 	} else {
+		log.Info("Leaving price based charging window")
 		p.chargeWindowEndTime = time.Time{}
 	}
 }

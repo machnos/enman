@@ -20,6 +20,7 @@ type Battery struct {
 	state                  *battery.State
 	meters                 []EnergyMeter
 	updateTicker           *time.Ticker
+	meteringStarted        bool
 }
 
 func NewBattery(name string, capacity uint16, chargingCoefficient, dischargingCoefficient, voltage float32, meters []EnergyMeter) *Battery {
@@ -152,6 +153,9 @@ func (b *Battery) StartMeasuring(context context.Context) {
 				for _, meter := range b.meters {
 					meter.Shutdown()
 				}
+				b.updateTicker.Stop()
+				b.updateTicker = nil
+				b.meteringStarted = false
 				return
 			case _ = <-b.updateTicker.C:
 				bs := battery.NewState()
@@ -169,8 +173,13 @@ func (b *Battery) StartMeasuring(context context.Context) {
 						SetRole(b.Role()).
 						SetState(bs)
 					events.BatteryMeterReadings.Trigger(batteryMeterValues)
+					b.meteringStarted = true
 				}
 			}
 		}
 	}()
+}
+
+func (b *Battery) IsMeasurementStarted() bool {
+	return b.meteringStarted
 }

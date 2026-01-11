@@ -135,49 +135,82 @@ func getEffectiveLevel(caller string) Level {
 
 // computeEffectiveLevel determines the log level for a caller based on package-specific
 // and root level settings. This function is lock-free and can be called outside the critical section.
+//
+// For a caller like "enman/internal/domain.(*OptimalChargingPeriodCalculator).updateChargingPeriods", it checks:
+// 1. "enman/internal/domain.(*OptimalChargingPeriodCalculator).updateChargingPeriods" (exact match)
+// 2. "enman/internal/domain.(*OptimalChargingPeriodCalculator)" (receiver type)
+// 3. "enman/internal/domain" (full package)
+// 4. "enman/internal" (parent package)
+// 5. "enman" (root package)
+// Finally falls back to activeLevel if no match found
 func computeEffectiveLevel(caller string, packageLevels map[string]Level, activeLevel Level) Level {
-	// Check for exact package matches and parent package matches
-	// e.g., for "enman/internal/price_importers/entsoe.(*PriceImporter).ImportPrices"
-	// we check: "enman/internal/price_importers/entsoe", "enman/internal/price_importers", etc.
+	// Check exact match first
+	if level, exists := packageLevels[caller]; exists {
+		return level
+	}
 
-	currentPath := caller
+	// Find the package path by locating the first dot that separates package from type/function
+	// e.g., "enman/internal/domain.(*OptimalChargingPeriodCalculator).updateChargingPeriods" -> find first "."
+	dotIndex := -1
+	for i := 0; i < len(caller); i++ {
+		if caller[i] == '.' {
+			dotIndex = i
+			break
+		}
+	}
+
+	// If no dot found, the entire caller is likely just a function name, fallback to root level
+	if dotIndex == -1 {
+		return activeLevel
+	}
+
+	// Extract the package path (everything before the first dot)
+	fullPackagePath := caller[:dotIndex]
+
+	// Check for receiver type (everything up to and including the closing parenthesis)
+	// e.g., "enman/internal/domain.(*OptimalChargingPeriodCalculator)" from the full caller
+	// Look for the last closing parenthesis after the first dot
+	lastCloseParen := -1
+	for i := dotIndex; i < len(caller); i++ {
+		if caller[i] == ')' {
+			lastCloseParen = i
+			break
+		}
+	}
+
+	// If we found a closing parenthesis, check for receiver type match
+	if lastCloseParen > dotIndex {
+		receiverType := caller[:lastCloseParen+1]
+		if level, exists := packageLevels[receiverType]; exists {
+			return level
+		}
+	}
+
+	// Try to match progressively shorter package paths
+	// e.g., "enman/internal/domain" -> "enman/internal" -> "enman"
+	currentPath := fullPackagePath
 	for len(currentPath) > 0 {
-		// Extract package path by removing function/method names
+		// Check if this package path exists in packageLevels
+		if level, exists := packageLevels[currentPath]; exists {
+			return level
+		}
+
+		// Move to parent package by finding the last slash
 		lastSlash := -1
 		for i := len(currentPath) - 1; i >= 0; i-- {
 			if currentPath[i] == '/' {
 				lastSlash = i
 				break
 			}
-			// Stop at function/method separators
-			if currentPath[i] == '.' || currentPath[i] == '(' {
-				break
-			}
 		}
 
+		// If no slash found, we've reached the root package level
 		if lastSlash == -1 {
 			break
 		}
 
-		// Try to find a match for this package level
-		packagePath := currentPath[:lastSlash]
-		if level, exists := packageLevels[packagePath]; exists {
-			return level
-		}
-
-		// Move to parent package
-		lastSlash = -1
-		for i := len(packagePath) - 1; i >= 0; i-- {
-			if packagePath[i] == '/' {
-				lastSlash = i
-				break
-			}
-		}
-
-		if lastSlash == -1 {
-			break
-		}
-		currentPath = packagePath[:lastSlash]
+		// Move up one level in the package hierarchy
+		currentPath = currentPath[:lastSlash]
 	}
 
 	// Fall back to root level if no package-specific level found

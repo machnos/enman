@@ -27,6 +27,8 @@ type OptimalChargingPeriodCalculator struct {
 	lastCalculationTime           time.Time
 	ctx                           context.Context
 	scheduledEvents               sync.Map // Tracks scheduled period events to avoid duplicates
+	survivalChargingSOCThreshold  float32  // Battery SOC threshold below which survival charging is enabled (0-100)
+	system                        *System  // Reference to system for battery state access
 }
 
 // ChargingPeriod represents a continuous period with optimal prices for charging
@@ -40,6 +42,8 @@ func NewOptimalChargingPeriodCalculator(
 	providerName string,
 	peakDetectionStdDevMultiplier float32,
 	roundTripEfficiency float32,
+	survivalChargingSOCThreshold float32,
+	system *System,
 ) *OptimalChargingPeriodCalculator {
 	if peakDetectionStdDevMultiplier <= 0 {
 		peakDetectionStdDevMultiplier = 1.0
@@ -47,13 +51,31 @@ func NewOptimalChargingPeriodCalculator(
 	if roundTripEfficiency < 0 || roundTripEfficiency > 100 {
 		roundTripEfficiency = 100 // Default to no losses
 	}
+	if survivalChargingSOCThreshold < 0 || survivalChargingSOCThreshold > 100 {
+		survivalChargingSOCThreshold = 30 // Default to 30%
+	}
 	return &OptimalChargingPeriodCalculator{
 		repository:                    repository,
 		providerName:                  providerName,
 		peakDetectionStdDevMultiplier: peakDetectionStdDevMultiplier,
 		roundTripEfficiency:           roundTripEfficiency,
+		survivalChargingSOCThreshold:  survivalChargingSOCThreshold,
+		system:                        system,
 		currentPeriods:                make([]*ChargingPeriod, 0),
 	}
+}
+
+// SetSystem sets the system reference for accessing battery state during survival charging calculations
+func (o *OptimalChargingPeriodCalculator) SetSystem(system *System) {
+	o.system = system
+}
+
+// SetSurvivalChargingSOCThreshold sets the battery SoC threshold below which survival charging is enabled
+func (o *OptimalChargingPeriodCalculator) SetSurvivalChargingSOCThreshold(threshold float32) {
+	if threshold < 0 || threshold > 100 {
+		threshold = 30
+	}
+	o.survivalChargingSOCThreshold = threshold
 }
 
 // Start begins the hourly polling of prices and calculation of optimal charging periods
@@ -67,7 +89,7 @@ func (o *OptimalChargingPeriodCalculator) Start(ctx context.Context) error {
 		o.peakDetectionStdDevMultiplier, o.roundTripEfficiency)
 
 	o.ctx = ctx
-	o.ticker = time.NewTicker(1 * time.Hour)
+	o.ticker = time.NewTicker(5 * time.Minute)
 	o.tickerDoneChannel = make(chan bool)
 
 	// Initial calculation
@@ -159,10 +181,15 @@ func (o *OptimalChargingPeriodCalculator) calculateOptimalPeriods() {
 	o.updateChargingPeriods(newPeriods, now)
 }
 
-// identifyChargingPeriods analyzes prices and identifies optimal charging windows
+// identifyChargingPeriods analyzes prices and identifies optimal charging windows using a multi-strategy approach:
+// 1. Identifies price peaks and finds charging windows BEFORE peaks to prepare for expensive periods
+// 2. Identifies the lowest price periods throughout the day (if economically viable)
+// 3. Identifies survival charging periods if battery SoC is below threshold
+//
+// This ensures we charge before peaks and also capture the absolute lowest prices for economic efficiency.
 // Takes into account round-trip efficiency: a period is only economically viable if
 // charging at the low price and discharging at the peak price yields net savings
-// after accounting for battery losses
+// after accounting for battery losses.
 func (o *OptimalChargingPeriodCalculator) identifyChargingPeriods(priceList []*prices.EnergyPrice, now time.Time) []*ChargingPeriod {
 	if len(priceList) == 0 {
 		return make([]*ChargingPeriod, 0)
@@ -176,66 +203,317 @@ func (o *OptimalChargingPeriodCalculator) identifyChargingPeriods(priceList []*p
 	// Calculate mean, standard deviation, and max price
 	meanPrice, stdDev, maxPrice := o.calculatePriceStatistics(priceList)
 
-	// Identify price threshold for cheap periods (mean - stdDev * multiplier)
-	priceThreshold := meanPrice - (stdDev * float64(o.peakDetectionStdDevMultiplier))
-
 	// Calculate economically viable threshold accounting for round-trip efficiency
-	// When charging at a low price and discharging at the peak (maximum) price,
-	// the economics must work out: charge_price / efficiency ≤ discharge_price (max)
-	// Rearranged: charge_price ≤ max_price * efficiency / 100
-	// This threshold ensures we only charge when it's economically viable to discharge
-	// at peak prices after accounting for battery round-trip losses.
 	efficiencyFactor := float64(o.roundTripEfficiency) / 100.0
 	economicThreshold := maxPrice * efficiencyFactor
 
-	log.Debugf("Price statistics - Mean: %.4f, StdDev: %.4f, Max: %.4f, Base Threshold: %.4f, Economic Threshold (%.0f%% efficiency): %.4f",
-		meanPrice, stdDev, maxPrice, priceThreshold, o.roundTripEfficiency, economicThreshold)
+	// Identify peak threshold: prices above mean + stdDev
+	peakThreshold := meanPrice + (stdDev * float64(o.peakDetectionStdDevMultiplier))
 
-	// Group consecutive cheap periods
-	periods := make([]*ChargingPeriod, 0)
-	var periodStart *time.Time
+	// Identify cheap threshold: prices below mean - stdDev
+	cheapThreshold := meanPrice - (stdDev * float64(o.peakDetectionStdDevMultiplier))
+
+	log.Debugf("Price statistics - Mean: %.4f, StdDev: %.4f, Max: %.4f, Peak Threshold: %.4f, Cheap Threshold: %.4f, Economic Threshold (%.0f%% efficiency): %.4f",
+		meanPrice, stdDev, maxPrice, peakThreshold, cheapThreshold, o.roundTripEfficiency, economicThreshold)
+
+	// Identify peaks - consecutive expensive periods
+	peaks := o.identifyPeaks(priceList, peakThreshold, now)
+	log.Debugf("Identified %d price peaks", len(peaks))
+	for _, peak := range peaks {
+		log.Tracef("  Peak: %v to %v", peak.StartTime, peak.EndTime)
+	}
+
+	// Strategy 1: Find charging periods BEFORE peaks
+	prePeakPeriods := o.findPrePeakChargingPeriods(priceList, peaks, economicThreshold, now)
+	log.Debugf("Identified %d pre-peak charging periods", len(prePeakPeriods))
+
+	// Strategy 2: Find the absolute lowest periods of the day (if economically viable)
+	lowestPeriods := o.findLowestPriceChargingPeriods(priceList, cheapThreshold, economicThreshold, now)
+	log.Debugf("Identified %d lowest-price charging periods", len(lowestPeriods))
+
+	// Strategy 3: Find survival charging periods if battery is low
+	survivalPeriods := o.findSurvivalChargingPeriods(priceList, peaks, now)
+	log.Debugf("Identified %d survival charging periods", len(survivalPeriods))
+
+	// Merge all periods (remove duplicates and overlaps)
+	allPeriods := append(prePeakPeriods, lowestPeriods...)
+	allPeriods = append(allPeriods, survivalPeriods...)
+	mergedPeriods := o.mergePeriods(allPeriods)
+
+	log.Debugf("Total identified charging periods after merging: %d", len(mergedPeriods))
+	for _, period := range mergedPeriods {
+		log.Tracef("  Period: %v to %v", period.StartTime, period.EndTime)
+	}
+
+	return mergedPeriods
+}
+
+// identifyPeaks finds consecutive periods where prices are above the peak threshold
+func (o *OptimalChargingPeriodCalculator) identifyPeaks(priceList []*prices.EnergyPrice, peakThreshold float64, now time.Time) []*ChargingPeriod {
+	peaks := make([]*ChargingPeriod, 0)
+	var peakStart *time.Time
 
 	for _, price := range priceList {
-		// Skip prices in the past
 		if price.Time.Before(now) {
 			continue
 		}
 
-		// A period is economically viable if the price is low enough AND
-		// it's below the economic threshold accounting for battery losses
-		isCheap := float64(price.ConsumptionPrice) <= priceThreshold &&
+		isPeak := float64(price.ConsumptionPrice) > peakThreshold
+
+		if isPeak {
+			if peakStart == nil {
+				t := price.Time
+				peakStart = &t
+			}
+		} else {
+			if peakStart != nil {
+				peak := &ChargingPeriod{
+					StartTime: *peakStart,
+					EndTime:   price.Time,
+				}
+				peaks = append(peaks, peak)
+				peakStart = nil
+			}
+		}
+	}
+
+	if peakStart != nil {
+		peak := &ChargingPeriod{
+			StartTime: *peakStart,
+			EndTime:   priceList[len(priceList)-1].EndTime,
+		}
+		peaks = append(peaks, peak)
+	}
+
+	return peaks
+}
+
+// findPrePeakChargingPeriods identifies charging periods immediately before each peak
+// This allows the battery to be charged and ready before expensive periods
+// The algorithm looks backwards from the peak start to find the longest continuous
+// economical period that leads up to the peak
+func (o *OptimalChargingPeriodCalculator) findPrePeakChargingPeriods(priceList []*prices.EnergyPrice, peaks []*ChargingPeriod, economicThreshold float64, now time.Time) []*ChargingPeriod {
+	prePeakPeriods := make([]*ChargingPeriod, 0)
+
+	for _, peak := range peaks {
+		// Find consecutive economical prices leading up to this peak
+		var periodStart *time.Time
+		var periodEnd *time.Time
+
+		// Work backwards from just before the peak
+		for i := len(priceList) - 1; i >= 0; i-- {
+			price := priceList[i]
+
+			// Stop if we've gone before peak start
+			if !price.Time.Before(peak.StartTime) {
+				continue
+			}
+
+			// Stop if we've gone into the past
+			if price.Time.Before(now) {
+				break
+			}
+
+			// Check if this price is economically viable for charging
+			isEconomical := float64(price.ConsumptionPrice) <= economicThreshold
+
+			if isEconomical {
+				// This is an economical price, extend the window
+				if periodEnd == nil {
+					t := price.Time
+					periodEnd = &t
+				}
+				t := price.Time
+				periodStart = &t
+			} else {
+				// Found a non-economical price
+				if periodStart != nil && periodEnd != nil {
+					// We have a complete economical window
+					// Adjust end time to the price time (which is non-economical)
+					period := &ChargingPeriod{
+						StartTime: *periodStart,
+						EndTime:   peak.StartTime,
+					}
+
+					// Only add if period is substantial (at least 15 minutes)
+					if period.EndTime.Sub(period.StartTime) >= 15*time.Minute {
+						prePeakPeriods = append(prePeakPeriods, period)
+					}
+					break
+				}
+				// Reset if we hit a non-economical price before finding any economical ones
+				periodStart = nil
+				periodEnd = nil
+			}
+		}
+
+		// If we found economical prices all the way to the beginning
+		if periodStart != nil && periodEnd != nil {
+			period := &ChargingPeriod{
+				StartTime: *periodStart,
+				EndTime:   peak.StartTime,
+			}
+			if period.EndTime.Sub(period.StartTime) >= 15*time.Minute {
+				prePeakPeriods = append(prePeakPeriods, period)
+			}
+		}
+	}
+
+	return prePeakPeriods
+}
+
+// findLowestPriceChargingPeriods identifies periods with the lowest prices (absolute cheap periods)
+// These are periods where consecutive prices are significantly below the mean
+func (o *OptimalChargingPeriodCalculator) findLowestPriceChargingPeriods(priceList []*prices.EnergyPrice, cheapThreshold float64, economicThreshold float64, now time.Time) []*ChargingPeriod {
+	lowestPeriods := make([]*ChargingPeriod, 0)
+	var periodStart *time.Time
+
+	for _, price := range priceList {
+		if price.Time.Before(now) {
+			continue
+		}
+
+		// A period is a lowest-price period if it's both cheap AND economical
+		isCheapAndEconomical := float64(price.ConsumptionPrice) <= cheapThreshold &&
 			float64(price.ConsumptionPrice) <= economicThreshold
 
-		if isCheap {
+		if isCheapAndEconomical {
 			if periodStart == nil {
-				// Start new period
 				t := price.Time
 				periodStart = &t
 			}
 		} else {
-			// End current period if exists
 			if periodStart != nil {
 				period := &ChargingPeriod{
 					StartTime: *periodStart,
 					EndTime:   price.Time,
 				}
-				periods = append(periods, period)
-
+				lowestPeriods = append(lowestPeriods, period)
 				periodStart = nil
 			}
 		}
 	}
 
-	// Handle case where last prices are cheap (period extends to end of data)
 	if periodStart != nil {
 		period := &ChargingPeriod{
 			StartTime: *periodStart,
 			EndTime:   priceList[len(priceList)-1].EndTime,
 		}
-		periods = append(periods, period)
+		lowestPeriods = append(lowestPeriods, period)
 	}
 
-	return periods
+	return lowestPeriods
+}
+
+// findSurvivalChargingPeriods identifies charging periods before peaks when battery SoC is below threshold
+// This ensures the battery is charged to survive peak pricing periods
+func (o *OptimalChargingPeriodCalculator) findSurvivalChargingPeriods(priceList []*prices.EnergyPrice, peaks []*ChargingPeriod, now time.Time) []*ChargingPeriod {
+	survivalPeriods := make([]*ChargingPeriod, 0)
+
+	// Only enable survival charging if system and battery are available
+	if o.system == nil || len(o.system.Batteries()) == 0 {
+		return survivalPeriods
+	}
+
+	// Check current battery SoC
+	battery := o.system.Batteries()[0]
+	if !battery.IsMeasurementStarted() {
+		return survivalPeriods
+	}
+	currentSoC := battery.State().SoC()
+
+	// Only apply survival charging if battery is below threshold
+	if currentSoC >= o.survivalChargingSOCThreshold {
+		log.Tracef("Battery SoC (%.1f%%) is above survival threshold (%.1f%%), skipping survival charging", currentSoC, o.survivalChargingSOCThreshold)
+		return survivalPeriods
+	}
+
+	log.Infof("Battery SoC (%.1f%%) is below survival threshold (%.1f%%), enabling survival charging", currentSoC, o.survivalChargingSOCThreshold)
+
+	// Find charging windows before each peak when battery needs charging
+	for _, peak := range peaks {
+		// Find a reasonable window before the peak to charge (e.g., 2-4 hours before)
+		windowStart := peak.StartTime.Add(-4 * time.Hour)
+		windowEnd := peak.StartTime
+
+		// Find the lowest priced continuous period within this window
+		var lowestStart *time.Time
+		var lowestEnd *time.Time
+		lowestAvgPrice := float64(1.0)
+
+		var currentStart *time.Time
+		var currentSum float64
+		var currentCount int
+
+		for _, price := range priceList {
+			if price.Time.Before(windowStart) || price.Time.After(windowEnd) {
+				if currentStart != nil && currentCount > 0 {
+					currentAvg := currentSum / float64(currentCount)
+					if currentAvg < lowestAvgPrice {
+						lowestAvgPrice = currentAvg
+						lowestStart = currentStart
+						t := price.Time
+						lowestEnd = &t
+					}
+				}
+				if price.Time.Before(windowStart) {
+					currentStart = nil
+					currentCount = 0
+					currentSum = 0
+				}
+				continue
+			}
+
+			if currentStart == nil {
+				t := price.Time
+				currentStart = &t
+			}
+			currentSum += float64(price.ConsumptionPrice)
+			currentCount++
+		}
+
+		if currentStart != nil && lowestStart != nil && lowestEnd != nil && lowestStart.Before(*lowestEnd) {
+			period := &ChargingPeriod{
+				StartTime: *lowestStart,
+				EndTime:   *lowestEnd,
+			}
+			survivalPeriods = append(survivalPeriods, period)
+		}
+	}
+
+	return survivalPeriods
+}
+
+// mergePeriods merges overlapping or adjacent periods
+func (o *OptimalChargingPeriodCalculator) mergePeriods(periods []*ChargingPeriod) []*ChargingPeriod {
+	if len(periods) == 0 {
+		return make([]*ChargingPeriod, 0)
+	}
+
+	// Sort periods by start time
+	sort.Slice(periods, func(i, j int) bool {
+		return periods[i].StartTime.Before(periods[j].StartTime)
+	})
+
+	merged := make([]*ChargingPeriod, 0)
+	current := periods[0]
+
+	for i := 1; i < len(periods); i++ {
+		next := periods[i]
+
+		// If periods overlap or are adjacent (within 1 minute), merge them
+		if next.StartTime.Sub(current.EndTime) <= time.Minute {
+			if next.EndTime.After(current.EndTime) {
+				current.EndTime = next.EndTime
+			}
+		} else {
+			merged = append(merged, current)
+			current = next
+		}
+	}
+
+	merged = append(merged, current)
+	return merged
 }
 
 // calculatePriceStatistics computes mean, standard deviation, and max price
@@ -367,7 +645,7 @@ func (o *OptimalChargingPeriodCalculator) updateChargingPeriods(newPeriods []*Ch
 
 		// Period no longer in new list
 		if !found && currentPeriod.EndTime.After(now) {
-			log.Infof("Optimal charging period ended: %v to %v", currentPeriod.StartTime, currentPeriod.EndTime)
+			log.Infof("Optimal charging period removed: %v to %v", currentPeriod.StartTime, currentPeriod.EndTime)
 			// Remove any scheduled events for this period
 			eventKey := fmt.Sprintf("charging-stop-%v-%v", currentPeriod.StartTime, currentPeriod.EndTime)
 			o.scheduledEvents.Delete(eventKey)

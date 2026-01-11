@@ -67,6 +67,7 @@ type Batteries struct {
 	Banks                                         []*Battery `json:"banks" yaml:"banks" validate:"dive"`
 	PeakPriceDetectionStandardDeviationMultiplier float32    `json:"peak_price_detection_standard_deviation_multiplier" yaml:"peak_price_detection_standard_deviation_multiplier" validate:"gte=0"`
 	RoundTripEfficiency                           float32    `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=100"`
+	SurvivalChargingSOCThreshold                  float32    `json:"survival_charging_soc_threshold" yaml:"survival_charging_soc_threshold" validate:"gte=0,lte=100"`
 }
 
 type Battery struct {
