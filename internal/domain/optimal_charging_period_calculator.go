@@ -249,11 +249,13 @@ func (o *OptimalChargingPeriodCalculator) identifyChargingPeriods(priceList []*p
 }
 
 // identifyPeaks finds consecutive periods where prices are above the peak threshold
+// It also consolidates nearby peaks that are separated by short dips (< 45 minutes)
+// to avoid fragmentation when a few low prices interrupt a generally high period
 func (o *OptimalChargingPeriodCalculator) identifyPeaks(priceList []*prices.EnergyPrice, peakThreshold float64, now time.Time) []*ChargingPeriod {
 	peaks := make([]*ChargingPeriod, 0)
-	var peakStart *time.Time
+	var consolidatedPeakStart *time.Time
 
-	for _, price := range priceList {
+	for i, price := range priceList {
 		if price.Time.Before(now) {
 			continue
 		}
@@ -261,25 +263,40 @@ func (o *OptimalChargingPeriodCalculator) identifyPeaks(priceList []*prices.Ener
 		isPeak := float64(price.ConsumptionPrice) > peakThreshold
 
 		if isPeak {
-			if peakStart == nil {
+			if consolidatedPeakStart == nil {
 				t := price.Time
-				peakStart = &t
+				consolidatedPeakStart = &t
 			}
 		} else {
-			if peakStart != nil {
-				peak := &ChargingPeriod{
-					StartTime: *peakStart,
-					EndTime:   price.Time,
+			// Look ahead to see if there's another peak coming soon (within 45 minutes / 3 slots)
+			hasNearbyPeak := false
+			for j := i + 1; j < len(priceList) && j < i+3; j++ {
+				if float64(priceList[j].ConsumptionPrice) > peakThreshold {
+					hasNearbyPeak = true
+					break
 				}
-				peaks = append(peaks, peak)
-				peakStart = nil
+			}
+
+			if consolidatedPeakStart != nil {
+				if hasNearbyPeak {
+					// Continue the peak across this dip
+					continue
+				} else {
+					// Close the consolidated peak
+					peak := &ChargingPeriod{
+						StartTime: *consolidatedPeakStart,
+						EndTime:   price.Time,
+					}
+					peaks = append(peaks, peak)
+					consolidatedPeakStart = nil
+				}
 			}
 		}
 	}
 
-	if peakStart != nil {
+	if consolidatedPeakStart != nil {
 		peak := &ChargingPeriod{
-			StartTime: *peakStart,
+			StartTime: *consolidatedPeakStart,
 			EndTime:   priceList[len(priceList)-1].EndTime,
 		}
 		peaks = append(peaks, peak)

@@ -152,8 +152,8 @@ func main() {
 	var optimalChargingPeriodCalculator *domain.OptimalChargingPeriodCalculator
 	if len(system.Batteries()) > 0 {
 		peakPriceStdDevMultiplier := float32(1.0)
-		if len(configuration.Batteries.Banks) > 0 && configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier > 0 {
-			peakPriceStdDevMultiplier = configuration.Batteries.PeakPriceDetectionStandardDeviationMultiplier
+		if len(configuration.Batteries.Banks) > 0 && configuration.Prices != nil && configuration.Prices.PeakPriceDetectionStandardDeviationMultiplier > 0 {
+			peakPriceStdDevMultiplier = configuration.Prices.PeakPriceDetectionStandardDeviationMultiplier
 		}
 		roundTripEfficiency := float32(95)
 		if len(configuration.Batteries.Banks) > 0 && configuration.Batteries.RoundTripEfficiency > 0 && configuration.Batteries.RoundTripEfficiency <= 100 {
