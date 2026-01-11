@@ -64,9 +64,8 @@ type AcLoad struct {
 }
 
 type Batteries struct {
-	Banks                        []*Battery `json:"banks" yaml:"banks" validate:"dive"`
-	RoundTripEfficiency          float32    `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=100"`
-	SurvivalChargingSOCThreshold float32    `json:"survival_charging_soc_threshold" yaml:"survival_charging_soc_threshold" validate:"gte=0,lte=100"`
+	Banks               []*Battery `json:"banks" yaml:"banks" validate:"dive"`
+	RoundTripEfficiency float32    `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=100"`
 }
 
 type Battery struct {
@@ -132,12 +131,11 @@ type ModbusServer struct {
 }
 
 type Prices struct {
-	Country                                       string            `json:"country" yaml:"country"`
-	Area                                          string            `json:"area" yaml:"area"`
-	Providers                                     []*EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
-	Entsoe                                        *Entsoe           `json:"entso-e" yaml:"entso-e"`
-	EnergyZero                                    bool              `json:"energy_zero" yaml:"energy_zero"`
-	PeakPriceDetectionStandardDeviationMultiplier float32           `json:"peak_price_detection_standard_deviation_multiplier" yaml:"peak_price_detection_standard_deviation_multiplier" validate:"gte=0"`
+	Country    string            `json:"country" yaml:"country"`
+	Area       string            `json:"area" yaml:"area"`
+	Providers  []*EnergyProvider `json:"providers" yaml:"providers" validate:"dive"`
+	Entsoe     *Entsoe           `json:"entso-e" yaml:"entso-e"`
+	EnergyZero bool              `json:"energy_zero" yaml:"energy_zero"`
 }
 
 type Entsoe struct {
