@@ -13,16 +13,18 @@ import (
 
 type GridTargetConsumptionCalculator struct {
 	system               *System
+	roundTripEfficiency  float32
 	ticker               *time.Ticker
 	meterValues          sync.Map
 	lastSetTo            int
 	priceBasedCalculator *PriceBasedElectricityConsumptionCalculator
 }
 
-func NewGridTargetConsumptionCalculator(system *System, repo repository.Repository) (*GridTargetConsumptionCalculator, error) {
+func NewGridTargetConsumptionCalculator(system *System, repo repository.Repository, roundTripEfficiency float32) (*GridTargetConsumptionCalculator, error) {
 	calculator := &GridTargetConsumptionCalculator{
-		system:    system,
-		lastSetTo: system.Grid().ElectricityTargetConsumption(),
+		system:              system,
+		roundTripEfficiency: roundTripEfficiency,
+		lastSetTo:           system.Grid().ElectricityTargetConsumption(),
 	}
 	if system.Grid().controller == nil {
 		return nil, fmt.Errorf("no grid controller configured")
@@ -42,7 +44,19 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 		}
 	}
 
-	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(repo, system.Grid().Name(), system.Batteries())
+	// Collect PV names from the system
+	pvNames := make([]string, 0, len(system.Pvs()))
+	for _, pv := range system.Pvs() {
+		pvNames = append(pvNames, pv.Name())
+	}
+
+	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(
+		repo,
+		system.Grid().Name(),
+		system.Batteries(),
+		pvNames,
+		roundTripEfficiency,
+	)
 
 	return calculator, nil
 }
@@ -52,6 +66,11 @@ func (g *GridTargetConsumptionCalculator) Start(ctx context.Context) error {
 	if g.ticker != nil {
 		// Already started
 		return nil
+	}
+
+	// Start the price-based calculator's background optimization
+	if g.priceBasedCalculator != nil {
+		g.priceBasedCalculator.Start(ctx)
 	}
 
 	g.ticker = time.NewTicker(5 * time.Second)
@@ -126,6 +145,9 @@ func (g *GridTargetConsumptionCalculator) HandleEvent(values *events.Electricity
 // Stop deregisters event handlers (called during cleanup)
 func (g *GridTargetConsumptionCalculator) Stop() {
 	events.ElectricityMeterReadings.Deregister(g)
+	if g.priceBasedCalculator != nil {
+		g.priceBasedCalculator.Stop()
+	}
 }
 
 type meterData struct {

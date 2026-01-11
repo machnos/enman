@@ -19,7 +19,7 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	mockController := &MockGridController{}
 	system.SetGrid("Grid", 230, 25, 3, targetConsumption, nil, mockController)
 	system.AddAcLoad("EvCharger1", constants.EnergySourceRoleEvCharger, percentageFromGrid, nil)
-	calculator, err := NewGridTargetConsumptionCalculator(system, nil)
+	calculator, err := NewGridTargetConsumptionCalculator(system, nil, 90.0) // 90% round-trip efficiency
 	if err != nil {
 		t.Error(err)
 	}
