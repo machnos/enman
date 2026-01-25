@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	tableBatteries     = "batteries"
-	tableBatteryStates = "battery_states"
+	tableBatteries            = "batteries"
+	tableBatteryStates        = "battery_states"
+	tableBatteryScheduleSlots = "battery_schedule_slots"
 )
 
 func (t *timescaleRepository) newBatteriesDefinition() *sql.TableDefinition {
@@ -251,4 +252,154 @@ func (t *timescaleRepository) registerBattery(name string, role string) {
 		}
 		t.energySourcesCache[cacheKey] = true
 	}
+}
+
+// Battery Schedule Slot methods
+
+func (t *timescaleRepository) newBatteryScheduleSlotsDefinition() *sql.TableDefinition {
+	return &sql.TableDefinition{
+		Name: tableBatteryScheduleSlots,
+		Columns: []*sql.ColumnDefinition{
+			{Name: "start_time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "end_time", SqlType: "TIMESTAMPTZ", Nullable: false},
+			{Name: "charge_power", SqlType: "DOUBLE PRECISION", Nullable: false},
+			{Name: "predicted_soc", SqlType: "DOUBLE PRECISION", Nullable: false},
+			{Name: "price_per_kwh", SqlType: "DOUBLE PRECISION", Nullable: false},
+		},
+		PrimaryKey: []string{"start_time"},
+	}
+}
+
+// rowValuesToScheduleSlotRecord converts row values to a BatteryScheduleSlotRecord
+func (t *timescaleRepository) rowValuesToScheduleSlotRecord(values []any) *repository.BatteryScheduleSlotRecord {
+	return &repository.BatteryScheduleSlotRecord{
+		StartTime:    values[0].(time.Time),
+		EndTime:      values[1].(time.Time),
+		ChargePower:  float32(values[2].(float64)),
+		PredictedSoC: float32(values[3].(float64)),
+		PricePerKwh:  float32(values[4].(float64)),
+	}
+}
+
+// storeScheduleSlot persists a battery schedule slot to the database (called by event listener)
+func (t *timescaleRepository) storeScheduleSlot(slot *battery.ScheduleSlot) error {
+	if slot == nil {
+		return nil
+	}
+
+	_, err := t.dbPool.Exec(context.Background(), t.insertQueries[tableBatteryScheduleSlots],
+		slot.StartTime(),
+		slot.EndTime(),
+		slot.ChargePower(),
+		slot.PredictedSoC(),
+		slot.PricePerKwh(),
+	)
+	if err != nil {
+		log.Errorf("Failed to store battery schedule slot: %v", err)
+		return err
+	}
+	log.Debugf("Stored battery schedule slot starting at %v", slot.StartTime())
+	return nil
+}
+
+// deleteScheduleSlotsBefore removes all schedule slots that end before the given time (internal cleanup)
+func (t *timescaleRepository) deleteScheduleSlotsBefore(before time.Time) error {
+	query := "DELETE FROM " + tableBatteryScheduleSlots + " WHERE end_time < $1"
+	result, err := t.dbPool.Exec(context.Background(), query, before)
+	if err != nil {
+		log.Errorf("Failed to delete old battery schedule slots: %v", err)
+		return err
+	}
+	if result.RowsAffected() > 0 {
+		log.Debugf("Deleted %d old battery schedule slots ending before %v", result.RowsAffected(), before)
+	}
+	return nil
+}
+
+// LatestScheduleSlot retrieves the most recently starting schedule slot
+func (t *timescaleRepository) LatestScheduleSlot() (*repository.BatteryScheduleSlotRecord, error) {
+	statement, err := sql.NewSelect(tableBatteryScheduleSlots).
+		WithColumns(sql.NewColumns("start_time", "end_time", "charge_power", "predicted_soc", "price_per_kwh")...).
+		OrderDescending(sql.NewColumnWithName("start_time")).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := t.dbPool.Query(context.Background(), statement.Query, statement.Args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+		return t.rowValuesToScheduleSlotRecord(values), nil
+	}
+	return nil, nil
+}
+
+// ScheduleSlotAt retrieves the schedule slot that covers the given time
+func (t *timescaleRepository) ScheduleSlotAt(moment time.Time) (*repository.BatteryScheduleSlotRecord, error) {
+	filter := sql.NewFilterFunction("start_time", sql.LessThanOrEquals, moment).
+		And("end_time", sql.GreaterThan, moment)
+
+	statement, err := sql.NewSelect(tableBatteryScheduleSlots).
+		WithColumns(sql.NewColumns("start_time", "end_time", "charge_power", "predicted_soc", "price_per_kwh")...).
+		WithFilter(filter).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := t.dbPool.Query(context.Background(), statement.Query, statement.Args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+		return t.rowValuesToScheduleSlotRecord(values), nil
+	}
+	return nil, nil
+}
+
+// ScheduleSlots retrieves all schedule slots within the given time range
+func (t *timescaleRepository) ScheduleSlots(from time.Time, till time.Time) ([]*repository.BatteryScheduleSlotRecord, error) {
+	filter := t.timeRangeFilter("start_time", from, till)
+
+	statement, err := sql.NewSelect(tableBatteryScheduleSlots).
+		WithColumns(sql.NewColumns("start_time", "end_time", "charge_power", "predicted_soc", "price_per_kwh")...).
+		WithFilter(filter).
+		OrderAscending(sql.NewColumnWithName("start_time")).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := t.dbPool.Query(context.Background(), statement.Query, statement.Args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	slots := make([]*repository.BatteryScheduleSlotRecord, 0)
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+		slots = append(slots, t.rowValuesToScheduleSlotRecord(values))
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return slots, nil
 }

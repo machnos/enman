@@ -50,13 +50,7 @@ func NewGridTargetConsumptionCalculator(system *System, repo repository.Reposito
 		pvNames = append(pvNames, pv.Name())
 	}
 
-	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator(
-		repo,
-		system.Grid().Name(),
-		system.Batteries(),
-		pvNames,
-		roundTripEfficiency,
-	)
+	calculator.priceBasedCalculator = NewPriceBasedElectricityConsumptionCalculator()
 
 	return calculator, nil
 }

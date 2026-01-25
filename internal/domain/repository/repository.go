@@ -234,6 +234,14 @@ type BatteryStatesRecord struct {
 	States    map[AggregateFunction]*battery.State
 }
 
+type BatteryScheduleSlotRecord struct {
+	StartTime    time.Time
+	EndTime      time.Time
+	ChargePower  float32 // Positive = charging from grid, Negative = discharging to grid/household
+	PredictedSoC float32
+	PricePerKwh  float32
+}
+
 type ElectricityCostsRecord struct {
 	StartTime time.Time
 	EndTime   time.Time

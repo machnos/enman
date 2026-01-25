@@ -65,6 +65,15 @@ func (r *Repository) BatteryStates(_ time.Time, _ time.Time, _ string, _ *reposi
 func (r *Repository) BatteryStateAtTime(_ time.Time, _ string, _ constants.EnergySourceRole, _ repository.MatchType) (*repository.BatteryStateRecord, error) {
 	return nil, nil
 }
+func (r *Repository) LatestScheduleSlot() (*repository.BatteryScheduleSlotRecord, error) {
+	return nil, nil
+}
+func (r *Repository) ScheduleSlotAt(_ time.Time) (*repository.BatteryScheduleSlotRecord, error) {
+	return nil, nil
+}
+func (r *Repository) ScheduleSlots(_ time.Time, _ time.Time) ([]*repository.BatteryScheduleSlotRecord, error) {
+	return nil, nil
+}
 
 func (r *Repository) Close() {
 }

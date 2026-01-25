@@ -86,6 +86,10 @@ func (t *timescaleRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
+	err = t.initializeTable(t.newBatteryScheduleSlotsDefinition())
+	if err != nil {
+		return err
+	}
 
 	events.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: t}, nil)
 	events.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: t}, nil)
