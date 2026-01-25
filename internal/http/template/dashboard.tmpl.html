@@ -485,75 +485,184 @@ $(document).ready(function(){
     });
 
     function loadPrices(provider, energyType) {
-        $.ajax({
-            url: "{{$.ContextRoot}}api/prices/" + provider + "/" + energyType + "/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0],
-        }).done(function(data) {
-            if (data && data.prices) {
-                let markers = [];
-                let intervalMinutes = 60;
-                $.each(data.prices, function (series, prices) {
-                    $.each(prices, function (i, price) {
-                        markers.push({
-                            time: Date.parse(price.time),
-                            value: price.consumption_price,
-                            provider: series
-                        });
+        const pricesUrl = "{{$.ContextRoot}}api/prices/" + provider + "/" + energyType + "/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0];
+        const scheduleUrl = "{{$.ContextRoot}}api/battery/schedule/" + today.toISOString().split('T')[0] + "/" + tomorrow.toISOString().split('T')[0];
+
+        // Fetch both prices and schedule slots
+        Promise.all([
+            $.ajax({ url: pricesUrl }),
+            $.ajax({ url: scheduleUrl }).catch(() => ({ slots: [] })) // Gracefully handle if no schedule exists
+        ]).then(function([priceData, scheduleData]) {
+            if (!priceData || !priceData.prices) {
+                return;
+            }
+
+            let markers = [];
+            let intervalMinutes = 60;
+            $.each(priceData.prices, function (series, prices) {
+                $.each(prices, function (i, price) {
+                    markers.push({
+                        time: Date.parse(price.time),
+                        value: price.consumption_price,
+                        provider: series
                     });
                 });
-                if (markers.length > 1) {
-                    const diffInMs = markers[1].time - markers[0].time;
-                    intervalMinutes = Math.round(diffInMs / 60000);
-                }
-                const graph = Plot.plot({
-                    x: {
-                        type: "time",
-                        interval: intervalMinutes + ' minutes'
-                    },
-                    y: {
-                        label: "Price in €"
-                    },
-                    grid: true,
-                    width: "1200",
-                    color: {
-                        legend: true,
-                        scheme: "gnbu",
-                    },
-                    marks: [
-                        Plot.ruleY([0]),
-                        Plot.axisX({ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start"}),
-                        Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
-                        Plot.rectY(markers, {
-                            x: "time",
-                            y: "value",
-                            z: "provider",
-                            interval: intervalMinutes + ' minutes',
-                            fill: "value",
-                            channels: {
-                                title: function(d) {
-                                    return 'Time: ' + formatDate(new Date(d.time), intervalMinutes)  + '\n Price: €' + d.value;
-                                }
-                            },
-                            tip: true
-                        }),
-                    ]
-                })
-
-                function formatDate(date, intervalMinutes) {
-                    let hours = date.getHours();
-                    let minutes = date.getMinutes();
-                    const endDate = new Date(date.getTime() + intervalMinutes*60000);
-                    let endHours = endDate.getHours();
-                    let endMinutes = endDate.getMinutes();
-
-                    hours = hours < 10 ? ('0' + hours) : hours;
-                    minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                    endHours = endHours < 10 ? ('0' + endHours) : endHours;
-                    endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
-                    return hours + ':' + minutes + '-' + endHours + ':' + endMinutes;
-                }
-
-                $('#container1').empty().append(graph);
+            });
+            if (markers.length > 1) {
+                const diffInMs = markers[1].time - markers[0].time;
+                intervalMinutes = Math.round(diffInMs / 60000);
             }
+
+            // Process schedule slots
+            let scheduleMarkers = [];
+            if (scheduleData && scheduleData.slots) {
+                $.each(scheduleData.slots, function(i, slot) {
+                    let status, color;
+                    if (slot.charge_power > 0) {
+                        // Differentiate between PV and Grid charging
+                        if (slot.charging_source === "pv") {
+                            status = "Charging (PV)";
+                            color = "#20c997"; // Teal for PV charging
+                        } else {
+                            status = "Charging (Grid)";
+                            color = "#28a745"; // Green for Grid charging
+                        }
+                    } else if (slot.charge_power < 0) {
+                        status = "Discharging";
+                        color = "#fd7e14"; // Orange
+                    } else {
+                        status = "Idle";
+                        color = "#6c757d"; // Gray
+                    }
+                    scheduleMarkers.push({
+                        start_time: Date.parse(slot.start_time),
+                        end_time: Date.parse(slot.end_time),
+                        charge_power: slot.charge_power,
+                        predicted_soc: slot.predicted_soc,
+                        charging_source: slot.charging_source,
+                        status: status,
+                        color: color
+                    });
+                });
+            }
+
+            // Calculate min price for schedule indicator position
+            const minPrice = Math.min(...markers.map(m => m.value), 0);
+            const maxPrice = Math.max(...markers.map(m => m.value));
+            const priceRange = maxPrice - minPrice;
+            const scheduleBarHeight = priceRange * 0.08; // 8% of price range
+            const scheduleBarY = minPrice - scheduleBarHeight - (priceRange * 0.02); // Below the chart
+
+            // Build marks array
+            let plotMarks = [
+                Plot.ruleY([0]),
+                Plot.axisX({ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start"}),
+                Plot.axisX({ticks: "3 hours", tickFormat: "%H:%M"}),
+                Plot.rectY(markers, {
+                    x: "time",
+                    y: "value",
+                    z: "provider",
+                    interval: intervalMinutes + ' minutes',
+                    fill: "value",
+                    channels: {
+                        title: function(d) {
+                            return 'Time: ' + formatDate(new Date(d.time), intervalMinutes)  + '\n Price: €' + d.value;
+                        }
+                    },
+                    tip: true
+                }),
+            ];
+
+            // Add schedule slot indicators if available
+            if (scheduleMarkers.length > 0) {
+                plotMarks.push(
+                    Plot.rect(scheduleMarkers, {
+                        x1: "start_time",
+                        x2: "end_time",
+                        y1: scheduleBarY,
+                        y2: scheduleBarY + scheduleBarHeight,
+                        fill: "color",
+                        stroke: "#fff",
+                        strokeWidth: 0.5,
+                        channels: {
+                            title: function(d) {
+                                const powerKw = Math.abs(d.charge_power / 1000).toFixed(1);
+                                const startDate = new Date(d.start_time);
+                                const endDate = new Date(d.end_time);
+                                let sourceLabel = "";
+                                if (d.charging_source === "pv") {
+                                    sourceLabel = "\nSource: Solar PV";
+                                } else if (d.charging_source === "grid") {
+                                    sourceLabel = "\nSource: Grid";
+                                }
+                                return d.status + '\nTime: ' + formatDateRange(startDate, endDate) +
+                                    '\nPower: ' + powerKw + ' kW' +
+                                    sourceLabel +
+                                    '\nPredicted SoC: ' + d.predicted_soc.toFixed(1) + '%';
+                            }
+                        },
+                        tip: true
+                    })
+                );
+                // Add legend text for schedule
+                plotMarks.push(
+                    Plot.text([{x: markers[0].time, y: scheduleBarY + scheduleBarHeight/2}], {
+                        x: "x",
+                        y: "y",
+                        text: ["Battery Schedule:"],
+                        textAnchor: "end",
+                        dx: -10,
+                        fontSize: 10,
+                        fill: "#666"
+                    })
+                );
+            }
+
+            const graph = Plot.plot({
+                x: {
+                    type: "time",
+                    interval: intervalMinutes + ' minutes'
+                },
+                y: {
+                    label: "Price in €",
+                    domain: scheduleMarkers.length > 0 ? [scheduleBarY, maxPrice + priceRange * 0.05] : undefined
+                },
+                grid: true,
+                width: "1200",
+                color: {
+                    legend: true,
+                    scheme: "gnbu",
+                },
+                marks: plotMarks
+            });
+
+            function formatDate(date, intervalMinutes) {
+                let hours = date.getHours();
+                let minutes = date.getMinutes();
+                const endDate = new Date(date.getTime() + intervalMinutes*60000);
+                let endHours = endDate.getHours();
+                let endMinutes = endDate.getMinutes();
+
+                hours = hours < 10 ? ('0' + hours) : hours;
+                minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                endHours = endHours < 10 ? ('0' + endHours) : endHours;
+                endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                return hours + ':' + minutes + '-' + endHours + ':' + endMinutes;
+            }
+
+            function formatDateRange(startDate, endDate) {
+                let startHours = startDate.getHours();
+                let startMinutes = startDate.getMinutes();
+                let endHours = endDate.getHours();
+                let endMinutes = endDate.getMinutes();
+                startHours = startHours < 10 ? ('0' + startHours) : startHours;
+                startMinutes = startMinutes < 10 ? ('0' + startMinutes) : startMinutes;
+                endHours = endHours < 10 ? ('0' + endHours) : endHours;
+                endMinutes = endMinutes < 10 ? ('0' + endMinutes) : endMinutes;
+                return startHours + ':' + startMinutes + '-' + endHours + ':' + endMinutes;
+            }
+
+            $('#container1').empty().append(graph);
         });
     }
 

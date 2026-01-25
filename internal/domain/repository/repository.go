@@ -235,11 +235,12 @@ type BatteryStatesRecord struct {
 }
 
 type BatteryScheduleSlotRecord struct {
-	StartTime    time.Time
-	EndTime      time.Time
-	ChargePower  float32 // Positive = charging from grid, Negative = discharging to grid/household
-	PredictedSoC float32
-	PricePerKwh  float32
+	StartTime      time.Time
+	EndTime        time.Time
+	ChargePower    float32 // Positive = charging, Negative = discharging to grid/household
+	PredictedSoC   float32
+	PricePerKwh    float32
+	ChargingSource string // "grid", "pv", or "none"
 }
 
 type ElectricityCostsRecord struct {

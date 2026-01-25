@@ -66,6 +66,7 @@ type AcLoad struct {
 type Batteries struct {
 	Banks               []*Battery `json:"banks" yaml:"banks" validate:"dive"`
 	RoundTripEfficiency float32    `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=100"`
+	MinSoC              uint8      `json:"min_soc" yaml:"min_soc" validate:"gte=0,lte=100"`
 }
 
 type Battery struct {

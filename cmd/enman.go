@@ -7,6 +7,7 @@ import (
 	"enman/internal/domain"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/events"
+	"enman/internal/domain/optimizer"
 	"enman/internal/domain/prices"
 	"enman/internal/domain/repository"
 	"enman/internal/http"
@@ -222,6 +223,19 @@ func main() {
 				}
 			}
 		})
+	}
+
+	//Setup battery schedule optimizer
+	if len(system.Batteries()) > 0 {
+		batteryOptimizer := optimizer.NewBatteryScheduleOptimizer(
+			system,
+			repo,
+			configuration.Batteries.RoundTripEfficiency,
+			float32(configuration.Batteries.MinSoC),
+		)
+		batteryOptimizer.Start(syncGroupContext)
+		defer batteryOptimizer.Stop()
+		log.Info("Battery schedule optimizer started")
 	}
 
 	modbusServers, _ := createModbusServers(configuration, system)

@@ -99,7 +99,6 @@ func NewBatteryScheduleOptimizer(
 	repo repository.Repository,
 	roundTripEfficiency float32,
 	minSoC float32,
-	maxSoC float32,
 ) *BatteryScheduleOptimizer {
 	config := DefaultConfig()
 
@@ -109,13 +108,12 @@ func NewBatteryScheduleOptimizer(
 		config.EnergyProviderName = system.Grid().Name()
 	}
 
-	// Set SoC limits
+	// Set SoC limits (max is always 100)
 	if minSoC > 0 {
 		config.MinSoC = minSoC
 	}
-	if maxSoC > 0 {
-		config.MaxSoC = maxSoC
-	}
+	config.MaxSoC = 100
+
 	if roundTripEfficiency > 0 && roundTripEfficiency <= 1 {
 		config.RoundTripEfficiency = roundTripEfficiency
 	}
@@ -180,10 +178,10 @@ func (o *BatteryScheduleOptimizer) Start(ctx context.Context) {
 	ctx, o.cancel = context.WithCancel(ctx)
 	o.ticker = time.NewTicker(o.config.UpdateInterval)
 
-	// Run initial optimization
-	o.runOptimization()
-
 	go func() {
+		// Run initial optimization in the goroutine to avoid blocking startup
+		o.runOptimization()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -212,6 +210,7 @@ func (o *BatteryScheduleOptimizer) Config() *Config {
 // When multiple batteries exist, returns weighted average SoC based on capacity
 func (o *BatteryScheduleOptimizer) getCurrentSoC() float32 {
 	if o.repository == nil || len(o.config.BatteryNames) == 0 {
+		log.Debug("Battery schedule optimizer: getCurrentSoC - repository is nil or no battery names configured")
 		return 50 // Default fallback
 	}
 
@@ -220,16 +219,27 @@ func (o *BatteryScheduleOptimizer) getCurrentSoC() float32 {
 	batteryCount := 0
 
 	for _, batteryName := range o.config.BatteryNames {
+		log.Debugf("Battery schedule optimizer: querying battery state for '%s'", batteryName)
 		batteryState, err := o.repository.BatteryStateAtTime(
 			time.Now(),
 			batteryName,
 			constants.EnergySourceRoleBattery,
 			repository.LessOrEqual,
 		)
-		if err != nil || batteryState == nil || batteryState.State == nil {
+		if err != nil {
+			log.Debugf("Battery schedule optimizer: error querying battery '%s': %v", batteryName, err)
+			continue
+		}
+		if batteryState == nil {
+			log.Debugf("Battery schedule optimizer: no state found for battery '%s'", batteryName)
+			continue
+		}
+		if batteryState.State == nil {
+			log.Debugf("Battery schedule optimizer: state object is nil for battery '%s'", batteryName)
 			continue
 		}
 
+		log.Debugf("Battery schedule optimizer: found SoC %.1f%% for battery '%s'", batteryState.State.SoC(), batteryName)
 		// Use capacity from state if available, otherwise assume equal weighting
 		// For weighted average, we'd need capacity info - for now use equal weights
 		totalWeightedSoC += batteryState.State.SoC()
@@ -451,6 +461,14 @@ func (o *BatteryScheduleOptimizer) runOptimization() {
 	now := time.Now()
 	horizonEnd := now.Add(o.config.OptimizationHorizon)
 
+	if o.repository == nil {
+		log.Warning("Battery schedule optimizer: repository is nil, skipping optimization")
+		return
+	}
+
+	log.Debugf("Battery schedule optimizer: fetching prices for provider '%s' from %v to %v",
+		o.config.EnergyProviderName, now, horizonEnd)
+
 	// Fetch energy prices for the optimization horizon
 	energyPrices, err := o.repository.EnergyPrices(
 		now,
@@ -464,18 +482,25 @@ func (o *BatteryScheduleOptimizer) runOptimization() {
 	}
 
 	if len(energyPrices) == 0 {
-		log.Debug("No energy prices available for optimization horizon")
+		log.Debugf("Battery schedule optimizer: no energy prices available for provider '%s' in horizon %v to %v",
+			o.config.EnergyProviderName, now, horizonEnd)
 		return
 	}
 
+	log.Debugf("Battery schedule optimizer: found %d energy prices", len(energyPrices))
+
 	// Get current battery state
 	currentSoC := o.getCurrentSoC()
+	log.Debugf("Battery schedule optimizer: current SoC is %.1f%%", currentSoC)
 
 	// Build predictions for each slot
 	predictions := o.buildSlotPredictions(now, energyPrices)
+	log.Debugf("Battery schedule optimizer: built %d slot predictions", len(predictions))
 
 	// Generate schedule slots based on optimization
 	slots := o.Optimize(currentSoC, predictions)
+
+	log.Infof("Battery schedule optimizer: generated %d schedule slots", len(slots))
 
 	// Fire events for each slot
 	for _, slot := range slots {
@@ -501,17 +526,42 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 		return slots
 	}
 
-	// Calculate average price for threshold determination
-	var totalPrice float32
-	for _, p := range predictions {
-		totalPrice += p.price
+	// Sort prices to determine percentile-based thresholds
+	pricesSorted := make([]float32, len(predictions))
+	for i, p := range predictions {
+		pricesSorted[i] = p.price
 	}
-	avgPrice := totalPrice / float32(len(predictions))
+	sort.Slice(pricesSorted, func(i, j int) bool {
+		return pricesSorted[i] < pricesSorted[j]
+	})
 
-	// Price thresholds accounting for efficiency
+	// Use percentile-based thresholds:
+	// - Charge threshold: 30th percentile (charge during cheapest 30% of hours)
+	// - Discharge threshold: 70th percentile (discharge during most expensive 30% of hours)
+	chargePercentileIdx := len(pricesSorted) * 30 / 100
+	dischargePercentileIdx := len(pricesSorted) * 70 / 100
+
+	// Ensure indices are within bounds
+	if chargePercentileIdx >= len(pricesSorted) {
+		chargePercentileIdx = len(pricesSorted) - 1
+	}
+	if dischargePercentileIdx >= len(pricesSorted) {
+		dischargePercentileIdx = len(pricesSorted) - 1
+	}
+
+	chargeThreshold := pricesSorted[chargePercentileIdx]
+	dischargeThreshold := pricesSorted[dischargePercentileIdx]
+
+	// Adjust discharge threshold for round-trip efficiency
+	// Only discharge if we can make a profit after accounting for losses
 	efficiencyFactor := 1.0 / o.config.RoundTripEfficiency
-	chargeThreshold := avgPrice * 0.8
-	dischargeThreshold := avgPrice * float32(efficiencyFactor) * 1.1
+	minProfitableDischargePrice := chargeThreshold * float32(efficiencyFactor) * 1.1
+	if dischargeThreshold < minProfitableDischargePrice {
+		dischargeThreshold = minProfitableDischargePrice
+	}
+
+	log.Debugf("Battery schedule optimizer: price thresholds - charge below %.4f, discharge above %.4f",
+		chargeThreshold, dischargeThreshold)
 
 	// Create indexed predictions for sorting
 	type indexedPrediction struct {
@@ -543,8 +593,14 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 		return costI < costJ
 	})
 
-	// Decisions map: index -> charge power
-	slotDecisions := make(map[int]float32)
+	// slotDecision holds both power and source for a slot
+	type slotDecision struct {
+		power  float32
+		source battery.ChargingSource
+	}
+
+	// Decisions map: index -> decision (power + source)
+	slotDecisions := make(map[int]slotDecision)
 	simulatedSoC := currentSoC
 
 	// First pass: Handle excess PV - always store it if possible
@@ -567,7 +623,7 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 		chargePower = chargeEnergy / float32(slotDurationHours) * 1000 / o.config.RoundTripEfficiency
 
 		if chargePower > 0 {
-			slotDecisions[ip.index] = chargePower
+			slotDecisions[ip.index] = slotDecision{power: chargePower, source: battery.ChargingSourcePV}
 			simulatedSoC += chargeEnergy / o.config.BatteryCapacityKwh * 100
 		}
 	}
@@ -591,7 +647,7 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 		chargeEnergy := minFloat32(availableCapacity, maxChargeEnergy)
 		chargePower := chargeEnergy / float32(slotDurationHours) * 1000 / o.config.RoundTripEfficiency
 
-		slotDecisions[ip.index] = chargePower
+		slotDecisions[ip.index] = slotDecision{power: chargePower, source: battery.ChargingSourceGrid}
 		simulatedSoC += chargeEnergy / o.config.BatteryCapacityKwh * 100
 	}
 
@@ -639,16 +695,19 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 		dischargeEnergy := minFloat32(availableEnergy, maxDischargeEnergy)
 		dischargePower := -dischargeEnergy / float32(slotDurationHours) * 1000 // Negative for discharge
 
-		slotDecisions[ip.index] = dischargePower
+		slotDecisions[ip.index] = slotDecision{power: dischargePower, source: battery.ChargingSourceNone}
 		simulatedSoC -= dischargeEnergy / o.config.BatteryCapacityKwh * 100
 	}
 
 	// Build final schedule slots in chronological order
 	simulatedSoC = currentSoC
 	for i, p := range predictions {
-		chargePower, hasDecision := slotDecisions[i]
-		if !hasDecision {
-			chargePower = 0 // Idle
+		decision, hasDecision := slotDecisions[i]
+		chargePower := float32(0)
+		chargingSource := battery.ChargingSourceNone
+		if hasDecision {
+			chargePower = decision.power
+			chargingSource = decision.source
 		}
 
 		// Calculate predicted SoC at end of slot
@@ -664,6 +723,7 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 
 		slot := battery.NewScheduleSlot(p.startTime, p.endTime).
 			SetChargePower(chargePower).
+			SetChargingSource(chargingSource).
 			SetPredictedSoC(simulatedSoC).
 			SetPricePerKwh(p.price)
 

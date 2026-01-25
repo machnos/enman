@@ -5,6 +5,29 @@ import (
 	"time"
 )
 
+// ChargingSource indicates the source of energy for charging
+type ChargingSource uint8
+
+const (
+	// ChargingSourceNone indicates no charging is happening
+	ChargingSourceNone ChargingSource = iota
+	// ChargingSourceGrid indicates charging from the grid
+	ChargingSourceGrid
+	// ChargingSourcePV indicates charging from solar PV (excess production)
+	ChargingSourcePV
+)
+
+func (c ChargingSource) String() string {
+	switch c {
+	case ChargingSourceGrid:
+		return "grid"
+	case ChargingSourcePV:
+		return "pv"
+	default:
+		return "none"
+	}
+}
+
 // ScheduleSlot represents a single time slot in the battery schedule.
 // Each slot covers a specific time period and contains the target
 // power for charging or discharging the battery.
@@ -20,6 +43,8 @@ type ScheduleSlot struct {
 	predictedSoC float32
 	// pricePerKwh is the electricity price during this slot (for reference/visualization)
 	pricePerKwh float32
+	// chargingSource indicates the source of energy for charging (grid or PV)
+	chargingSource ChargingSource
 }
 
 // NewScheduleSlot creates a new schedule slot
@@ -80,6 +105,17 @@ func (s *ScheduleSlot) SetPricePerKwh(price float32) *ScheduleSlot {
 	return s
 }
 
+// ChargingSource returns the source of energy for charging (grid or PV)
+func (s *ScheduleSlot) ChargingSource() ChargingSource {
+	return s.chargingSource
+}
+
+// SetChargingSource sets the source of energy for charging
+func (s *ScheduleSlot) SetChargingSource(source ChargingSource) *ScheduleSlot {
+	s.chargingSource = source
+	return s
+}
+
 // IsActive returns true if the current time falls within this slot
 func (s *ScheduleSlot) IsActive() bool {
 	now := time.Now()
@@ -110,21 +146,23 @@ func (s *ScheduleSlot) Energy() float32 {
 
 // scheduleSlot is the internal struct for JSON serialization
 type scheduleSlot struct {
-	StartTime    time.Time `json:"start_time"`
-	EndTime      time.Time `json:"end_time"`
-	ChargePower  float32   `json:"charge_power"`
-	PredictedSoC float32   `json:"predicted_soc"`
-	PricePerKwh  float32   `json:"price_per_kwh"`
+	StartTime      time.Time `json:"start_time"`
+	EndTime        time.Time `json:"end_time"`
+	ChargePower    float32   `json:"charge_power"`
+	PredictedSoC   float32   `json:"predicted_soc"`
+	PricePerKwh    float32   `json:"price_per_kwh"`
+	ChargingSource string    `json:"charging_source"`
 }
 
 // MarshalJSON implements json.Marshaler
 func (s *ScheduleSlot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(scheduleSlot{
-		StartTime:    s.startTime,
-		EndTime:      s.endTime,
-		ChargePower:  s.chargePower,
-		PredictedSoC: s.predictedSoC,
-		PricePerKwh:  s.pricePerKwh,
+		StartTime:      s.startTime,
+		EndTime:        s.endTime,
+		ChargePower:    s.chargePower,
+		PredictedSoC:   s.predictedSoC,
+		PricePerKwh:    s.pricePerKwh,
+		ChargingSource: s.chargingSource.String(),
 	})
 }
 
@@ -139,5 +177,13 @@ func (s *ScheduleSlot) UnmarshalJSON(data []byte) error {
 	s.chargePower = raw.ChargePower
 	s.predictedSoC = raw.PredictedSoC
 	s.pricePerKwh = raw.PricePerKwh
+	switch raw.ChargingSource {
+	case "grid":
+		s.chargingSource = ChargingSourceGrid
+	case "pv":
+		s.chargingSource = ChargingSourcePV
+	default:
+		s.chargingSource = ChargingSourceNone
+	}
 	return nil
 }

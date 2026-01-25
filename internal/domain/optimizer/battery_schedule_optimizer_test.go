@@ -20,7 +20,7 @@ func TestNewBatteryScheduleOptimizer(t *testing.T) {
 	system.AddAcLoad("heat_pump", constants.EnergySourceRoleUndefined, 50, nil)   // factor=0.5
 	system.AddAcLoad("lights", constants.EnergySourceRoleUndefined, 0, nil)       // factor=1
 
-	optimizer := NewBatteryScheduleOptimizer(system, nil, 0.85, 15, 95)
+	optimizer := NewBatteryScheduleOptimizer(system, nil, 0.85, 15)
 	config := optimizer.Config()
 
 	// Check grid name is used for both household source and energy provider
@@ -65,8 +65,8 @@ func TestNewBatteryScheduleOptimizer(t *testing.T) {
 	if config.MinSoC != 15 {
 		t.Errorf("Expected MinSoC 15, got %v", config.MinSoC)
 	}
-	if config.MaxSoC != 95 {
-		t.Errorf("Expected MaxSoC 95, got %v", config.MaxSoC)
+	if config.MaxSoC != 100 {
+		t.Errorf("Expected MaxSoC 100, got %v", config.MaxSoC)
 	}
 
 	// Check efficiency
@@ -368,5 +368,96 @@ func TestOptimizerRespectsMaxSoC(t *testing.T) {
 		if slot.PredictedSoC() > config.MaxSoC {
 			t.Errorf("SoC exceeded maximum: got %v, maximum is %v", slot.PredictedSoC(), config.MaxSoC)
 		}
+	}
+}
+
+func TestOptimizerChargesDuringCheapNightHours(t *testing.T) {
+	config := &Config{
+		OptimizationHorizon:         24 * time.Hour,
+		SlotDuration:                15 * time.Minute,
+		UpdateInterval:              5 * time.Minute,
+		BatteryCapacityKwh:          15.0, // ~304Ah * 51.2V / 1000
+		MaxChargePowerW:             5000,
+		MaxDischargePowerW:          5000,
+		MinSoC:                      10,
+		MaxSoC:                      100,
+		RoundTripEfficiency:         0.9,
+		HistoricalDaysForPrediction: 7,
+	}
+
+	optimizer := NewBatteryScheduleOptimizerWithConfig(config, nil)
+	now := time.Date(2026, 1, 25, 23, 0, 0, 0, time.UTC)
+
+	// Simulate realistic price pattern: cheap at night, expensive during day
+	// Based on actual production data
+	predictions := []*slotPrediction{
+		// Night hours - cheap prices, no PV
+		{startTime: now, endTime: now.Add(15 * time.Minute), price: 0.267, netGridDemandW: 500},
+		{startTime: now.Add(15 * time.Minute), endTime: now.Add(30 * time.Minute), price: 0.262, netGridDemandW: 500},
+		{startTime: now.Add(30 * time.Minute), endTime: now.Add(45 * time.Minute), price: 0.260, netGridDemandW: 500},
+		{startTime: now.Add(45 * time.Minute), endTime: now.Add(60 * time.Minute), price: 0.259, netGridDemandW: 500},
+		// More night hours
+		{startTime: now.Add(1 * time.Hour), endTime: now.Add(1*time.Hour + 15*time.Minute), price: 0.258, netGridDemandW: 500},
+		{startTime: now.Add(1*time.Hour + 15*time.Minute), endTime: now.Add(1*time.Hour + 30*time.Minute), price: 0.256, netGridDemandW: 500},
+		{startTime: now.Add(1*time.Hour + 30*time.Minute), endTime: now.Add(1*time.Hour + 45*time.Minute), price: 0.253, netGridDemandW: 500},
+		{startTime: now.Add(1*time.Hour + 45*time.Minute), endTime: now.Add(2 * time.Hour), price: 0.251, netGridDemandW: 500},
+		// Cheapest hours around 5-6 AM
+		{startTime: now.Add(6 * time.Hour), endTime: now.Add(6*time.Hour + 15*time.Minute), price: 0.249, netGridDemandW: 500},
+		{startTime: now.Add(6*time.Hour + 15*time.Minute), endTime: now.Add(6*time.Hour + 30*time.Minute), price: 0.250, netGridDemandW: 500},
+		// Morning - prices rising
+		{startTime: now.Add(8 * time.Hour), endTime: now.Add(8*time.Hour + 15*time.Minute), price: 0.310, netGridDemandW: 800},
+		{startTime: now.Add(8*time.Hour + 15*time.Minute), endTime: now.Add(8*time.Hour + 30*time.Minute), price: 0.335, netGridDemandW: 800},
+		// Midday - expensive with PV
+		{startTime: now.Add(12 * time.Hour), endTime: now.Add(12*time.Hour + 15*time.Minute), price: 0.340, netGridDemandW: -1000},                // Excess PV
+		{startTime: now.Add(12*time.Hour + 15*time.Minute), endTime: now.Add(12*time.Hour + 30*time.Minute), price: 0.350, netGridDemandW: -1500}, // More excess PV
+		// Peak evening - most expensive
+		{startTime: now.Add(18 * time.Hour), endTime: now.Add(18*time.Hour + 15*time.Minute), price: 0.360, netGridDemandW: 1500},
+		{startTime: now.Add(18*time.Hour + 15*time.Minute), endTime: now.Add(18*time.Hour + 30*time.Minute), price: 0.378, netGridDemandW: 1500},
+	}
+
+	currentSoC := float32(50)
+	slots := optimizer.Optimize(currentSoC, predictions)
+
+	// Debug output
+	for _, slot := range slots {
+		t.Logf("Slot %v: price=%.4f, chargePower=%.1f, SoC=%.1f",
+			slot.StartTime().Format("15:04"), slot.PricePerKwh(), slot.ChargePower(), slot.PredictedSoC())
+	}
+
+	// Verify that at least some cheap night slots (price < 0.27) are charging
+	nightChargingFound := false
+	for _, slot := range slots {
+		if slot.PricePerKwh() < 0.27 && slot.ChargePower() > 0 {
+			nightChargingFound = true
+			t.Logf("Found night charging: %v at price %.4f with power %.1fW",
+				slot.StartTime().Format("15:04"), slot.PricePerKwh(), slot.ChargePower())
+		}
+	}
+
+	if !nightChargingFound {
+		t.Error("Expected at least one cheap night slot to be charging from grid")
+	}
+
+	// Verify PV slots are still being stored
+	pvChargingFound := false
+	for _, slot := range slots {
+		// PV slots have negative netGridDemandW in predictions and positive chargePower in output
+		if slot.PricePerKwh() > 0.33 && slot.ChargePower() > 0 {
+			pvChargingFound = true
+		}
+	}
+	if !pvChargingFound {
+		t.Error("Expected excess PV to be stored in battery")
+	}
+
+	// Verify peak slots are discharging
+	dischargingFound := false
+	for _, slot := range slots {
+		if slot.PricePerKwh() >= 0.36 && slot.ChargePower() < 0 {
+			dischargingFound = true
+		}
+	}
+	if !dischargingFound {
+		t.Error("Expected peak price slots to be discharging")
 	}
 }

@@ -121,7 +121,7 @@ func (t *timescaleRepository) BatteryStates(from time.Time, till time.Time, sour
 }
 
 func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType repository.MatchType) (*repository.BatteryStateRecord, error) {
-	tdStates := t.tableDefinitions[tableElectricityStates]
+	tdStates := t.tableDefinitions[tableBatteryStates]
 	tdBatteries := t.tableDefinitions[tableBatteries]
 
 	filter := t.momentFilter(tdStates.TablePrefixedColumn("time"), moment, timeMatchType)
@@ -154,19 +154,24 @@ func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName st
 		return nil, err
 	}
 
+	log.Debugf("BatteryStateAtTime query: %s, args: %v", statement.Query, statement.Args)
+
 	rows, err := t.dbPool.Query(context.Background(), statement.Query, statement.Args...)
 	if err != nil {
+		log.Debugf("BatteryStateAtTime query error: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
+		log.Debugf("BatteryStateAtTime: no rows returned for battery '%s'", sourceName)
 		return nil, nil
 	}
 	values, err := rows.Values()
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("BatteryStateAtTime: found row with %d values", len(values))
 	return t.rowValuesToBatteryStateRecord(values), nil
 }
 
@@ -265,6 +270,7 @@ func (t *timescaleRepository) newBatteryScheduleSlotsDefinition() *sql.TableDefi
 			{Name: "charge_power", SqlType: "DOUBLE PRECISION", Nullable: false},
 			{Name: "predicted_soc", SqlType: "DOUBLE PRECISION", Nullable: false},
 			{Name: "price_per_kwh", SqlType: "DOUBLE PRECISION", Nullable: false},
+			{Name: "charging_source", SqlType: "VARCHAR(10)", Nullable: false},
 		},
 		PrimaryKey: []string{"start_time"},
 	}
@@ -273,11 +279,12 @@ func (t *timescaleRepository) newBatteryScheduleSlotsDefinition() *sql.TableDefi
 // rowValuesToScheduleSlotRecord converts row values to a BatteryScheduleSlotRecord
 func (t *timescaleRepository) rowValuesToScheduleSlotRecord(values []any) *repository.BatteryScheduleSlotRecord {
 	return &repository.BatteryScheduleSlotRecord{
-		StartTime:    values[0].(time.Time),
-		EndTime:      values[1].(time.Time),
-		ChargePower:  float32(values[2].(float64)),
-		PredictedSoC: float32(values[3].(float64)),
-		PricePerKwh:  float32(values[4].(float64)),
+		StartTime:      values[0].(time.Time),
+		EndTime:        values[1].(time.Time),
+		ChargePower:    float32(values[2].(float64)),
+		PredictedSoC:   float32(values[3].(float64)),
+		PricePerKwh:    float32(values[4].(float64)),
+		ChargingSource: values[5].(string),
 	}
 }
 
@@ -293,6 +300,7 @@ func (t *timescaleRepository) storeScheduleSlot(slot *battery.ScheduleSlot) erro
 		slot.ChargePower(),
 		slot.PredictedSoC(),
 		slot.PricePerKwh(),
+		slot.ChargingSource().String(),
 	)
 	if err != nil {
 		log.Errorf("Failed to store battery schedule slot: %v", err)
@@ -321,24 +329,11 @@ func (bssvcl *BatteryScheduleSlotValueChangeListener) HandleEvent(event *events.
 	}
 }
 
-// deleteScheduleSlotsBefore removes all schedule slots that end before the given time (internal cleanup)
-func (t *timescaleRepository) deleteScheduleSlotsBefore(before time.Time) error {
-	query := "DELETE FROM " + tableBatteryScheduleSlots + " WHERE end_time < $1"
-	result, err := t.dbPool.Exec(context.Background(), query, before)
-	if err != nil {
-		log.Errorf("Failed to delete old battery schedule slots: %v", err)
-		return err
-	}
-	if result.RowsAffected() > 0 {
-		log.Debugf("Deleted %d old battery schedule slots ending before %v", result.RowsAffected(), before)
-	}
-	return nil
-}
-
 // LatestScheduleSlot retrieves the most recently starting schedule slot
 func (t *timescaleRepository) LatestScheduleSlot() (*repository.BatteryScheduleSlotRecord, error) {
+	tdSlots := t.tableDefinitions[tableBatteryScheduleSlots]
 	statement, err := sql.NewSelect(tableBatteryScheduleSlots).
-		WithColumns(sql.NewColumns("start_time", "end_time", "charge_power", "predicted_soc", "price_per_kwh")...).
+		WithColumns(sql.NewColumns(tdSlots.ColumnNames()...)...).
 		OrderDescending(sql.NewColumnWithName("start_time")).
 		Build()
 	if err != nil {
@@ -363,11 +358,12 @@ func (t *timescaleRepository) LatestScheduleSlot() (*repository.BatteryScheduleS
 
 // ScheduleSlotAt retrieves the schedule slot that covers the given time
 func (t *timescaleRepository) ScheduleSlotAt(moment time.Time) (*repository.BatteryScheduleSlotRecord, error) {
+	tdSlots := t.tableDefinitions[tableBatteryScheduleSlots]
 	filter := sql.NewFilterFunction("start_time", sql.LessThanOrEquals, moment).
 		And("end_time", sql.GreaterThan, moment)
 
 	statement, err := sql.NewSelect(tableBatteryScheduleSlots).
-		WithColumns(sql.NewColumns("start_time", "end_time", "charge_power", "predicted_soc", "price_per_kwh")...).
+		WithColumns(sql.NewColumns(tdSlots.ColumnNames()...)...).
 		WithFilter(filter).
 		Build()
 	if err != nil {
@@ -392,10 +388,11 @@ func (t *timescaleRepository) ScheduleSlotAt(moment time.Time) (*repository.Batt
 
 // ScheduleSlots retrieves all schedule slots within the given time range
 func (t *timescaleRepository) ScheduleSlots(from time.Time, till time.Time) ([]*repository.BatteryScheduleSlotRecord, error) {
+	tdSlots := t.tableDefinitions[tableBatteryScheduleSlots]
 	filter := t.timeRangeFilter("start_time", from, till)
 
 	statement, err := sql.NewSelect(tableBatteryScheduleSlots).
-		WithColumns(sql.NewColumns("start_time", "end_time", "charge_power", "predicted_soc", "price_per_kwh")...).
+		WithColumns(sql.NewColumns(tdSlots.ColumnNames()...)...).
 		WithFilter(filter).
 		OrderAscending(sql.NewColumnWithName("start_time")).
 		Build()
