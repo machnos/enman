@@ -302,6 +302,25 @@ func (t *timescaleRepository) storeScheduleSlot(slot *battery.ScheduleSlot) erro
 	return nil
 }
 
+type BatteryScheduleSlotValueChangeListener struct {
+	repo *timescaleRepository
+}
+
+func (bssvcl *BatteryScheduleSlotValueChangeListener) HandleEvent(event *events.BatteryScheduleSlotEvent) {
+	if !event.Valid() {
+		if log.WarningEnabled() {
+			log.Warning("Not storing battery schedule slot as event is invalid")
+		}
+		return
+	}
+	err := bssvcl.repo.storeScheduleSlot(event.Slot())
+	if err != nil {
+		if log.WarningEnabled() {
+			log.Warningf("Unable to store battery schedule slot: %v", err)
+		}
+	}
+}
+
 // deleteScheduleSlotsBefore removes all schedule slots that end before the given time (internal cleanup)
 func (t *timescaleRepository) deleteScheduleSlotsBefore(before time.Time) error {
 	query := "DELETE FROM " + tableBatteryScheduleSlots + " WHERE end_time < $1"

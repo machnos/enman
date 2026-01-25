@@ -97,6 +97,7 @@ func (t *timescaleRepository) Initialize() error {
 	events.GasCosts.Register(&GasCostsValueChangeListener{repo: t}, nil)
 	events.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: t}, nil)
 	events.BatteryMeterReadings.Register(&BatteryMeterValueChangeListener{repo: t}, nil)
+	events.BatteryScheduleSlots.Register(&BatteryScheduleSlotValueChangeListener{repo: t}, nil)
 
 	return nil
 }
