@@ -570,97 +570,253 @@ const (
 	actionDischarge
 )
 
-// ensureBatterySurvival simulates the schedule forward and adds "survival charging"
-// at the cheapest available slots when the battery would otherwise hit MinSoC before
-// reaching the allocated charging slots. This ensures we can still discharge during
-// expensive peaks that occur before the cheapest charging slots.
+// ensureBatterySurvival simulates the schedule forward and prevents the battery from
+// hitting MinSoC at expensive times. It uses a two-phase approach:
+// Phase 1: Try to reduce/remove discharge actions that would cause expensive emergency charging
+// Phase 2: If still needed, add survival charging at the cheapest available slots
+//
+// The key insight is: if discharging during a €0.35 slot would require emergency charging
+// at €0.35, it's not economical - better to stay idle during that discharge slot.
 func (o *BatteryScheduleOptimizer) ensureBatterySurvival(
 	predictions []*slotPrediction,
 	slotActions []slotAction,
 	currentSoC float32,
 	chargeThreshold float32,
 ) {
-	maxIterations := len(predictions) // Prevent infinite loops
+	maxIterations := len(predictions) * 2 // Prevent infinite loops
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Find the index of the first allocated grid charging slot
-		firstChargeIdx := -1
-		for i, action := range slotActions {
-			if action == actionChargeGrid {
-				firstChargeIdx = i
+		// Find the survival problem: simulate forward and find where we hit MinSoC
+		problem := o.findSurvivalProblem(predictions, slotActions, currentSoC)
+		if problem == nil {
+			// No problem found, we're done
+			return
+		}
+
+		// Find the next charging slot after the problem
+		nextChargeIdx := -1
+		nextChargePrice := float32(0)
+		for i := problem.problemSlotIdx + 1; i < len(slotActions); i++ {
+			if slotActions[i] == actionChargeGrid {
+				nextChargeIdx = i
+				nextChargePrice = predictions[i].price
 				break
 			}
 		}
 
-		if firstChargeIdx <= 0 {
-			// No grid charging or it's the first slot - nothing to worry about
-			return
+		// Check if there's a discharge slot (peak) between the problem and the next charging slot
+		// If there's no peak to survive for, we don't need survival charging - just reduce discharge
+		hasPeakToSurvive := o.hasPeakBetween(slotActions, problem.problemSlotIdx, nextChargeIdx)
+
+		if !hasPeakToSurvive {
+			// No upcoming peak to discharge into - just reduce discharge to avoid hitting MinSoC
+			reduced := o.reduceAnyDischarge(predictions, slotActions, problem.problemSlotIdx)
+			if !reduced {
+				log.Debugf("Battery schedule optimizer: no peak to survive and couldn't reduce discharge at slot %d", problem.problemSlotIdx)
+				return
+			}
+			continue // Retry simulation
 		}
 
-		// Simulate forward to check if we'll hit MinSoC before reaching the first charge slot
-		simulatedSoC := currentSoC
-		minSoCBuffer := o.config.MinSoC + 5 // Add 5% buffer to avoid cutting it too close
-		problemSlotIdx := -1
+		// There IS a peak to survive - use the two-phase approach
 
-		for i := 0; i < firstChargeIdx; i++ {
-			p := predictions[i]
-			action := slotActions[i]
-			slotDurationHours := p.endTime.Sub(p.startTime).Hours()
-
-			// Calculate energy change for this slot
-			var energyChangeKwh float32
-
-			switch action {
-			case actionChargePV:
-				if p.netGridDemandW < 0 {
-					excessPvW := -p.netGridDemandW
-					maxChargePower := minFloat32(excessPvW, o.config.MaxChargePowerW)
-					energyChangeKwh = maxChargePower / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
-				}
-			case actionChargeGrid:
-				// This shouldn't happen before firstChargeIdx, but handle it
-				maxChargeEnergyKwh := o.config.MaxChargePowerW / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
-				var consumptionDrain float32
-				if p.netGridDemandW > 0 {
-					consumptionDrain = p.netGridDemandW / 1000 * float32(slotDurationHours)
-				}
-				energyChangeKwh = maxChargeEnergyKwh - consumptionDrain
-			case actionDischarge:
-				if p.netGridDemandW > 0 {
-					dischargePower := minFloat32(p.netGridDemandW, o.config.MaxDischargePowerW)
-					energyChangeKwh = -dischargePower / 1000 * float32(slotDurationHours)
-				} else {
-					energyChangeKwh = -o.config.MaxDischargePowerW / 1000 * float32(slotDurationHours)
-				}
-			default: // actionIdle
-				if p.netGridDemandW > 0 {
-					energyChangeKwh = -p.netGridDemandW / 1000 * float32(slotDurationHours)
-				}
-			}
-
-			simulatedSoC += energyChangeKwh / o.config.BatteryCapacityKwh * 100
-			simulatedSoC = maxFloat32(o.config.MinSoC, minFloat32(o.config.MaxSoC, simulatedSoC))
-
-			// Check if we're approaching MinSoC
-			if simulatedSoC <= minSoCBuffer {
-				problemSlotIdx = i
-				break
+		// Phase 1: Consider reducing discharge to avoid expensive emergency charging
+		// If we'd need to charge at price P to survive, don't discharge at slots with price <= P
+		if problem.wouldNeedEmergencyCharging {
+			// Find the most expensive discharge slot before the problem that has price <= emergency charge price
+			reducedDischarge := o.reduceUnprofitableDischarge(predictions, slotActions, problem, nextChargePrice)
+			if reducedDischarge {
+				continue // Retry simulation
 			}
 		}
 
-		if problemSlotIdx == -1 {
-			// No survival problem found, we're done
-			return
-		}
-
-		// We need survival charging! Find the cheapest available slot before the problem
-		added := o.addSurvivalCharging(predictions, slotActions, problemSlotIdx, chargeThreshold)
+		// Phase 2: Add survival charging at cheapest available slot
+		added := o.addSurvivalCharging(predictions, slotActions, problem.problemSlotIdx, chargeThreshold)
 		if !added {
-			// Couldn't add any more survival charging, give up
-			log.Debugf("Battery schedule optimizer: couldn't add more survival charging, battery may hit MinSoC")
-			return
+			// Last resort: reduce discharge slots even if they're profitable
+			reduced := o.reduceAnyDischarge(predictions, slotActions, problem.problemSlotIdx)
+			if !reduced {
+				log.Debugf("Battery schedule optimizer: couldn't resolve survival problem at slot %d", problem.problemSlotIdx)
+				return
+			}
 		}
-		// Loop again to check if the added charging was enough
 	}
+}
+
+// hasPeakBetween checks if there's a discharge slot (peak) between startIdx and endIdx (exclusive).
+// If endIdx is -1, it checks from startIdx to the end of the schedule.
+// Returns true if there's at least one discharge slot in that range.
+func (o *BatteryScheduleOptimizer) hasPeakBetween(slotActions []slotAction, startIdx, endIdx int) bool {
+	if endIdx == -1 {
+		endIdx = len(slotActions)
+	}
+	for i := startIdx + 1; i < endIdx; i++ {
+		if slotActions[i] == actionDischarge {
+			return true
+		}
+	}
+	return false
+}
+
+// survivalProblem describes where and why the battery would hit MinSoC
+type survivalProblem struct {
+	problemSlotIdx             int
+	socAtProblem               float32
+	wouldNeedEmergencyCharging bool
+	emergencyChargePrice       float32
+}
+
+// findSurvivalProblem simulates the schedule forward to find where battery hits MinSoC
+func (o *BatteryScheduleOptimizer) findSurvivalProblem(
+	predictions []*slotPrediction,
+	slotActions []slotAction,
+	currentSoC float32,
+) *survivalProblem {
+	simulatedSoC := currentSoC
+	minSoCBuffer := o.config.MinSoC + 5 // Add 5% buffer
+
+	for i := 0; i < len(predictions); i++ {
+		p := predictions[i]
+		action := slotActions[i]
+
+		// If this is a charging slot and we're at low SoC, charging will help
+		if action == actionChargeGrid && simulatedSoC <= minSoCBuffer {
+			// We found a problem - we need emergency charging at this slot
+			return &survivalProblem{
+				problemSlotIdx:             i,
+				socAtProblem:               simulatedSoC,
+				wouldNeedEmergencyCharging: true,
+				emergencyChargePrice:       p.price,
+			}
+		}
+
+		slotDurationHours := p.endTime.Sub(p.startTime).Hours()
+		energyChangeKwh := o.calculateSlotEnergyChange(p, action, slotDurationHours)
+
+		prevSoC := simulatedSoC
+		simulatedSoC += energyChangeKwh / o.config.BatteryCapacityKwh * 100
+		simulatedSoC = maxFloat32(o.config.MinSoC, minFloat32(o.config.MaxSoC, simulatedSoC))
+
+		// Check if we hit MinSoC at an idle or discharge slot (not at a charge slot)
+		if simulatedSoC <= minSoCBuffer && prevSoC > minSoCBuffer && action != actionChargeGrid {
+			return &survivalProblem{
+				problemSlotIdx:             i,
+				socAtProblem:               simulatedSoC,
+				wouldNeedEmergencyCharging: true,
+				emergencyChargePrice:       p.price, // We'd need to charge at this price or higher
+			}
+		}
+	}
+
+	return nil
+}
+
+// calculateSlotEnergyChange calculates the energy change in kWh for a given slot action
+func (o *BatteryScheduleOptimizer) calculateSlotEnergyChange(
+	p *slotPrediction,
+	action slotAction,
+	slotDurationHours float64,
+) float32 {
+	var energyChangeKwh float32
+
+	switch action {
+	case actionChargePV:
+		if p.netGridDemandW < 0 {
+			excessPvW := -p.netGridDemandW
+			maxChargePower := minFloat32(excessPvW, o.config.MaxChargePowerW)
+			energyChangeKwh = maxChargePower / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+		}
+	case actionChargeGrid:
+		maxChargeEnergyKwh := o.config.MaxChargePowerW / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+		var consumptionDrain float32
+		if p.netGridDemandW > 0 {
+			consumptionDrain = p.netGridDemandW / 1000 * float32(slotDurationHours)
+		}
+		energyChangeKwh = maxChargeEnergyKwh - consumptionDrain
+	case actionDischarge:
+		if p.netGridDemandW > 0 {
+			dischargePower := minFloat32(p.netGridDemandW, o.config.MaxDischargePowerW)
+			energyChangeKwh = -dischargePower / 1000 * float32(slotDurationHours)
+		} else {
+			energyChangeKwh = -o.config.MaxDischargePowerW / 1000 * float32(slotDurationHours)
+		}
+	default: // actionIdle
+		if p.netGridDemandW > 0 {
+			energyChangeKwh = -p.netGridDemandW / 1000 * float32(slotDurationHours)
+		}
+	}
+
+	return energyChangeKwh
+}
+
+// reduceUnprofitableDischarge reduces discharge at slots where the price is not significantly
+// higher than the emergency charging price. It's not economical to discharge at €0.35
+// if we then need to charge at €0.35 to survive.
+func (o *BatteryScheduleOptimizer) reduceUnprofitableDischarge(
+	predictions []*slotPrediction,
+	slotActions []slotAction,
+	problem *survivalProblem,
+	nextChargePrice float32,
+) bool {
+	// Find the threshold: discharge is only profitable if price > charge price / efficiency
+	// Adding 10% margin to account for battery wear
+	chargePrice := problem.emergencyChargePrice
+	if nextChargePrice > 0 && nextChargePrice < chargePrice {
+		chargePrice = nextChargePrice
+	}
+	profitThreshold := chargePrice / o.config.RoundTripEfficiency * 1.1
+
+	// Find discharge slots before the problem that are below the profit threshold
+	// Convert the cheapest-to-discharge (lowest price discharge) to idle
+	var cheapestDischargeIdx = -1
+	var cheapestDischargePrice float32 = 999999
+
+	for i := 0; i <= problem.problemSlotIdx; i++ {
+		if slotActions[i] == actionDischarge {
+			price := predictions[i].price
+			// If this discharge is not profitable (price <= profitThreshold), consider removing it
+			if price < cheapestDischargePrice && price <= profitThreshold {
+				cheapestDischargeIdx = i
+				cheapestDischargePrice = price
+			}
+		}
+	}
+
+	if cheapestDischargeIdx >= 0 {
+		slotActions[cheapestDischargeIdx] = actionIdle
+		log.Debugf("Battery schedule optimizer: reduced unprofitable discharge at slot %d (price %.4f, threshold %.4f)",
+			cheapestDischargeIdx, cheapestDischargePrice, profitThreshold)
+		return true
+	}
+
+	return false
+}
+
+// reduceAnyDischarge reduces the cheapest discharge slot as a last resort
+func (o *BatteryScheduleOptimizer) reduceAnyDischarge(
+	predictions []*slotPrediction,
+	slotActions []slotAction,
+	beforeIdx int,
+) bool {
+	var cheapestDischargeIdx = -1
+	var cheapestDischargePrice float32 = 999999
+
+	for i := 0; i <= beforeIdx; i++ {
+		if slotActions[i] == actionDischarge {
+			if predictions[i].price < cheapestDischargePrice {
+				cheapestDischargeIdx = i
+				cheapestDischargePrice = predictions[i].price
+			}
+		}
+	}
+
+	if cheapestDischargeIdx >= 0 {
+		slotActions[cheapestDischargeIdx] = actionIdle
+		log.Debugf("Battery schedule optimizer: reduced discharge at slot %d (price %.4f) to avoid MinSoC",
+			cheapestDischargeIdx, cheapestDischargePrice)
+		return true
+	}
+
+	return false
 }
 
 // addSurvivalCharging finds the cheapest idle slot before the given index and marks it for charging
