@@ -101,13 +101,32 @@ func (p *PriceBasedElectricityConsumptionCalculator) CalculateAddition(available
 		if now.After(slot.StartTime()) && now.Before(slot.EndTime()) || now.Equal(slot.StartTime()) {
 			chargePower := slot.ChargePower()
 
-			// If charging, limit to available power
-			if chargePower > 0 && chargePower > availableChargePower {
+			// Only actively draw from grid when charging source is grid
+			// PV charging should happen naturally without grid compensation
+			if chargePower > 0 && slot.ChargingSource() != battery.ChargingSourceGrid {
+				// For PV or other sources, don't request grid power
+				if log.DebugEnabled() {
+					log.Debugf("PriceBasedElectricityConsumptionCalculator: slot %v-%v is PV charging, not requesting grid power",
+						slot.StartTime().Format("15:04"), slot.EndTime().Format("15:04"))
+				}
+				return 0
+			}
+
+			// If discharging, return negative power as-is
+			if chargePower < 0 {
+				if log.DebugEnabled() {
+					log.Debugf("PriceBasedElectricityConsumptionCalculator: returning discharge power %.0fW", chargePower)
+				}
+				return chargePower
+			}
+
+			// Grid charging: limit to available power
+			if chargePower > availableChargePower {
 				chargePower = availableChargePower
 			}
 
 			if log.DebugEnabled() {
-				log.Debugf("PriceBasedElectricityConsumptionCalculator: active slot found, returning power=%.0fW", chargePower)
+				log.Debugf("PriceBasedElectricityConsumptionCalculator: returning grid charge power %.0fW", chargePower)
 			}
 
 			return chargePower
