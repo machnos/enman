@@ -23,11 +23,6 @@ func TestNewBatteryScheduleOptimizer(t *testing.T) {
 	optimizer := NewBatteryScheduleOptimizer(system, nil, 0.85, 15)
 	config := optimizer.Config()
 
-	// Check grid name is used for both household source and energy provider
-	if config.HouseholdSourceName != "main_grid" {
-		t.Errorf("Expected HouseholdSourceName 'main_grid', got '%s'", config.HouseholdSourceName)
-	}
-
 	// Check energy provider (should be same as grid name)
 	if config.EnergyProviderName != "main_grid" {
 		t.Errorf("Expected EnergyProviderName 'main_grid', got '%s'", config.EnergyProviderName)
@@ -459,5 +454,97 @@ func TestOptimizerChargesDuringCheapNightHours(t *testing.T) {
 	}
 	if !dischargingFound {
 		t.Error("Expected peak price slots to be discharging")
+	}
+}
+
+func TestOptimizerSurvivalCharging(t *testing.T) {
+	// Test scenario: Battery would hit MinSoC before reaching the cheapest charging slots
+	// The optimizer should add "survival charging" at moderately cheap slots to survive
+	// until the cheapest slots arrive.
+	//
+	// Timeline:
+	// - Slots 0-3: Moderate price (0.28-0.30), high consumption - battery draining
+	// - Slots 4-6: Peak price (0.38-0.40) - want to discharge but need energy
+	// - Slots 7-10: Cheapest price (0.20-0.22) - optimal charging time
+
+	config := &Config{
+		OptimizationHorizon:         24 * time.Hour,
+		SlotDuration:                15 * time.Minute,
+		UpdateInterval:              5 * time.Minute,
+		BatteryCapacityKwh:          10.0,
+		MaxChargePowerW:             5000,
+		MaxDischargePowerW:          5000,
+		MinSoC:                      10,
+		MaxSoC:                      100,
+		RoundTripEfficiency:         0.9,
+		HistoricalDaysForPrediction: 7,
+	}
+
+	optimizer := NewBatteryScheduleOptimizerWithConfig(config, nil)
+	now := time.Date(2026, 1, 25, 18, 0, 0, 0, time.UTC)
+
+	predictions := []*slotPrediction{
+		// Slots 0-3: Moderate price with consumption (battery draining)
+		{startTime: now, endTime: now.Add(15 * time.Minute), price: 0.28, netGridDemandW: 2000},
+		{startTime: now.Add(15 * time.Minute), endTime: now.Add(30 * time.Minute), price: 0.29, netGridDemandW: 2000},
+		{startTime: now.Add(30 * time.Minute), endTime: now.Add(45 * time.Minute), price: 0.30, netGridDemandW: 2000},
+		{startTime: now.Add(45 * time.Minute), endTime: now.Add(60 * time.Minute), price: 0.29, netGridDemandW: 2000},
+		// Slots 4-6: Peak prices - want to discharge here!
+		{startTime: now.Add(1 * time.Hour), endTime: now.Add(1*time.Hour + 15*time.Minute), price: 0.38, netGridDemandW: 1500},
+		{startTime: now.Add(1*time.Hour + 15*time.Minute), endTime: now.Add(1*time.Hour + 30*time.Minute), price: 0.40, netGridDemandW: 1500},
+		{startTime: now.Add(1*time.Hour + 30*time.Minute), endTime: now.Add(1*time.Hour + 45*time.Minute), price: 0.39, netGridDemandW: 1500},
+		// Slots 7-10: Cheapest prices - optimal charging time
+		{startTime: now.Add(2 * time.Hour), endTime: now.Add(2*time.Hour + 15*time.Minute), price: 0.20, netGridDemandW: 500},
+		{startTime: now.Add(2*time.Hour + 15*time.Minute), endTime: now.Add(2*time.Hour + 30*time.Minute), price: 0.21, netGridDemandW: 500},
+		{startTime: now.Add(2*time.Hour + 30*time.Minute), endTime: now.Add(2*time.Hour + 45*time.Minute), price: 0.22, netGridDemandW: 500},
+		{startTime: now.Add(2*time.Hour + 45*time.Minute), endTime: now.Add(3 * time.Hour), price: 0.21, netGridDemandW: 500},
+	}
+
+	// Start with low SoC - would hit MinSoC before reaching cheap slots without survival charging
+	currentSoC := float32(20)
+	slots := optimizer.Optimize(currentSoC, predictions)
+
+	// Debug output
+	for i, slot := range slots {
+		action := "idle"
+		if slot.ChargePower() > 0 {
+			action = "charging"
+		} else if slot.ChargePower() < 0 {
+			action = "discharging"
+		}
+		t.Logf("Slot %d (%v): price=%.2f, power=%.0f (%s), SoC=%.1f%%",
+			i, slot.StartTime().Format("15:04"), slot.PricePerKwh(), slot.ChargePower(), action, slot.PredictedSoC())
+	}
+
+	// Verify SoC never drops below MinSoC
+	for i, slot := range slots {
+		if slot.PredictedSoC() < config.MinSoC {
+			t.Errorf("Slot %d: SoC dropped below minimum: got %.1f%%, minimum is %.1f%%",
+				i, slot.PredictedSoC(), config.MinSoC)
+		}
+	}
+
+	// Verify that at least one peak slot (price >= 0.38) is discharging
+	peakDischargeFound := false
+	for _, slot := range slots {
+		if slot.PricePerKwh() >= 0.38 && slot.ChargePower() < 0 {
+			peakDischargeFound = true
+			break
+		}
+	}
+	if !peakDischargeFound {
+		t.Error("Expected at least one peak price slot to be discharging - survival charging should have preserved enough energy")
+	}
+
+	// Verify that the cheapest slots (price <= 0.22) are charging
+	cheapChargingFound := false
+	for _, slot := range slots {
+		if slot.PricePerKwh() <= 0.22 && slot.ChargePower() > 0 {
+			cheapChargingFound = true
+			break
+		}
+	}
+	if !cheapChargingFound {
+		t.Error("Expected cheapest slots to be charging")
 	}
 }

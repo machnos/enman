@@ -46,8 +46,6 @@ type Config struct {
 	BatteryNames []string
 	// PvNames is a list of PV source names to consider for production prediction
 	PvNames []string
-	// HouseholdSourceName is the name of the household consumption source (grid name)
-	HouseholdSourceName string
 	// AcLoadFactors contains AC loads with their optimization factor
 	// Factor = 1 - (percentageFromGrid / 100): how much of the load is managed by the optimizer
 	// e.g., percentageFromGrid=100 → factor=0 (fully excluded from optimization)
@@ -104,7 +102,6 @@ func NewBatteryScheduleOptimizer(
 
 	// Extract grid name - used for both household consumption source and energy provider
 	if system.Grid() != nil {
-		config.HouseholdSourceName = system.Grid().Name()
 		config.EnergyProviderName = system.Grid().Name()
 	}
 
@@ -315,9 +312,12 @@ func (o *BatteryScheduleOptimizer) getPredictedPvProduction(slotStart, slotEnd t
 
 // getPredictedConsumption predicts household consumption for a future time slot
 // based on historical consumption at the same time of day.
+// Total household consumption = grid consumption + battery discharge power
+// This accounts for the fact that when batteries are discharging, grid consumption
+// is low but the household is still consuming power from the battery.
 // Excludes AC loads that have percentageFromGrid=100 (user-managed loads like EV chargers)
 func (o *BatteryScheduleOptimizer) getPredictedConsumption(slotStart, slotEnd time.Time) float32 {
-	if o.repository == nil || o.config.HouseholdSourceName == "" {
+	if o.repository == nil || o.config.EnergyProviderName == "" {
 		return 0
 	}
 
@@ -334,10 +334,68 @@ func (o *BatteryScheduleOptimizer) getPredictedConsumption(slotStart, slotEnd ti
 		historicalEnd := slotEnd.AddDate(0, 0, -daysAgo)
 
 		// Get grid consumption
+		gridPower := float32(0)
 		states, err := o.repository.ElectricityStates(
 			historicalStart,
 			historicalEnd,
-			o.config.HouseholdSourceName,
+			o.config.EnergyProviderName,
+			&repository.AggregateConfiguration{
+				WindowUnit:   repository.WindowUnitMinute,
+				WindowAmount: uint64(o.config.SlotDuration.Minutes()),
+				Functions:    []repository.AggregateFunction{repository.AggregateFunctionMean},
+			},
+		)
+		if err == nil && len(states) > 0 {
+			for _, stateRecord := range states {
+				if avg, ok := stateRecord.States[repository.AggregateFunctionMean]; ok && avg != nil {
+					// Grid consumption is positive when consuming from grid
+					power := avg.TotalPower()
+					if power > 0 {
+						gridPower += power
+					}
+				}
+			}
+		}
+
+		// Get battery discharge power (negative power = discharging to household)
+		batteryDischargePower := o.getBatteryDischargePower(historicalStart, historicalEnd)
+
+		// Total household consumption = grid consumption + battery discharge
+		totalPower := gridPower + batteryDischargePower
+
+		if totalPower > 0 {
+			// Subtract the portion of AC load consumption not managed by optimizer
+			excludedPower := o.getAcLoadExcludedPower(historicalStart, historicalEnd)
+			totalPower -= excludedPower
+			if totalPower < 0 {
+				totalPower = 0
+			}
+			sumPower += totalPower
+			count++
+		}
+	}
+
+	if count > 0 {
+		return sumPower / float32(count)
+	}
+	return 0
+}
+
+// getBatteryDischargePower gets the average battery discharge power for a time slot.
+// Returns positive value representing power flowing from batteries to household.
+// Battery power is negative when discharging, so we negate it.
+func (o *BatteryScheduleOptimizer) getBatteryDischargePower(slotStart, slotEnd time.Time) float32 {
+	if len(o.config.BatteryNames) == 0 {
+		return 0
+	}
+
+	var totalDischargePower float32
+
+	for _, batteryName := range o.config.BatteryNames {
+		states, err := o.repository.BatteryStates(
+			slotStart,
+			slotEnd,
+			batteryName,
 			&repository.AggregateConfiguration{
 				WindowUnit:   repository.WindowUnitMinute,
 				WindowAmount: uint64(o.config.SlotDuration.Minutes()),
@@ -350,28 +408,17 @@ func (o *BatteryScheduleOptimizer) getPredictedConsumption(slotStart, slotEnd ti
 
 		for _, stateRecord := range states {
 			if avg, ok := stateRecord.States[repository.AggregateFunctionMean]; ok && avg != nil {
-				// Grid consumption is positive when consuming
-				power := avg.TotalPower()
-				if power > 0 {
-					// Subtract the portion of AC load consumption not managed by optimizer
-					// Factor = 1 - (percentageFromGrid / 100)
-					// We subtract power * (1 - factor) = power * percentageFromGrid / 100
-					excludedPower := o.getAcLoadExcludedPower(historicalStart, historicalEnd)
-					power -= excludedPower
-					if power < 0 {
-						power = 0
-					}
-					sumPower += power
-					count++
+				// Battery power is negative when discharging (power flowing out)
+				// We want positive discharge power for consumption calculation
+				power := avg.Power()
+				if power < 0 {
+					totalDischargePower += -power // Negate to get positive discharge value
 				}
 			}
 		}
 	}
 
-	if count > 0 {
-		return sumPower / float32(count)
-	}
-	return 0
+	return totalDischargePower
 }
 
 // getAcLoadExcludedPower calculates the power from AC loads that should be excluded from predictions.
@@ -513,55 +560,179 @@ func (o *BatteryScheduleOptimizer) runOptimization() {
 	}
 }
 
-// Optimize generates optimal schedule slots using a greedy price-based algorithm
+// slotAction represents what action to take for a slot
+type slotAction int
+
+const (
+	actionIdle slotAction = iota
+	actionChargePV
+	actionChargeGrid
+	actionDischarge
+)
+
+// ensureBatterySurvival simulates the schedule forward and adds "survival charging"
+// at the cheapest available slots when the battery would otherwise hit MinSoC before
+// reaching the allocated charging slots. This ensures we can still discharge during
+// expensive peaks that occur before the cheapest charging slots.
+func (o *BatteryScheduleOptimizer) ensureBatterySurvival(
+	predictions []*slotPrediction,
+	slotActions []slotAction,
+	currentSoC float32,
+	chargeThreshold float32,
+) {
+	maxIterations := len(predictions) // Prevent infinite loops
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Find the index of the first allocated grid charging slot
+		firstChargeIdx := -1
+		for i, action := range slotActions {
+			if action == actionChargeGrid {
+				firstChargeIdx = i
+				break
+			}
+		}
+
+		if firstChargeIdx <= 0 {
+			// No grid charging or it's the first slot - nothing to worry about
+			return
+		}
+
+		// Simulate forward to check if we'll hit MinSoC before reaching the first charge slot
+		simulatedSoC := currentSoC
+		minSoCBuffer := o.config.MinSoC + 5 // Add 5% buffer to avoid cutting it too close
+		problemSlotIdx := -1
+
+		for i := 0; i < firstChargeIdx; i++ {
+			p := predictions[i]
+			action := slotActions[i]
+			slotDurationHours := p.endTime.Sub(p.startTime).Hours()
+
+			// Calculate energy change for this slot
+			var energyChangeKwh float32
+
+			switch action {
+			case actionChargePV:
+				if p.netGridDemandW < 0 {
+					excessPvW := -p.netGridDemandW
+					maxChargePower := minFloat32(excessPvW, o.config.MaxChargePowerW)
+					energyChangeKwh = maxChargePower / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+				}
+			case actionChargeGrid:
+				// This shouldn't happen before firstChargeIdx, but handle it
+				maxChargeEnergyKwh := o.config.MaxChargePowerW / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+				var consumptionDrain float32
+				if p.netGridDemandW > 0 {
+					consumptionDrain = p.netGridDemandW / 1000 * float32(slotDurationHours)
+				}
+				energyChangeKwh = maxChargeEnergyKwh - consumptionDrain
+			case actionDischarge:
+				if p.netGridDemandW > 0 {
+					dischargePower := minFloat32(p.netGridDemandW, o.config.MaxDischargePowerW)
+					energyChangeKwh = -dischargePower / 1000 * float32(slotDurationHours)
+				} else {
+					energyChangeKwh = -o.config.MaxDischargePowerW / 1000 * float32(slotDurationHours)
+				}
+			default: // actionIdle
+				if p.netGridDemandW > 0 {
+					energyChangeKwh = -p.netGridDemandW / 1000 * float32(slotDurationHours)
+				}
+			}
+
+			simulatedSoC += energyChangeKwh / o.config.BatteryCapacityKwh * 100
+			simulatedSoC = maxFloat32(o.config.MinSoC, minFloat32(o.config.MaxSoC, simulatedSoC))
+
+			// Check if we're approaching MinSoC
+			if simulatedSoC <= minSoCBuffer {
+				problemSlotIdx = i
+				break
+			}
+		}
+
+		if problemSlotIdx == -1 {
+			// No survival problem found, we're done
+			return
+		}
+
+		// We need survival charging! Find the cheapest available slot before the problem
+		added := o.addSurvivalCharging(predictions, slotActions, problemSlotIdx, chargeThreshold)
+		if !added {
+			// Couldn't add any more survival charging, give up
+			log.Debugf("Battery schedule optimizer: couldn't add more survival charging, battery may hit MinSoC")
+			return
+		}
+		// Loop again to check if the added charging was enough
+	}
+}
+
+// addSurvivalCharging finds the cheapest idle slot before the given index and marks it for charging
+// Returns true if a slot was converted to charging, false otherwise
+func (o *BatteryScheduleOptimizer) addSurvivalCharging(
+	predictions []*slotPrediction,
+	slotActions []slotAction,
+	beforeIdx int,
+	chargeThreshold float32,
+) bool {
+	// Find all idle or discharge slots before beforeIdx (excluding PV slots)
+	type candidate struct {
+		index  int
+		price  float32
+		isIdle bool
+	}
+	idleCandidates := make([]candidate, 0)
+	dischargeCandidates := make([]candidate, 0)
+
+	for i := 0; i <= beforeIdx; i++ {
+		if slotActions[i] == actionIdle {
+			idleCandidates = append(idleCandidates, candidate{index: i, price: predictions[i].price, isIdle: true})
+		} else if slotActions[i] == actionDischarge {
+			dischargeCandidates = append(dischargeCandidates, candidate{index: i, price: predictions[i].price, isIdle: false})
+		}
+	}
+
+	// First priority: convert idle slots to charging (sorted by price, cheapest first)
+	if len(idleCandidates) > 0 {
+		sort.Slice(idleCandidates, func(i, j int) bool {
+			return idleCandidates[i].price < idleCandidates[j].price
+		})
+
+		bestIdx := idleCandidates[0].index
+		slotActions[bestIdx] = actionChargeGrid
+		log.Debugf("Battery schedule optimizer: added survival charging at slot %d (price %.4f)",
+			bestIdx, predictions[bestIdx].price)
+		return true
+	}
+
+	// Second priority: convert discharge slots to charging (most expensive discharge first)
+	if len(dischargeCandidates) > 0 {
+		sort.Slice(dischargeCandidates, func(i, j int) bool {
+			return dischargeCandidates[i].price > dischargeCandidates[j].price
+		})
+
+		bestIdx := dischargeCandidates[0].index
+		slotActions[bestIdx] = actionChargeGrid // Convert discharge to charge
+		log.Debugf("Battery schedule optimizer: converted discharge slot %d to charging for survival (price %.4f)",
+			bestIdx, predictions[bestIdx].price)
+		return true
+	}
+
+	return false
+}
+
+// Optimize generates optimal schedule slots using a smarter price-based algorithm
 // This considers:
-// 1. Energy prices - charge when cheap, discharge when expensive
+// 1. Energy prices - charge during the CHEAPEST slots, discharge during the MOST EXPENSIVE slots
 // 2. PV production - use excess PV to charge battery instead of exporting
 // 3. Household consumption - discharge to cover consumption during expensive periods
 // 4. Battery constraints - SoC limits, power limits, efficiency
+//
+// The algorithm uses a two-pass approach:
+// Pass 1: Identify which slots should charge/discharge based on price ranking
+// Pass 2: Process chronologically to calculate actual SoC evolution
 func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*slotPrediction) []*battery.ScheduleSlot {
 	slots := make([]*battery.ScheduleSlot, 0)
 
 	if len(predictions) == 0 {
 		return slots
 	}
-
-	// Sort prices to determine percentile-based thresholds
-	pricesSorted := make([]float32, len(predictions))
-	for i, p := range predictions {
-		pricesSorted[i] = p.price
-	}
-	sort.Slice(pricesSorted, func(i, j int) bool {
-		return pricesSorted[i] < pricesSorted[j]
-	})
-
-	// Use percentile-based thresholds:
-	// - Charge threshold: 30th percentile (charge during cheapest 30% of hours)
-	// - Discharge threshold: 70th percentile (discharge during most expensive 30% of hours)
-	chargePercentileIdx := len(pricesSorted) * 30 / 100
-	dischargePercentileIdx := len(pricesSorted) * 70 / 100
-
-	// Ensure indices are within bounds
-	if chargePercentileIdx >= len(pricesSorted) {
-		chargePercentileIdx = len(pricesSorted) - 1
-	}
-	if dischargePercentileIdx >= len(pricesSorted) {
-		dischargePercentileIdx = len(pricesSorted) - 1
-	}
-
-	chargeThreshold := pricesSorted[chargePercentileIdx]
-	dischargeThreshold := pricesSorted[dischargePercentileIdx]
-
-	// Adjust discharge threshold for round-trip efficiency
-	// Only discharge if we can make a profit after accounting for losses
-	efficiencyFactor := 1.0 / o.config.RoundTripEfficiency
-	minProfitableDischargePrice := chargeThreshold * float32(efficiencyFactor) * 1.1
-	if dischargeThreshold < minProfitableDischargePrice {
-		dischargeThreshold = minProfitableDischargePrice
-	}
-
-	log.Debugf("Battery schedule optimizer: price thresholds - charge below %.4f, discharge above %.4f",
-		chargeThreshold, dischargeThreshold)
 
 	// Create indexed predictions for sorting
 	type indexedPrediction struct {
@@ -573,152 +744,175 @@ func (o *BatteryScheduleOptimizer) Optimize(currentSoC float32, predictions []*s
 		indexed[i] = &indexedPrediction{p, i}
 	}
 
-	// Sort by effective cost (price adjusted by net demand)
-	// Slots with excess PV (negative net demand) are more attractive for charging
-	// Slots with high consumption are more attractive for discharging
-	sortedByValue := make([]*indexedPrediction, len(indexed))
-	copy(sortedByValue, indexed)
-	sort.Slice(sortedByValue, func(i, j int) bool {
-		// Effective charge cost = price - value of storing excess PV
-		// Lower is better for charging
-		costI := sortedByValue[i].price
-		costJ := sortedByValue[j].price
-		// If there's excess PV, it's effectively free energy to store
-		if sortedByValue[i].netGridDemandW < 0 {
-			costI = 0 // Excess PV makes charging very attractive
-		}
-		if sortedByValue[j].netGridDemandW < 0 {
-			costJ = 0
-		}
-		return costI < costJ
+	// Sort by price to find cheapest and most expensive slots
+	sortedByPrice := make([]*indexedPrediction, len(indexed))
+	copy(sortedByPrice, indexed)
+	sort.Slice(sortedByPrice, func(i, j int) bool {
+		return sortedByPrice[i].price < sortedByPrice[j].price
 	})
 
-	// slotDecision holds both power and source for a slot
-	type slotDecision struct {
-		power  float32
-		source battery.ChargingSource
+	// Calculate price thresholds based on percentiles
+	chargePercentileIdx := len(sortedByPrice) * 30 / 100
+	dischargePercentileIdx := len(sortedByPrice) * 70 / 100
+	if chargePercentileIdx >= len(sortedByPrice) {
+		chargePercentileIdx = len(sortedByPrice) - 1
+	}
+	if dischargePercentileIdx >= len(sortedByPrice) {
+		dischargePercentileIdx = len(sortedByPrice) - 1
 	}
 
-	// Decisions map: index -> decision (power + source)
-	slotDecisions := make(map[int]slotDecision)
-	simulatedSoC := currentSoC
+	chargeThreshold := sortedByPrice[chargePercentileIdx].price
+	dischargeThreshold := sortedByPrice[dischargePercentileIdx].price
 
-	// First pass: Handle excess PV - always store it if possible
+	// Adjust discharge threshold for round-trip efficiency
+	efficiencyFactor := 1.0 / o.config.RoundTripEfficiency
+	minProfitableDischargePrice := chargeThreshold * float32(efficiencyFactor) * 1.1
+	if dischargeThreshold < minProfitableDischargePrice {
+		dischargeThreshold = minProfitableDischargePrice
+	}
+
+	log.Debugf("Battery schedule optimizer: price thresholds - charge below %.4f, discharge above %.4f",
+		chargeThreshold, dischargeThreshold)
+
+	// Estimate total energy needed for charging
+	// We want to charge enough to cover consumption during expensive/idle periods
+	totalCapacityKwh := o.config.BatteryCapacityKwh * (o.config.MaxSoC - o.config.MinSoC) / 100
+	currentEnergyKwh := o.config.BatteryCapacityKwh * (currentSoC - o.config.MinSoC) / 100
+
+	// Estimate consumption during non-cheap periods
+	var estimatedConsumptionKwh float32
+	for _, p := range predictions {
+		if p.price > chargeThreshold && p.netGridDemandW > 0 {
+			slotDurationHours := p.endTime.Sub(p.startTime).Hours()
+			estimatedConsumptionKwh += p.netGridDemandW / 1000 * float32(slotDurationHours)
+		}
+	}
+
+	// Energy needed = consumption we need to cover + buffer to reach max SoC
+	energyNeededKwh := totalCapacityKwh - currentEnergyKwh + estimatedConsumptionKwh
+
+	// Initialize all slots as idle
+	slotActions := make([]slotAction, len(predictions))
+
+	// Pass 1a: Mark PV charging slots (always beneficial - free energy)
 	for _, ip := range indexed {
-		if ip.netGridDemandW >= 0 {
-			continue // No excess PV
-		}
-
-		excessPvW := -ip.netGridDemandW
-		availableCapacity := (o.config.MaxSoC - simulatedSoC) / 100 * o.config.BatteryCapacityKwh
-		if availableCapacity <= 0 {
-			continue
-		}
-
-		// Charge from excess PV (limited by PV output and battery capacity)
-		chargePower := minFloat32(excessPvW, o.config.MaxChargePowerW)
-		slotDurationHours := ip.endTime.Sub(ip.startTime).Hours()
-		chargeEnergy := chargePower / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
-		chargeEnergy = minFloat32(chargeEnergy, availableCapacity)
-		chargePower = chargeEnergy / float32(slotDurationHours) * 1000 / o.config.RoundTripEfficiency
-
-		if chargePower > 0 {
-			slotDecisions[ip.index] = slotDecision{power: chargePower, source: battery.ChargingSourcePV}
-			simulatedSoC += chargeEnergy / o.config.BatteryCapacityKwh * 100
+		if ip.netGridDemandW < 0 {
+			slotActions[ip.index] = actionChargePV
 		}
 	}
 
-	// Second pass: Charge from grid during cheap periods
-	for _, ip := range sortedByValue {
-		if _, exists := slotDecisions[ip.index]; exists {
-			continue // Already decided (PV charging)
+	// Pass 1b: Mark the CHEAPEST slots for grid charging
+	// Only charge in enough slots to cover our energy needs
+	var allocatedChargeEnergyKwh float32
+	for _, ip := range sortedByPrice {
+		if slotActions[ip.index] != actionIdle {
+			continue // Already marked for PV charging
 		}
 		if ip.price > chargeThreshold {
-			continue // Too expensive
+			break // Prices are sorted, so all remaining are more expensive
 		}
-
-		availableCapacity := (o.config.MaxSoC - simulatedSoC) / 100 * o.config.BatteryCapacityKwh
-		if availableCapacity <= 0 {
-			continue
+		if allocatedChargeEnergyKwh >= energyNeededKwh {
+			break // We have enough charging slots allocated
 		}
 
 		slotDurationHours := ip.endTime.Sub(ip.startTime).Hours()
-		maxChargeEnergy := o.config.MaxChargePowerW / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
-		chargeEnergy := minFloat32(availableCapacity, maxChargeEnergy)
-		chargePower := chargeEnergy / float32(slotDurationHours) * 1000 / o.config.RoundTripEfficiency
-
-		slotDecisions[ip.index] = slotDecision{power: chargePower, source: battery.ChargingSourceGrid}
-		simulatedSoC += chargeEnergy / o.config.BatteryCapacityKwh * 100
+		maxChargeEnergyKwh := o.config.MaxChargePowerW / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+		slotActions[ip.index] = actionChargeGrid
+		allocatedChargeEnergyKwh += maxChargeEnergyKwh
 	}
 
-	// Third pass: Discharge during expensive periods
-	// Sort by discharge value (high price first, then by consumption if available)
-	sort.Slice(sortedByValue, func(i, j int) bool {
-		// Value of discharging = price (with bonus for consumption coverage)
-		valueI := sortedByValue[i].price
-		valueJ := sortedByValue[j].price
-		// Add bonus for slots with consumption to offset
-		if sortedByValue[i].netGridDemandW > 0 {
-			valueI *= 1.5 // Prefer discharging when there's consumption to offset
-		}
-		if sortedByValue[j].netGridDemandW > 0 {
-			valueJ *= 1.5
-		}
-		return valueI > valueJ // Higher value first
+	// Pass 1c: Mark the MOST EXPENSIVE slots for discharging
+	// Sort by price descending for discharge allocation
+	sort.Slice(sortedByPrice, func(i, j int) bool {
+		return sortedByPrice[i].price > sortedByPrice[j].price
 	})
 
-	for _, ip := range sortedByValue {
-		if _, exists := slotDecisions[ip.index]; exists {
-			continue // Already decided
+	for _, ip := range sortedByPrice {
+		if slotActions[ip.index] != actionIdle {
+			continue // Already marked for charging
 		}
 		if ip.price < dischargeThreshold {
-			continue // Price too low to justify discharge
+			break // Prices are sorted descending, so all remaining are cheaper
 		}
-		if ip.netGridDemandW < 0 {
-			continue // Excess PV - don't discharge during solar production
-		}
-
-		availableEnergy := (simulatedSoC - o.config.MinSoC) / 100 * o.config.BatteryCapacityKwh
-		if availableEnergy <= 0 {
-			continue
-		}
-
-		slotDurationHours := ip.endTime.Sub(ip.startTime).Hours()
-		// Discharge power: cover consumption if known, otherwise use max power for arbitrage
-		var targetDischargePower float32
-		if ip.netGridDemandW > 0 {
-			targetDischargePower = minFloat32(ip.netGridDemandW, o.config.MaxDischargePowerW)
-		} else {
-			targetDischargePower = o.config.MaxDischargePowerW // Pure price arbitrage
-		}
-		maxDischargeEnergy := targetDischargePower / 1000 * float32(slotDurationHours)
-		dischargeEnergy := minFloat32(availableEnergy, maxDischargeEnergy)
-		dischargePower := -dischargeEnergy / float32(slotDurationHours) * 1000 // Negative for discharge
-
-		slotDecisions[ip.index] = slotDecision{power: dischargePower, source: battery.ChargingSourceNone}
-		simulatedSoC -= dischargeEnergy / o.config.BatteryCapacityKwh * 100
+		slotActions[ip.index] = actionDischarge
 	}
 
-	// Build final schedule slots in chronological order
-	simulatedSoC = currentSoC
+	// Pass 1d: SURVIVAL CHECK - ensure battery doesn't hit MinSoC before reaching charging slots
+	// Simulate forward and add "survival charging" at the cheapest available slots when needed
+	o.ensureBatterySurvival(predictions, slotActions, currentSoC, chargeThreshold)
+
+	log.Debugf("Battery schedule optimizer: allocated %.2f kWh of charging capacity, needed %.2f kWh",
+		allocatedChargeEnergyKwh, energyNeededKwh)
+
+	// Pass 2: Process chronologically to calculate actual power and SoC
+	simulatedSoC := currentSoC
+
 	for i, p := range predictions {
-		decision, hasDecision := slotDecisions[i]
-		chargePower := float32(0)
-		chargingSource := battery.ChargingSourceNone
-		if hasDecision {
-			chargePower = decision.power
-			chargingSource = decision.source
+		slotDurationHours := p.endTime.Sub(p.startTime).Hours()
+		action := slotActions[i]
+
+		// Calculate household consumption drain for this slot
+		var householdEnergyDrainKwh float32
+		if p.netGridDemandW > 0 {
+			householdEnergyDrainKwh = p.netGridDemandW / 1000 * float32(slotDurationHours)
 		}
 
-		// Calculate predicted SoC at end of slot
-		slotDurationHours := p.endTime.Sub(p.startTime).Hours()
-		var energyChange float32
-		if chargePower > 0 {
-			energyChange = chargePower / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
-		} else {
-			energyChange = chargePower / 1000 * float32(slotDurationHours)
+		var chargePower float32
+		var chargingSource battery.ChargingSource
+		var energyChangeKwh float32
+
+		switch action {
+		case actionChargePV:
+			// Charge from excess PV
+			excessPvW := -p.netGridDemandW
+			availableCapacityKwh := (o.config.MaxSoC - simulatedSoC) / 100 * o.config.BatteryCapacityKwh
+			if availableCapacityKwh > 0 && excessPvW > 0 {
+				maxChargePower := minFloat32(excessPvW, o.config.MaxChargePowerW)
+				maxChargeEnergyKwh := maxChargePower / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+				chargeEnergyKwh := minFloat32(maxChargeEnergyKwh, availableCapacityKwh)
+				chargePower = chargeEnergyKwh / float32(slotDurationHours) * 1000 / o.config.RoundTripEfficiency
+				chargingSource = battery.ChargingSourcePV
+				energyChangeKwh = chargeEnergyKwh
+			}
+
+		case actionChargeGrid:
+			// Charge from grid
+			availableCapacityKwh := (o.config.MaxSoC - simulatedSoC) / 100 * o.config.BatteryCapacityKwh
+			if availableCapacityKwh > 0 {
+				maxChargeEnergyKwh := o.config.MaxChargePowerW / 1000 * float32(slotDurationHours) * o.config.RoundTripEfficiency
+				chargeEnergyKwh := minFloat32(maxChargeEnergyKwh, availableCapacityKwh)
+				chargePower = chargeEnergyKwh / float32(slotDurationHours) * 1000 / o.config.RoundTripEfficiency
+				chargingSource = battery.ChargingSourceGrid
+				energyChangeKwh = chargeEnergyKwh - householdEnergyDrainKwh
+			} else {
+				energyChangeKwh = -householdEnergyDrainKwh
+			}
+
+		case actionDischarge:
+			// Discharge for price arbitrage or to cover consumption
+			availableEnergyKwh := (simulatedSoC - o.config.MinSoC) / 100 * o.config.BatteryCapacityKwh
+			if availableEnergyKwh > 0 {
+				var targetDischargePower float32
+				if p.netGridDemandW > 0 {
+					targetDischargePower = minFloat32(p.netGridDemandW, o.config.MaxDischargePowerW)
+				} else {
+					targetDischargePower = o.config.MaxDischargePowerW
+				}
+				maxDischargeEnergyKwh := targetDischargePower / 1000 * float32(slotDurationHours)
+				dischargeEnergyKwh := minFloat32(maxDischargeEnergyKwh, availableEnergyKwh)
+				chargePower = -dischargeEnergyKwh / float32(slotDurationHours) * 1000
+				chargingSource = battery.ChargingSourceNone
+				energyChangeKwh = -dischargeEnergyKwh
+			} else {
+				energyChangeKwh = -householdEnergyDrainKwh
+			}
+
+		default: // actionIdle
+			energyChangeKwh = -householdEnergyDrainKwh
 		}
-		simulatedSoC += energyChange / o.config.BatteryCapacityKwh * 100
+
+		// Update simulated SoC
+		simulatedSoC += energyChangeKwh / o.config.BatteryCapacityKwh * 100
 		simulatedSoC = maxFloat32(o.config.MinSoC, minFloat32(o.config.MaxSoC, simulatedSoC))
 
 		slot := battery.NewScheduleSlot(p.startTime, p.endTime).

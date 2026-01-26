@@ -154,24 +154,19 @@ func (t *timescaleRepository) BatteryStateAtTime(moment time.Time, sourceName st
 		return nil, err
 	}
 
-	log.Debugf("BatteryStateAtTime query: %s, args: %v", statement.Query, statement.Args)
-
 	rows, err := t.dbPool.Query(context.Background(), statement.Query, statement.Args...)
 	if err != nil {
-		log.Debugf("BatteryStateAtTime query error: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		log.Debugf("BatteryStateAtTime: no rows returned for battery '%s'", sourceName)
 		return nil, nil
 	}
 	values, err := rows.Values()
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("BatteryStateAtTime: found row with %d values", len(values))
 	return t.rowValuesToBatteryStateRecord(values), nil
 }
 
