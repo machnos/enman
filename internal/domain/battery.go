@@ -83,6 +83,7 @@ func (b *Battery) MaxDischargePower() float32 {
 	return float32(b.Capacity()) * b.DischargingCoefficient() * b.Voltage()
 }
 
+// AvailableCapacity Gives the available capacity in Ah.
 func (b *Battery) AvailableCapacity() float32 {
 	if b.State() == nil || b.State().SoH() == 0 {
 		return float32(b.Capacity())
