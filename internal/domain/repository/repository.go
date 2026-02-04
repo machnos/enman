@@ -88,6 +88,29 @@ func ParseWindowUnit(windowUnit string) (WindowUnit, error) {
 	}
 }
 
+func ParseDuration(duration time.Duration) (WindowUnit, uint64) {
+	// Try to find the largest unit that divides evenly
+	if duration >= 24*time.Hour && duration%(24*time.Hour) == 0 {
+		return WindowUnitDay, uint64(duration / (24 * time.Hour))
+	}
+	if duration >= time.Hour && duration%time.Hour == 0 {
+		return WindowUnitHour, uint64(duration / time.Hour)
+	}
+	if duration >= time.Minute && duration%time.Minute == 0 {
+		return WindowUnitMinute, uint64(duration / time.Minute)
+	}
+	if duration >= time.Second && duration%time.Second == 0 {
+		return WindowUnitSecond, uint64(duration / time.Second)
+	}
+	if duration >= time.Millisecond && duration%time.Millisecond == 0 {
+		return WindowUnitMillisecond, uint64(duration / time.Millisecond)
+	}
+	if duration >= time.Microsecond && duration%time.Microsecond == 0 {
+		return WindowUnitMicrosecond, uint64(duration / time.Microsecond)
+	}
+	return WindowUnitNanosecond, uint64(duration)
+}
+
 type AggregateFunction uint64
 
 const (

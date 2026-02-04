@@ -11,7 +11,7 @@ import (
 )
 
 type BatteryChargeOptimizer struct {
-	priceRepo           repository.EnergyPrice
+	repository          repository.Repository
 	providerName        string
 	system              *System
 	roundTripEfficiency float32
@@ -20,9 +20,9 @@ type BatteryChargeOptimizer struct {
 	cancel              context.CancelFunc
 }
 
-func NewBatteryChargeOptimizer(priceRepo repository.EnergyPrice, providerName string, system *System) *BatteryChargeOptimizer {
+func NewBatteryChargeOptimizer(repository repository.Repository, providerName string, system *System) *BatteryChargeOptimizer {
 	return &BatteryChargeOptimizer{
-		priceRepo:           priceRepo,
+		repository:          repository,
 		providerName:        providerName,
 		system:              system,
 		roundTripEfficiency: 0.9, // 90% round-trip efficiency
@@ -67,8 +67,8 @@ func (b *BatteryChargeOptimizer) Stop() {
 
 // runOptimization performs the optimization and publishes schedule slots
 func (b *BatteryChargeOptimizer) runOptimization() {
-	if b.priceRepo == nil {
-		log.Warning("BatteryChargeOptimizer: no price repository configured, skipping optimization")
+	if b.repository == nil {
+		log.Warning("BatteryChargeOptimizer: no repository configured, skipping optimization")
 		return
 	}
 
@@ -77,7 +77,7 @@ func (b *BatteryChargeOptimizer) runOptimization() {
 	till := from.Add(24 * time.Hour)
 
 	// Retrieve energy prices for the next 24 hours
-	energyPrices, err := b.priceRepo.EnergyPrices(from, till, b.providerName, prices.EnergyTypeElectricity)
+	energyPrices, err := b.repository.EnergyPrices(from, till, b.providerName, prices.EnergyTypeElectricity)
 	if err != nil {
 		log.Errorf("BatteryChargeOptimizer: failed to retrieve energy prices: %v", err)
 		return
@@ -87,6 +87,8 @@ func (b *BatteryChargeOptimizer) runOptimization() {
 		log.Warning("BatteryChargeOptimizer: no energy prices available for optimization")
 		return
 	}
+
+	//slotInterval := b.determineSlotInterval(energyPrices)
 
 	// Calculate optimal charge slots
 	slots := b.calculateOptimalSlots(energyPrices)
@@ -102,7 +104,6 @@ func (b *BatteryChargeOptimizer) runOptimization() {
 	}
 }
 
-// calculateOptimalSlots determines the best charging slots based on prices
 func (b *BatteryChargeOptimizer) calculateOptimalSlots(energyPrices []*prices.EnergyPrice) []*battery.ScheduleSlot {
 	if len(energyPrices) == 0 {
 		return nil
@@ -130,4 +131,19 @@ func (b *BatteryChargeOptimizer) calculateOptimalSlots(energyPrices []*prices.En
 	}
 
 	return nil
+}
+
+func (b *BatteryChargeOptimizer) determineSlotInterval(energyPrices []*prices.EnergyPrice) time.Duration {
+	// Determine the slot interval based on energy price durations
+	var slotInterval time.Duration
+	for _, price := range energyPrices {
+		priceDuration := price.Duration()
+		if slotInterval == 0 {
+			slotInterval = priceDuration
+		} else if priceDuration < slotInterval {
+			// Use the smallest interval to ensure we don't miss any price changes
+			slotInterval = priceDuration
+		}
+	}
+	return slotInterval
 }
