@@ -3,7 +3,6 @@ package domain
 import (
 	"context"
 	"enman/internal/domain/events"
-	"enman/internal/domain/repository"
 	"enman/internal/log"
 	"fmt"
 	"math"
@@ -13,18 +12,16 @@ import (
 
 type GridTargetConsumptionCalculator struct {
 	system               *System
-	roundTripEfficiency  float32
 	ticker               *time.Ticker
 	meterValues          sync.Map
 	lastSetTo            int
 	priceBasedCalculator *PriceBasedElectricityConsumptionCalculator
 }
 
-func NewGridTargetConsumptionCalculator(system *System, repo repository.Repository, roundTripEfficiency float32) (*GridTargetConsumptionCalculator, error) {
+func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionCalculator, error) {
 	calculator := &GridTargetConsumptionCalculator{
-		system:              system,
-		roundTripEfficiency: roundTripEfficiency,
-		lastSetTo:           system.Grid().ElectricityTargetConsumption(),
+		system:    system,
+		lastSetTo: system.Grid().ElectricityTargetConsumption(),
 	}
 	if system.Grid().controller == nil {
 		return nil, fmt.Errorf("no grid controller configured")

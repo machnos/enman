@@ -138,11 +138,7 @@ func main() {
 	})
 
 	// Setup grid target consumption calculator
-	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(
-		system,
-		repo,
-		configuration.Batteries.RoundTripEfficiency,
-	)
+	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
 	} else {
