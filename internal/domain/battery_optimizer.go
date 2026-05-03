@@ -3,10 +3,22 @@ package domain
 import (
 	"context"
 	"enman/internal/domain/buckets"
-	"enman/internal/domain/events"
 	"enman/internal/domain/prices"
 	"sort"
 	"time"
+)
+
+// BatteryAction enumerates the possible actions the optimizer plans for a
+// single bucket. Recorded on BatteryScheduleRecord.Action.
+type BatteryAction string
+
+const (
+	BatteryActionIdle            BatteryAction = "idle"
+	BatteryActionChargeFromGrid  BatteryAction = "charge_from_grid"
+	BatteryActionChargeFromPv    BatteryAction = "charge_from_pv"
+	BatteryActionDischargeToHome BatteryAction = "discharge_to_home"
+	BatteryActionDischargeToGrid BatteryAction = "discharge_to_grid"
+	BatteryActionExportOnly      BatteryAction = "export_only"
 )
 
 // OptimizerConfig collects all tuneable parameters of the optimizer.
@@ -123,7 +135,7 @@ func (o *GreedyOptimizer) Plan(_ context.Context, priceCurve []*prices.EnergyPri
 		feedback    float32
 		chargeKwh   float32 // signed planned battery delta this bucket (+ charge, − discharge)
 		soc         float32 // kWh after this bucket's chargeKwh
-		action      events.BatteryAction
+		action      BatteryAction
 		reason      string
 		hasPrice    bool
 		hasForecast bool
@@ -131,7 +143,7 @@ func (o *GreedyOptimizer) Plan(_ context.Context, priceCurve []*prices.EnergyPri
 
 	slots := make([]slot, len(bucketsList))
 	for i, b := range bucketsList {
-		s := slot{bucketStart: b.Start, action: events.BatteryActionIdle}
+		s := slot{bucketStart: b.Start, action: BatteryActionIdle}
 		if l, ok := loadByBucket[b.Start]; ok {
 			s.residualKwh += l * hours / 1000.0
 			s.hasForecast = true
@@ -164,7 +176,7 @@ func (o *GreedyOptimizer) Plan(_ context.Context, priceCurve []*prices.EnergyPri
 			if absorb > 0 {
 				s.chargeKwh = absorb
 				socKwh += absorb
-				s.action = events.BatteryActionChargeFromPv
+				s.action = BatteryActionChargeFromPv
 				s.reason = "self-consumption: PV surplus"
 			}
 		} else if s.residualKwh > 0 {
@@ -180,7 +192,7 @@ func (o *GreedyOptimizer) Plan(_ context.Context, priceCurve []*prices.EnergyPri
 			if deliver > 0 {
 				s.chargeKwh = -deliver
 				socKwh -= deliver
-				s.action = events.BatteryActionDischargeToHome
+				s.action = BatteryActionDischargeToHome
 				s.reason = "self-consumption: cover deficit"
 			}
 		}
@@ -256,10 +268,10 @@ func (o *GreedyOptimizer) Plan(_ context.Context, priceCurve []*prices.EnergyPri
 			}
 			// Commit
 			c.chargeKwh = pairKwh
-			c.action = events.BatteryActionChargeFromGrid
+			c.action = BatteryActionChargeFromGrid
 			c.reason = "arbitrage: cheap charge slot"
 			d.chargeKwh = -pairKwh
-			d.action = events.BatteryActionDischargeToGrid
+			d.action = BatteryActionDischargeToGrid
 			d.reason = "arbitrage: priced discharge slot"
 			// Propagate the SoC change between ci and di (inclusive of di's effect).
 			for k := ci; k <= di; k++ {

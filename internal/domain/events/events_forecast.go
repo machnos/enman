@@ -6,8 +6,10 @@ import "time"
 type ForecastKind string
 
 const (
-	ForecastKindLoad ForecastKind = "load"
-	ForecastKindPv   ForecastKind = "pv"
+	ForecastKindLoad    ForecastKind = "load"
+	ForecastKindPv      ForecastKind = "pv"
+	ForecastKindBattery ForecastKind = "battery"
+	ForecastKindGas     ForecastKind = "gas"
 )
 
 // Forecasts is the global event handler for forecast updates.
@@ -25,6 +27,7 @@ type ForecastValues struct {
 	eventTime   time.Time
 	generatedAt time.Time
 	modelName   string
+	sourceName  string
 	kind        ForecastKind
 	bucketStart time.Time
 	bucketSize  time.Duration
@@ -41,6 +44,7 @@ func (f *ForecastValues) EventTime() time.Time   { return f.eventTime }
 func (f *ForecastValues) GeneratedAt() time.Time { return f.generatedAt }
 func (f *ForecastValues) ModelName() string      { return f.modelName }
 func (f *ForecastValues) Kind() ForecastKind     { return f.kind }
+func (f *ForecastValues) SourceName() string     { return f.sourceName }
 func (f *ForecastValues) BucketStart() time.Time { return f.bucketStart }
 func (f *ForecastValues) BucketSize() time.Duration {
 	return f.bucketSize
@@ -62,6 +66,10 @@ func (f *ForecastValues) SetModelName(name string) *ForecastValues {
 }
 func (f *ForecastValues) SetKind(kind ForecastKind) *ForecastValues {
 	f.kind = kind
+	return f
+}
+func (f *ForecastValues) SetSourceName(name string) *ForecastValues {
+	f.sourceName = name
 	return f
 }
 func (f *ForecastValues) SetBucketStart(t time.Time) *ForecastValues {

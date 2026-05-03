@@ -68,19 +68,10 @@ func (r *Repository) BatteryStateAtTime(_ time.Time, _ string, _ constants.Energ
 func (r *Repository) StoreForecast(_ *domain.ForecastRecord) error {
 	return nil
 }
-func (r *Repository) Forecasts(_ time.Time, _ time.Time, _ string, _ string) ([]*domain.ForecastRecord, error) {
+func (r *Repository) Forecasts(_ time.Time, _ time.Time, _ string, _ string, _ string) ([]*domain.ForecastRecord, error) {
 	return nil, nil
 }
-func (r *Repository) ForecastAtTime(_ time.Time, _ string, _ string, _ domain.MatchType) (*domain.ForecastRecord, error) {
-	return nil, nil
-}
-func (r *Repository) StoreBatterySchedule(_ *domain.BatteryScheduleRecord) error {
-	return nil
-}
-func (r *Repository) BatterySchedules(_ time.Time, _ time.Time, _ string) ([]*domain.BatteryScheduleRecord, error) {
-	return nil, nil
-}
-func (r *Repository) BatteryScheduleAtTime(_ time.Time, _ string, _ domain.MatchType) (*domain.BatteryScheduleRecord, error) {
+func (r *Repository) ForecastAtTime(_ time.Time, _ string, _ string, _ string, _ domain.MatchType) (*domain.ForecastRecord, error) {
 	return nil, nil
 }
 

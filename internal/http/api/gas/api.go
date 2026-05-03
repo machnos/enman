@@ -2,7 +2,9 @@ package gas
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/events"
 	"enman/internal/http/api"
+	"enman/internal/http/api/battery"
 	"enman/internal/log"
 	"fmt"
 	"github.com/go-chi/chi/v5"
@@ -20,6 +22,7 @@ const (
 	errorCodeUnableToLoadUsages     = errorCodeGasRoot + "-05"
 	errorCodeUnableToLoadCosts      = errorCodeGasRoot + "-06"
 	errorCodeUnableToLoadSources    = errorCodeGasRoot + "-07"
+	errorCodeUnableToLoadForecast   = errorCodeGasRoot + "-08"
 )
 
 type Api struct {
@@ -169,14 +172,33 @@ func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Route
 		r.Get(fmt.Sprintf("/usages/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.usages)
 		r.Get(fmt.Sprintf("/costs/{start:%s}", api.TimePattern), api.costs)
 		r.Get(fmt.Sprintf("/costs/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/forecast/{start:%s}", api.TimePattern), api.forecast)
+		r.Get(fmt.Sprintf("/forecast/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.forecast)
 		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}", api.TimePattern), api.usages)
 		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.usages)
 		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}", api.TimePattern), api.costs)
 		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/{sourceName}/forecast/{start:%s}", api.TimePattern), api.forecast)
+		r.Get(fmt.Sprintf("/{sourceName}/forecast/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.forecast)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)
 			}
 		}
 	}
+}
+
+// forecast returns the per-source gas forecasts.
+func (api *Api) forecast(w http.ResponseWriter, r *http.Request) {
+	startTime, endTime, ok := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	if !ok {
+		return
+	}
+	records, err := api.Repository.Forecasts(startTime, endTime, "", string(events.ForecastKindGas), chi.URLParam(r, "sourceName"))
+	if err != nil {
+		log.Error(err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadForecast, err.Error())
+		return
+	}
+	render.JSON(w, r, battery.ForecastResponseFromRecords(records))
 }

@@ -165,12 +165,8 @@ type Repository interface {
 	BatteryStateAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType MatchType) (*BatteryStateRecord, error)
 
 	StoreForecast(record *ForecastRecord) error
-	Forecasts(from time.Time, till time.Time, modelName string, kind string) ([]*ForecastRecord, error)
-	ForecastAtTime(moment time.Time, modelName string, kind string, timeMatchType MatchType) (*ForecastRecord, error)
-
-	StoreBatterySchedule(record *BatteryScheduleRecord) error
-	BatterySchedules(from time.Time, till time.Time, batteryName string) ([]*BatteryScheduleRecord, error)
-	BatteryScheduleAtTime(moment time.Time, batteryName string, timeMatchType MatchType) (*BatteryScheduleRecord, error)
+	Forecasts(from time.Time, till time.Time, modelName string, kind string, sourceName string) ([]*ForecastRecord, error)
+	ForecastAtTime(moment time.Time, modelName string, kind string, sourceName string, timeMatchType MatchType) (*ForecastRecord, error)
 
 	Initialize() error
 	Close()
@@ -285,11 +281,14 @@ type ForecastRecord struct {
 	GeneratedAt time.Time
 	ModelName   string
 	Kind        string
+	SourceName  string
 	Watts       float32
 	Confidence  float32
 }
 
-// BatteryScheduleRecord is a single planned battery action bucket persisted in storage.
+// BatteryScheduleRecord is a single planned battery action bucket produced by
+// the optimizer. It is a transient in-memory plan output consumed by the
+// PriceAwareBatteryForecaster; not persisted on its own.
 type BatteryScheduleRecord struct {
 	BucketStart  time.Time
 	BucketSize   time.Duration

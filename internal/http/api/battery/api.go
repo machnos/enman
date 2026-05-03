@@ -2,6 +2,7 @@ package battery
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/events"
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
@@ -20,7 +21,7 @@ const (
 	errorCodeEndDateBeforeStartDate = errorCodeBatteryRoot + "-03"
 	errorCodeUnableToLoadStates     = errorCodeBatteryRoot + "-04"
 	errorCodeUnableToLoadSources    = errorCodeBatteryRoot + "-07"
-	errorCodeUnableToLoadSchedule   = errorCodeBatteryRoot + "-08"
+	errorCodeUnableToLoadForecast   = errorCodeBatteryRoot + "-08"
 )
 
 type Api struct {
@@ -113,50 +114,62 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
-func (api *Api) schedule(w http.ResponseWriter, r *http.Request) {
-	type bucket struct {
-		BucketStart  time.Time `json:"bucket_start"`
-		BucketSize   int64     `json:"bucket_size_seconds"`
-		GeneratedAt  time.Time `json:"generated_at"`
-		Action       string    `json:"action"`
-		PowerW       float32   `json:"power_w"`
-		PredictedSoC float32   `json:"predicted_soc"`
-		Reason       string    `json:"reason"`
-	}
-	type batteryGroup struct {
-		Buckets []*bucket `json:"buckets"`
-	}
-	rsp := struct {
-		Batteries map[string]*batteryGroup `json:"batteries"`
-	}{Batteries: make(map[string]*batteryGroup)}
-
+func (api *Api) forecast(w http.ResponseWriter, r *http.Request) {
 	startTime, endTime, ok := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
 	if !ok {
 		return
 	}
-	records, err := api.Repository.BatterySchedules(startTime, endTime, chi.URLParam(r, "batteryName"))
+	records, err := api.Repository.Forecasts(startTime, endTime, "", string(events.ForecastKindBattery), chi.URLParam(r, "sourceName"))
 	if err != nil {
 		log.Error(err.Error())
-		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSchedule, err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadForecast, err.Error())
 		return
 	}
+	render.JSON(w, r, ForecastResponseFromRecords(records))
+}
+
+// ForecastBucket is the per-source per-bucket forecast row exposed by /forecast.
+type ForecastBucket struct {
+	BucketStart time.Time `json:"bucket_start"`
+	BucketSize  int64     `json:"bucket_size_seconds"`
+	GeneratedAt time.Time `json:"generated_at"`
+	Watts       float32   `json:"watts"`
+	Confidence  float32   `json:"confidence"`
+}
+
+// ForecastSource groups forecast buckets for a single source.
+type ForecastSource struct {
+	Kind    string            `json:"kind"`
+	Buckets []*ForecastBucket `json:"buckets"`
+}
+
+// ForecastResponse mirrors the {Sources -> Buckets} shape used by states/usages.
+type ForecastResponse struct {
+	Sources map[string]*ForecastSource `json:"sources"`
+}
+
+// ForecastResponseFromRecords groups forecast records into the API response
+// shape. Exported so other domain APIs (electricity, gas) can reuse it.
+func ForecastResponseFromRecords(records []*domain.ForecastRecord) ForecastResponse {
+	rsp := ForecastResponse{Sources: make(map[string]*ForecastSource)}
 	for _, rec := range records {
-		group, exists := rsp.Batteries[rec.BatteryName]
-		if !exists {
-			group = &batteryGroup{}
-			rsp.Batteries[rec.BatteryName] = group
+		if rec == nil {
+			continue
 		}
-		group.Buckets = append(group.Buckets, &bucket{
-			BucketStart:  rec.BucketStart,
-			BucketSize:   int64(rec.BucketSize.Seconds()),
-			GeneratedAt:  rec.GeneratedAt,
-			Action:       rec.Action,
-			PowerW:       rec.PowerW,
-			PredictedSoC: rec.PredictedSoC,
-			Reason:       rec.Reason,
+		group, exists := rsp.Sources[rec.SourceName]
+		if !exists {
+			group = &ForecastSource{Kind: rec.Kind}
+			rsp.Sources[rec.SourceName] = group
+		}
+		group.Buckets = append(group.Buckets, &ForecastBucket{
+			BucketStart: rec.BucketStart,
+			BucketSize:  int64(rec.BucketSize.Seconds()),
+			GeneratedAt: rec.GeneratedAt,
+			Watts:       rec.Watts,
+			Confidence:  rec.Confidence,
 		})
 	}
-	render.JSON(w, r, rsp)
+	return rsp
 }
 
 func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
@@ -166,12 +179,12 @@ func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Route
 		r.Get(fmt.Sprintf("/sources/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.sources)
 		r.Get(fmt.Sprintf("/states/{start:%s}", api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
+		r.Get(fmt.Sprintf("/forecast/{start:%s}", api.TimePattern), api.forecast)
+		r.Get(fmt.Sprintf("/forecast/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.forecast)
 		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}", api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
-		r.Get(fmt.Sprintf("/schedule/{start:%s}", api.TimePattern), api.schedule)
-		r.Get(fmt.Sprintf("/schedule/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.schedule)
-		r.Get(fmt.Sprintf("/{batteryName}/schedule/{start:%s}", api.TimePattern), api.schedule)
-		r.Get(fmt.Sprintf("/{batteryName}/schedule/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.schedule)
+		r.Get(fmt.Sprintf("/{sourceName}/forecast/{start:%s}", api.TimePattern), api.forecast)
+		r.Get(fmt.Sprintf("/{sourceName}/forecast/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.forecast)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

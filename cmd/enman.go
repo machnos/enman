@@ -134,30 +134,14 @@ func main() {
 
 	// Setup grid target consumption calculator (battery scheduler may attach as bias provider below).
 	var batteryScheduler *domain.BatteryScheduler
-	if configuration.BatteryOptimizer != nil && configuration.BatteryOptimizer.Enabled {
-		optimizerCfg := domain.OptimizerConfig{
-			BucketSize:              configuration.BatteryOptimizer.BucketSize,
-			Horizon:                 configuration.BatteryOptimizer.Horizon,
-			MinSoC:                  configuration.BatteryOptimizer.MinSoC,
-			MaxSoC:                  configuration.BatteryOptimizer.MaxSoC,
-			RoundTripEfficiency:     0.9,
-			MinArbitrageMargin:      configuration.BatteryOptimizer.MinArbitrageMargin,
-			CycleCostPerKwhAt100Soh: configuration.BatteryOptimizer.CycleCostPerKwhAt100Soh,
-			CycleCostPerKwhAt70Soh:  configuration.BatteryOptimizer.CycleCostPerKwhAt70Soh,
-		}
-		if configuration.Batteries != nil && configuration.Batteries.RoundTripEfficiency > 0 {
-			optimizerCfg.RoundTripEfficiency = configuration.Batteries.RoundTripEfficiency
-		}
-		schedulerCfg := domain.BatterySchedulerConfig{
-			OptimizerConfig:        optimizerCfg,
-			ProviderName:           configuration.BatteryOptimizer.ProviderName,
-			ReoptimizationInterval: configuration.BatteryOptimizer.ReoptimizationInterval,
-		}
+	if configuration.Batteries != nil && len(configuration.Batteries.Banks) > 0 {
+		schedulerCfg := domain.BatterySchedulerConfig{}
 		if configuration.Pvs != nil && configuration.Pvs.PvStateController != nil {
 			schedulerCfg.BatteryRestartPercentage = float32(configuration.Pvs.PvStateController.BatteryRestartPercentage)
 			schedulerCfg.BatteryCutoffPercentage = float32(configuration.Pvs.PvStateController.BatteryCutoffPercentage)
 		}
-		batteryScheduler = domain.NewBatteryScheduler(system, repository, domain.NewGreedyOptimizer(), schedulerCfg)
+		batteryScheduler = domain.NewBatteryScheduler(system, repository, schedulerCfg)
+		syncGroup.Go(func() error { return batteryScheduler.Start(syncGroupContext) })
 	}
 
 	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, batteryScheduler)
@@ -165,33 +149,108 @@ func main() {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
 	}
 
-	// Setup forecaster service if optimizer is enabled.
-	var forecasterService *domain.ForecasterService
-	if configuration.BatteryOptimizer != nil && configuration.BatteryOptimizer.Enabled {
-		bucketSize := configuration.BatteryOptimizer.BucketSize
-		if bucketSize <= 0 {
-			bucketSize = 15 * time.Minute
-		}
-		horizon := configuration.BatteryOptimizer.Horizon
-		if horizon <= 0 {
-			horizon = 36 * time.Hour
-		}
-		interval := configuration.BatteryOptimizer.ReoptimizationInterval
-		if interval <= 0 {
-			interval = 5 * time.Minute
-		}
-		weeks := int(configuration.BatteryOptimizer.HistoryWeeks)
+	// Forecaster service: per-source historical forecasters for every measurable
+	// source plus a battery forecaster (price-aware when a price provider with
+	// the same name as the grid exists, otherwise historical).
+	if configuration.Batteries != nil {
+		weeks := int(configuration.Batteries.HistoryWeeks)
 		if weeks <= 0 {
 			weeks = 4
 		}
-		modelName := configuration.BatteryOptimizer.ForecastModelName
-		loadF := domain.NewHistoricalLoadForecaster(system, repository, modelName, weeks)
-		pvF := domain.NewHistoricalPvForecaster(system, repository, modelName, weeks)
-		forecasterService = domain.NewForecasterService(system, repository, bucketSize, horizon, interval, loadF, pvF)
-		syncGroup.Go(func() error { return forecasterService.Start(syncGroupContext) })
-	}
-	if batteryScheduler != nil {
-		syncGroup.Go(func() error { return batteryScheduler.Start(syncGroupContext) })
+		modelName := configuration.Batteries.ForecastModelName
+		horizon := configuration.Batteries.Horizon
+		if horizon <= 0 {
+			horizon = 36 * time.Hour
+		}
+		interval := configuration.Batteries.ReoptimizationInterval
+		if interval <= 0 {
+			interval = 5 * time.Minute
+		}
+		priceProviderName := ""
+		if configuration.Grid != nil && hasPriceProvider(configuration, configuration.Grid.Name) {
+			priceProviderName = configuration.Grid.Name
+		}
+
+		// Build per-source historical forecasters.
+		historical := make([]domain.Forecaster, 0)
+		for _, pv := range system.Pvs() {
+			historical = append(historical, domain.NewHistoricalAverageForecaster(
+				modelName, events.ForecastKindPv, pv.Name(), domain.BucketOfDay, weeks,
+				domain.PvSampleProvider(repository, pv.Name())))
+		}
+		for _, acl := range system.AcLoads() {
+			historical = append(historical, domain.NewHistoricalAverageForecaster(
+				modelName, events.ForecastKindLoad, acl.Name(), domain.BucketOfWeek, weeks,
+				domain.AcLoadSampleProvider(repository, acl.Name())))
+		}
+		// Gas forecasts come from the grid meter (the gas source).
+		if system.Grid() != nil {
+			historical = append(historical, domain.NewHistoricalAverageForecaster(
+				modelName, events.ForecastKindGas, system.Grid().Name(), domain.BucketOfWeek, weeks,
+				domain.GasSampleProvider(repository, system.Grid().Name())))
+		}
+
+		// Battery forecasters: price-aware if prices available, historical otherwise.
+		batteryForecasters := make([]domain.Forecaster, 0)
+		for _, b := range system.Batteries() {
+			if priceProviderName != "" {
+				optimizerCfg := domain.OptimizerConfig{
+					Horizon:                 horizon,
+					MinSoC:                  configuration.Batteries.MinSoC,
+					MaxSoC:                  configuration.Batteries.MaxSoC,
+					RoundTripEfficiency:     configuration.Batteries.RoundTripEfficiency,
+					MinArbitrageMargin:      configuration.Batteries.MinArbitrageMargin,
+					CycleCostPerKwhAt100Soh: configuration.Batteries.CycleCostPerKwhAt100Soh,
+					CycleCostPerKwhAt70Soh:  configuration.Batteries.CycleCostPerKwhAt70Soh,
+				}
+				batteryForecasters = append(batteryForecasters, domain.NewPriceAwareBatteryForecaster(
+					modelName, b, system, domain.NewGreedyOptimizer(), optimizerCfg))
+			} else {
+				batteryForecasters = append(batteryForecasters, domain.NewHistoricalAverageForecaster(
+					modelName, events.ForecastKindBattery, b.Name(), domain.BucketOfDay, weeks,
+					domain.BatterySampleProvider(repository, b.Name())))
+			}
+		}
+
+		// Defer service start until the bucket size is known. If a price provider
+		// matching grid.Name is configured we wait for the first import; otherwise
+		// fall back to the default 15m bucket.
+		startForecaster := func(bucketSize time.Duration) {
+			if bucketSize <= 0 {
+				bucketSize = 15 * time.Minute
+			}
+			service := domain.NewForecasterService(system, repository, bucketSize, horizon, interval, priceProviderName, historical, batteryForecasters)
+			syncGroup.Go(func() error { return service.Start(syncGroupContext) })
+		}
+
+		if priceProviderName == "" {
+			startForecaster(15 * time.Minute)
+		} else {
+			// Wait for the first price import to arrive, then derive bucket size.
+			go func() {
+				ticker := time.NewTicker(10 * time.Second)
+				defer ticker.Stop()
+				deadline := time.Now().Add(2 * time.Minute)
+				for {
+					select {
+					case <-syncGroupContext.Done():
+						return
+					case <-ticker.C:
+						bucketSize := deriveBucketSize(repository, priceProviderName)
+						if bucketSize > 0 {
+							log.Infof("Derived forecast bucket size %s from price provider %s", bucketSize, priceProviderName)
+							startForecaster(bucketSize)
+							return
+						}
+						if time.Now().After(deadline) {
+							log.Warningf("No prices available for provider %s after 2m; falling back to 15m bucket size", priceProviderName)
+							startForecaster(15 * time.Minute)
+							return
+						}
+					}
+				}
+			}()
+		}
 	}
 
 	// Set price importers
@@ -325,6 +384,49 @@ func main() {
 	if err = syncGroup.Wait(); err != nil {
 		log.Errorf("%v", err)
 	}
+}
+
+// hasPriceProvider reports whether the configuration contains a price provider
+// with the given name.
+func hasPriceProvider(configuration *config.Configuration, name string) bool {
+	if configuration == nil || configuration.Prices == nil {
+		return false
+	}
+	for _, p := range configuration.Prices.Providers {
+		if p != nil && p.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// deriveBucketSize inspects the most recent stored electricity prices for the
+// given provider and returns the modal interval between consecutive timestamps.
+// Returns 0 if not enough samples are available.
+func deriveBucketSize(repo domain.Repository, providerName string) time.Duration {
+	till := time.Now().Add(48 * time.Hour)
+	from := time.Now().Add(-48 * time.Hour)
+	priceList, err := repo.EnergyPrices(from, till, providerName, prices.EnergyTypeElectricity)
+	if err != nil || len(priceList) < 2 {
+		return 0
+	}
+	counts := map[time.Duration]int{}
+	for i := 1; i < len(priceList); i++ {
+		d := priceList[i].Time.Sub(priceList[i-1].Time)
+		if d <= 0 {
+			continue
+		}
+		counts[d]++
+	}
+	best := time.Duration(0)
+	bestCount := 0
+	for d, c := range counts {
+		if c > bestCount {
+			best = d
+			bestCount = c
+		}
+	}
+	return best
 }
 
 func loadRepository(configuration *config.Configuration) domain.Repository {

@@ -2,24 +2,24 @@ package config
 
 import (
 	"encoding/json"
-	gpv "github.com/go-playground/validator/v10"
-	"gopkg.in/yaml.v3"
 	"os"
 	"strings"
 	"time"
+
+	gpv "github.com/go-playground/validator/v10"
+	"gopkg.in/yaml.v3"
 )
 
 type Configuration struct {
-	Log              *Log              `json:"log" yaml:"log"`
-	Http             *Http             `json:"http" yaml:"http"`
-	Grid             *Grid             `json:"grid" yaml:"grid"`
-	Pvs              *Pvs              `json:"pvs" yaml:"pvs"`
-	AcLoads          []*AcLoad         `json:"ac_loads" yaml:"ac_loads" validate:"dive"`
-	Batteries        *Batteries        `json:"batteries" yaml:"batteries"`
-	BatteryOptimizer *BatteryOptimizer `json:"battery_optimizer" yaml:"battery_optimizer"`
-	Persistency      *Persistency      `json:"persistency" yaml:"persistency"`
-	ModbusServers    []*ModbusServer   `json:"modbus_servers" yaml:"modbus_servers" validate:"dive"`
-	Prices           *Prices           `json:"prices" yaml:"prices"`
+	Log           *Log            `json:"log" yaml:"log"`
+	Http          *Http           `json:"http" yaml:"http"`
+	Grid          *Grid           `json:"grid" yaml:"grid"`
+	Pvs           *Pvs            `json:"pvs" yaml:"pvs"`
+	AcLoads       []*AcLoad       `json:"ac_loads" yaml:"ac_loads" validate:"dive"`
+	Batteries     *Batteries      `json:"batteries" yaml:"batteries"`
+	Persistency   *Persistency    `json:"persistency" yaml:"persistency"`
+	ModbusServers []*ModbusServer `json:"modbus_servers" yaml:"modbus_servers" validate:"dive"`
+	Prices        *Prices         `json:"prices" yaml:"prices"`
 }
 
 type Log struct {
@@ -59,8 +59,17 @@ type AcLoad struct {
 }
 
 type Batteries struct {
-	Banks               []*Battery `json:"banks" yaml:"banks" validate:"dive"`
-	RoundTripEfficiency float32    `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=1"`
+	Banks                   []*Battery    `json:"banks" yaml:"banks" validate:"dive"`
+	RoundTripEfficiency     float32       `json:"round_trip_efficiency" yaml:"round_trip_efficiency" validate:"gte=0,lte=1"`
+	Horizon                 time.Duration `json:"horizon" yaml:"horizon"`
+	ReoptimizationInterval  time.Duration `json:"reoptimization_interval" yaml:"reoptimization_interval"`
+	MinSoC                  float32       `json:"min_soc" yaml:"min_soc" validate:"gte=0,lte=100"`
+	MaxSoC                  float32       `json:"max_soc" yaml:"max_soc" validate:"gte=0,lte=100"`
+	MinArbitrageMargin      float32       `json:"min_arbitrage_margin" yaml:"min_arbitrage_margin"`
+	CycleCostPerKwhAt100Soh float32       `json:"cycle_cost_per_kwh_at_100_soh" yaml:"cycle_cost_per_kwh_at_100_soh"`
+	CycleCostPerKwhAt70Soh  float32       `json:"cycle_cost_per_kwh_at_70_soh" yaml:"cycle_cost_per_kwh_at_70_soh"`
+	HistoryWeeks            uint8         `json:"history_weeks" yaml:"history_weeks"`
+	ForecastModelName       string        `json:"forecast_model_name" yaml:"forecast_model_name"`
 }
 
 type Battery struct {
@@ -70,23 +79,6 @@ type Battery struct {
 	ChargingCoefficient    float32        `json:"charging_coefficient" yaml:"charging_coefficient"`
 	DischargingCoefficient float32        `json:"discharging_coefficient" yaml:"discharging_coefficient"`
 	Meters                 []*EnergyMeter `json:"meters" yaml:"meters" validate:"dive"`
-}
-
-// BatteryOptimizer configures the price-aware battery scheduling pipeline.
-// All durations are parsed by yaml/json as Go duration strings (e.g. "15m", "36h").
-type BatteryOptimizer struct {
-	Enabled                 bool          `json:"enabled" yaml:"enabled"`
-	BucketSize              time.Duration `json:"bucket_size" yaml:"bucket_size"`
-	Horizon                 time.Duration `json:"horizon" yaml:"horizon"`
-	ReoptimizationInterval  time.Duration `json:"reoptimization_interval" yaml:"reoptimization_interval"`
-	MinSoC                  float32       `json:"min_soc" yaml:"min_soc" validate:"gte=0,lte=100"`
-	MaxSoC                  float32       `json:"max_soc" yaml:"max_soc" validate:"gte=0,lte=100"`
-	MinArbitrageMargin      float32       `json:"min_arbitrage_margin" yaml:"min_arbitrage_margin"`
-	CycleCostPerKwhAt100Soh float32       `json:"cycle_cost_per_kwh_at_100_soh" yaml:"cycle_cost_per_kwh_at_100_soh"`
-	CycleCostPerKwhAt70Soh  float32       `json:"cycle_cost_per_kwh_at_70_soh" yaml:"cycle_cost_per_kwh_at_70_soh"`
-	ProviderName            string        `json:"provider_name" yaml:"provider_name"`
-	HistoryWeeks            uint8         `json:"history_weeks" yaml:"history_weeks"`
-	ForecastModelName       string        `json:"forecast_model_name" yaml:"forecast_model_name"`
 }
 
 type EnergyMeter struct {

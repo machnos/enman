@@ -2,14 +2,17 @@ package electricity
 
 import (
 	"enman/internal/domain"
+	"enman/internal/domain/events"
 	"enman/internal/http/api"
+	"enman/internal/http/api/battery"
 	"enman/internal/log"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
-	"net/http"
-	"time"
 )
 
 const (
@@ -21,6 +24,7 @@ const (
 	errorCodeUnableToLoadUsages     = errorCodeElectricityRoot + "-05"
 	errorCodeUnableToLoadCosts      = errorCodeElectricityRoot + "-06"
 	errorCodeUnableToLoadSources    = errorCodeElectricityRoot + "-07"
+	errorCodeUnableToLoadForecast   = errorCodeElectricityRoot + "-08"
 )
 
 type Api struct {
@@ -255,16 +259,42 @@ func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Route
 		r.Get(fmt.Sprintf("/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/costs/{start:%s}", api.TimePattern), api.costs)
 		r.Get(fmt.Sprintf("/costs/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/forecast/{start:%s}", api.TimePattern), api.forecast)
+		r.Get(fmt.Sprintf("/forecast/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.forecast)
 		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}", api.TimePattern), api.usage)
 		r.Get(fmt.Sprintf("/{sourceName}/usages/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.usage)
 		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}", api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}", api.TimePattern), api.costs)
 		r.Get(fmt.Sprintf("/{sourceName}/costs/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.costs)
+		r.Get(fmt.Sprintf("/{sourceName}/forecast/{start:%s}", api.TimePattern), api.forecast)
+		r.Get(fmt.Sprintf("/{sourceName}/forecast/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.forecast)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)
 			}
 		}
 	}
+}
+
+// forecast returns the per-source load and pv forecasts.
+func (api *Api) forecast(w http.ResponseWriter, r *http.Request) {
+	startTime, endTime, ok := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	if !ok {
+		return
+	}
+	sourceName := chi.URLParam(r, "sourceName")
+	loadRecords, err := api.Repository.Forecasts(startTime, endTime, "", string(events.ForecastKindLoad), sourceName)
+	if err != nil {
+		log.Error(err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadForecast, err.Error())
+		return
+	}
+	pvRecords, err := api.Repository.Forecasts(startTime, endTime, "", string(events.ForecastKindPv), sourceName)
+	if err != nil {
+		log.Error(err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadForecast, err.Error())
+		return
+	}
+	render.JSON(w, r, battery.ForecastResponseFromRecords(append(loadRecords, pvRecords...)))
 }

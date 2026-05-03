@@ -7,8 +7,9 @@ import (
 	"enman/internal/log"
 	"enman/internal/persistency/sql"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type timescaleRepository struct {
@@ -89,10 +90,6 @@ func (t *timescaleRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
-	err = t.initializeHyperTable(t.newBatterySchedulesDefinition(), "time", uint32((time.Hour * 24 * 90).Hours()))
-	if err != nil {
-		return err
-	}
 
 	events.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: t}, nil)
 	events.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: t}, nil)
@@ -100,6 +97,7 @@ func (t *timescaleRepository) Initialize() error {
 	events.GasCosts.Register(&GasCostsValueChangeListener{repo: t}, nil)
 	events.WaterMeterReadings.Register(&WaterMeterValueChangeListener{repo: t}, nil)
 	events.BatteryMeterReadings.Register(&BatteryMeterValueChangeListener{repo: t}, nil)
+	events.Forecasts.Register(&ForecastValueChangeListener{repo: t}, nil)
 
 	return nil
 }

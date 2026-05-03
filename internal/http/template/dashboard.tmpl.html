@@ -340,9 +340,12 @@ $(document).ready(function(){
         }
     });
 
-    $.ajax({
-        url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean + "&fields=total_power",
-    }).done(function(data) {
+    $.when(
+        $.ajax({ url: "{{$.ContextRoot}}api/electricity/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean + "&fields=total_power" }),
+        $.ajax({ url: "{{$.ContextRoot}}api/electricity/forecast/" + today.toISOString().split('T')[0] })
+    ).done(function(statesRes, forecastRes) {
+        const data = statesRes && statesRes[0];
+        const forecastData = (forecastRes && forecastRes[0]) || {};
         if (data && data.sources) {
             let powerMarkers = [];
             $.each(data.sources, function(source, serie) {
@@ -355,6 +358,100 @@ $(document).ready(function(){
                     });
                 });
             });
+            let forecastMarkers = [];
+            $.each(forecastData.sources || {}, function(source, group) {
+                $.each(group.buckets || [], function(_, b) {
+                    forecastMarkers.push({
+                        start_time: Date.parse(b.bucket_start),
+                        value: b.watts,
+                        provider: source + ' (forecast)'
+                    });
+                });
+            });
+            let graph = Plot.plot({
+                x: {
+                    type: "time",
+                    label: "Time"
+                },
+                y: {
+                    label: "Watt"
+                },
+                grid: true,
+                width: "1200",
+                color: {
+                    scheme: "blues",
+                    legend: true
+                },
+                marks: [
+                    Plot.line(powerMarkers, {
+                        x: "start_time",
+                        y: "value",
+                        stroke: "provider",
+                        strokeWidth: 2,
+                    }),
+                    Plot.line(forecastMarkers, {
+                        x: "start_time",
+                        y: "value",
+                        stroke: "provider",
+                        strokeWidth: 1.5,
+                        strokeDasharray: "4,3",
+                        curve: "step-after",
+                    }),
+                    Plot.ruleY([0]),
+                    Plot.tip(powerMarkers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
+                            function formatDate(date) {
+                                let hour = date.getHours();
+                                hour = hour < 10 ? ('0' + hour) : hour;
+                                let minutes = date.getMinutes()
+                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
+                                let seconds = date.getSeconds()
+                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
+                                return hour + ':' + minutes + ':' + seconds;
+                            }
+                            return d.provider + '\nTime: ' + formatDate(new Date(d.start_time))  + '\n ' + d.value.toFixed(2) + 'W';
+                        }})),
+                ]
+            });
+            $('#container4').append(graph);
+        }
+    });
+
+    $.when(
+        $.ajax({ url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean + "&fields=power,soc" }),
+        $.ajax({ url: "{{$.ContextRoot}}api/battery/forecast/" + today.toISOString().split('T')[0] })
+    ).done(function(statesRes, forecastRes) {
+        const data = statesRes && statesRes[0];
+        const forecastData = (forecastRes && forecastRes[0]) || {};
+        if (data && data.sources) {
+            let powerMarkers = [];
+            let socMarkers = [];
+            $.each(data.sources, function(source, serie) {
+                $.each(serie.buckets, function(i, bucket) {
+                    powerMarkers.push({
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: bucket.states[aggregateFunctionMean].power,
+                        provider: source
+                    });
+                    socMarkers.push({
+                        start_time: Date.parse(bucket.start_time),
+                        end_time: Date.parse(bucket.end_time),
+                        value: bucket.states[aggregateFunctionMean].soc,
+                        provider: source
+                    });
+                });
+            });
+            let forecastPowerMarkers = [];
+            $.each(forecastData.sources || {}, function(source, group) {
+                $.each(group.buckets || [], function(_, b) {
+                    forecastPowerMarkers.push({
+                        start_time: Date.parse(b.bucket_start),
+                        value: b.watts,
+                        provider: source + ' (forecast)'
+                    });
+                });
+            });
+
             let graph = Plot.plot({
                 x: {
                     type: "time",
@@ -378,70 +475,13 @@ $(document).ready(function(){
                         // curve: "natural",
                         // marker: "circle",
                     }),
-                    Plot.ruleY([0]),
-                    Plot.tip(powerMarkers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
-                            function formatDate(date) {
-                                let hour = date.getHours();
-                                hour = hour < 10 ? ('0' + hour) : hour;
-                                let minutes = date.getMinutes()
-                                minutes = minutes < 10 ? ('0' + minutes) : minutes;
-                                let seconds = date.getSeconds()
-                                seconds = seconds < 10 ? ('0' + seconds) : seconds;
-                                return hour + ':' + minutes + ':' + seconds;
-                            }
-                            return d.provider + '\nTime: ' + formatDate(new Date(d.start_time))  + '\n ' + d.value.toFixed(2) + 'W';
-                        }})),
-                ]
-            });
-            $('#container4').append(graph);
-        }
-    });
-
-    $.ajax({
-        url: "{{$.ContextRoot}}api/battery/states/" + today.toISOString().split('T')[0] + "?aggregate_functions=" + aggregateFunctionMean + "&fields=power,soc",
-    }).done(function(data) {
-        if (data && data.sources) {
-            let powerMarkers = [];
-            let socMarkers = [];
-            $.each(data.sources, function(source, serie) {
-                $.each(serie.buckets, function(i, bucket) {
-                    powerMarkers.push({
-                        start_time: Date.parse(bucket.start_time),
-                        end_time: Date.parse(bucket.end_time),
-                        value: bucket.states[aggregateFunctionMean].power,
-                        provider: source
-                    });
-                    socMarkers.push({
-                        start_time: Date.parse(bucket.start_time),
-                        end_time: Date.parse(bucket.end_time),
-                        value: bucket.states[aggregateFunctionMean].soc,
-                        provider: source
-                    });
-                });
-            });
-
-            let graph = Plot.plot({
-                x: {
-                    type: "time",
-                    label: "Time"
-                },
-                y: {
-                    label: "Watt"
-                },
-                grid: true,
-                width: "1200",
-                color: {
-                    scheme: "blues",
-                    legend: true
-                },
-                marks: [
-                    Plot.line(powerMarkers, {
+                    Plot.line(forecastPowerMarkers, {
                         x: "start_time",
                         y: "value",
                         stroke: "provider",
-                        strokeWidth: 2,
-                        // curve: "natural",
-                        // marker: "circle",
+                        strokeWidth: 1.5,
+                        strokeDasharray: "4,3",
+                        curve: "step-after",
                     }),
                     Plot.ruleY([0]),
                     Plot.tip(powerMarkers, Plot.pointerX({x: "start_time", y: "value", title: function(d) {
@@ -701,21 +741,19 @@ $(document).ready(function(){
         const start = today.toISOString().split('T')[0];
         const end = dayAfterTomorrow.toISOString().split('T')[0];
 
-        // Fetch prices, forecasts and schedule in parallel.
+        // Fetch prices, electricity forecasts and battery forecast in parallel.
         const pricesCall = provider
             ? $.ajax({ url: "{{$.ContextRoot}}api/prices/" + provider + "/electricity/" + start + "/" + end })
             : $.Deferred().resolve({ prices: {} }).promise();
-        const loadCall = $.ajax({ url: "{{$.ContextRoot}}api/forecasts/load/" + start + "/" + end });
-        const pvCall   = $.ajax({ url: "{{$.ContextRoot}}api/forecasts/pv/" + start + "/" + end });
-        const schedCall = battery
-            ? $.ajax({ url: "{{$.ContextRoot}}api/battery/" + battery + "/schedule/" + start + "/" + end })
-            : $.ajax({ url: "{{$.ContextRoot}}api/battery/schedule/" + start + "/" + end });
+        const elecCall = $.ajax({ url: "{{$.ContextRoot}}api/electricity/forecast/" + start + "/" + end });
+        const battCall = battery
+            ? $.ajax({ url: "{{$.ContextRoot}}api/battery/" + battery + "/forecast/" + start + "/" + end })
+            : $.ajax({ url: "{{$.ContextRoot}}api/battery/forecast/" + start + "/" + end });
 
-        $.when(pricesCall, loadCall, pvCall, schedCall).done(function (pricesRes, loadRes, pvRes, schedRes) {
+        $.when(pricesCall, elecCall, battCall).done(function (pricesRes, elecRes, battRes) {
             const pricesData = (pricesRes && pricesRes[0]) || {};
-            const loadData   = (loadRes && loadRes[0])   || {};
-            const pvData     = (pvRes && pvRes[0])       || {};
-            const schedData  = (schedRes && schedRes[0]) || {};
+            const elecData   = (elecRes && elecRes[0])   || {};
+            const battData   = (battRes && battRes[0])   || {};
 
             // -------- Forecast & price chart --------
             const priceMarkers = [];
@@ -733,18 +771,18 @@ $(document).ready(function(){
             }
 
             const forecastMarkers = [];
-            function pushForecast(group, label) {
+            function pushForecast(group, sourceName) {
                 if (!group || !group.buckets) return;
+                const labelKind = group.kind === 'pv' ? 'PV' : 'Load';
                 $.each(group.buckets, function (_, b) {
                     forecastMarkers.push({
                         time: Date.parse(b.bucket_start),
                         watts: b.watts,
-                        kind: label
+                        kind: labelKind + ' (' + sourceName + ')'
                     });
                 });
             }
-            $.each(loadData.forecasts || {}, function (_, group) { pushForecast(group, "Load"); });
-            $.each(pvData.forecasts   || {}, function (_, group) { pushForecast(group, "PV"); });
+            $.each(elecData.sources || {}, function (sourceName, group) { pushForecast(group, sourceName); });
 
             const forecastChart = Plot.plot({
                 width: 1200,
@@ -752,13 +790,14 @@ $(document).ready(function(){
                 grid: true,
                 x: { type: "time", label: "Time" },
                 y: { label: "Forecast (W)" },
-                color: { legend: true, domain: ["Load", "PV", "Consumption €/kWh", "Feedback €/kWh"], range: ["#ff7f0e", "#2ca02c", "#1f77b4", "#9467bd"] },
+                color: { legend: true },
                 marks: [
                     Plot.ruleY([0]),
                     Plot.axisX({ ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start" }),
                     Plot.axisX({ ticks: "3 hours", tickFormat: "%H:%M" }),
                     Plot.line(forecastMarkers, {
-                        x: "time", y: "watts", stroke: "kind", strokeWidth: 2, curve: "step-after"
+                        x: "time", y: "watts", stroke: "kind", strokeWidth: 2, curve: "step-after",
+                        strokeDasharray: "4,3"
                     }),
                     Plot.tip(forecastMarkers, Plot.pointerX({
                         x: "time", y: "watts",
@@ -769,6 +808,55 @@ $(document).ready(function(){
                 ]
             });
             $('#container-plan-forecast').empty().append(forecastChart);
+
+            // -------- Battery forecast chart (dotted bars: + charge / − discharge) --------
+            const batteryMarkers = [];
+            $.each(battData.sources || {}, function (sourceName, group) {
+                $.each(group.buckets || [], function (_, b) {
+                    batteryMarkers.push({
+                        time: Date.parse(b.bucket_start),
+                        end_time: Date.parse(b.bucket_start) + b.bucket_size_seconds * 1000,
+                        watts: b.watts,
+                        battery: sourceName
+                    });
+                });
+            });
+
+            const actionChart = Plot.plot({
+                width: 1200,
+                height: 320,
+                grid: true,
+                x: { type: "time", label: "Time" },
+                y: { label: "Forecast battery power (W) — + charge / − discharge" },
+                color: { legend: true },
+                marks: [
+                    Plot.ruleY([0]),
+                    Plot.axisX({ ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start" }),
+                    Plot.axisX({ ticks: "3 hours", tickFormat: "%H:%M" }),
+                    Plot.rect(batteryMarkers, {
+                        x1: "time",
+                        x2: "end_time",
+                        y1: 0,
+                        y2: "watts",
+                        fill: "battery",
+                        fillOpacity: 0.35,
+                        stroke: "battery",
+                        strokeDasharray: "4,3",
+                        channels: {
+                            title: function (d) {
+                                return d.battery + '\n' + planFormatTime(new Date(d.time))
+                                    + '\nPower: ' + d.watts.toFixed(0) + ' W';
+                            }
+                        },
+                        tip: true
+                    })
+                ]
+            });
+            $('#container-plan-action').empty().append(actionChart);
+            // SoC chart removed: predicted SoC is no longer part of the forecast payload.
+            $('#container-plan-soc').empty();
+        });
+    }
 
             // -------- Action chart (bars + price overlay) --------
             // Flatten schedule across all returned batteries unless a specific
