@@ -85,6 +85,14 @@ func (t *timescaleRepository) Initialize() error {
 	if err != nil {
 		return err
 	}
+	err = t.initializeHyperTable(t.newForecastsDefinition(), "time", uint32((time.Hour * 24 * 90).Hours()))
+	if err != nil {
+		return err
+	}
+	err = t.initializeHyperTable(t.newBatterySchedulesDefinition(), "time", uint32((time.Hour * 24 * 90).Hours()))
+	if err != nil {
+		return err
+	}
 
 	events.ElectricityMeterReadings.Register(&ElectricityMeterValueChangeListener{repo: t}, nil)
 	events.ElectricityCosts.Register(&ElectricityCostsValueChangeListener{repo: t}, nil)

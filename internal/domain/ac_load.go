@@ -14,6 +14,7 @@ type AcLoad struct {
 	name               string
 	role               constants.EnergySourceRole
 	percentageFromGrid uint8
+	forecastExclude    bool
 	state              *electricity.State
 	usage              *electricity.Usage
 	meters             []EnergyMeter
@@ -30,6 +31,12 @@ func (acl *AcLoad) Role() constants.EnergySourceRole {
 
 func (acl *AcLoad) PercentageFromGrid() uint8 {
 	return acl.percentageFromGrid
+}
+
+// ForecastExclude reports whether this load's energy should be excluded
+// from the household-load forecast (e.g. EV chargers driven by manual schedules).
+func (acl *AcLoad) ForecastExclude() bool {
+	return acl.forecastExclude
 }
 
 func (acl *AcLoad) State() *electricity.State {

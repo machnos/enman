@@ -53,6 +53,26 @@
     <div id="container6"></div>
     <br />
     <br />
+    <label class="col-form-label">Battery optimizer plan</label>
+    <div class="row g-3 align-items-center">
+        <div class="col-auto">
+            <label for="sel-plan-provider" class="col-form-label small">Price provider</label>
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-plan-provider"></select>
+        </div>
+        <div class="col-auto">
+            <label for="sel-plan-battery" class="col-form-label small">Battery</label>
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" id="sel-plan-battery"></select>
+        </div>
+    </div>
+    <div id="container-plan-action"></div>
+    <div id="container-plan-forecast"></div>
+    <div id="container-plan-soc"></div>
+    <br />
+    <br />
     <div class="row g-3 align-items-center">
         <div class="col-auto">
             <label for="sel-gas-providers" class="col-form-label">Gas usage per provider</label>
@@ -656,6 +676,235 @@ $(document).ready(function(){
     function capitalize(val) {
         return String(val).charAt(0).toUpperCase() + String(val).slice(1);
     }
+
+    // ----- Battery optimizer plan -----------------------------------------
+    let dayAfterTomorrow = new Date();
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+
+    function planFormatTime(d) {
+        const pad = (n) => (n < 10 ? '0' + n : '' + n);
+        return pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    function actionColor(action) {
+        switch (action) {
+            case "charge_from_grid":  return "#1f77b4"; // blue
+            case "charge_from_pv":    return "#2ca02c"; // green
+            case "discharge_to_home": return "#ff7f0e"; // orange
+            case "discharge_to_grid": return "#d62728"; // red
+            case "export_only":       return "#9467bd"; // purple
+            default:                  return "#999";
+        }
+    }
+
+    function loadPlan(provider, battery) {
+        const start = today.toISOString().split('T')[0];
+        const end = dayAfterTomorrow.toISOString().split('T')[0];
+
+        // Fetch prices, forecasts and schedule in parallel.
+        const pricesCall = provider
+            ? $.ajax({ url: "{{$.ContextRoot}}api/prices/" + provider + "/electricity/" + start + "/" + end })
+            : $.Deferred().resolve({ prices: {} }).promise();
+        const loadCall = $.ajax({ url: "{{$.ContextRoot}}api/forecasts/load/" + start + "/" + end });
+        const pvCall   = $.ajax({ url: "{{$.ContextRoot}}api/forecasts/pv/" + start + "/" + end });
+        const schedCall = battery
+            ? $.ajax({ url: "{{$.ContextRoot}}api/battery/" + battery + "/schedule/" + start + "/" + end })
+            : $.ajax({ url: "{{$.ContextRoot}}api/battery/schedule/" + start + "/" + end });
+
+        $.when(pricesCall, loadCall, pvCall, schedCall).done(function (pricesRes, loadRes, pvRes, schedRes) {
+            const pricesData = (pricesRes && pricesRes[0]) || {};
+            const loadData   = (loadRes && loadRes[0])   || {};
+            const pvData     = (pvRes && pvRes[0])       || {};
+            const schedData  = (schedRes && schedRes[0]) || {};
+
+            // -------- Forecast & price chart --------
+            const priceMarkers = [];
+            if (pricesData.prices) {
+                $.each(pricesData.prices, function (series, prices) {
+                    $.each(prices, function (_, price) {
+                        priceMarkers.push({
+                            time: Date.parse(price.time),
+                            consumption: price.consumption_price,
+                            feedback: price.feedback_price,
+                            provider: series
+                        });
+                    });
+                });
+            }
+
+            const forecastMarkers = [];
+            function pushForecast(group, label) {
+                if (!group || !group.buckets) return;
+                $.each(group.buckets, function (_, b) {
+                    forecastMarkers.push({
+                        time: Date.parse(b.bucket_start),
+                        watts: b.watts,
+                        kind: label
+                    });
+                });
+            }
+            $.each(loadData.forecasts || {}, function (_, group) { pushForecast(group, "Load"); });
+            $.each(pvData.forecasts   || {}, function (_, group) { pushForecast(group, "PV"); });
+
+            const forecastChart = Plot.plot({
+                width: 1200,
+                height: 300,
+                grid: true,
+                x: { type: "time", label: "Time" },
+                y: { label: "Forecast (W)" },
+                color: { legend: true, domain: ["Load", "PV", "Consumption €/kWh", "Feedback €/kWh"], range: ["#ff7f0e", "#2ca02c", "#1f77b4", "#9467bd"] },
+                marks: [
+                    Plot.ruleY([0]),
+                    Plot.axisX({ ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start" }),
+                    Plot.axisX({ ticks: "3 hours", tickFormat: "%H:%M" }),
+                    Plot.line(forecastMarkers, {
+                        x: "time", y: "watts", stroke: "kind", strokeWidth: 2, curve: "step-after"
+                    }),
+                    Plot.tip(forecastMarkers, Plot.pointerX({
+                        x: "time", y: "watts",
+                        title: function (d) {
+                            return d.kind + '\n' + planFormatTime(new Date(d.time)) + '\n' + d.watts.toFixed(0) + ' W';
+                        }
+                    }))
+                ]
+            });
+            $('#container-plan-forecast').empty().append(forecastChart);
+
+            // -------- Action chart (bars + price overlay) --------
+            // Flatten schedule across all returned batteries unless a specific
+            // one was requested.
+            const actionMarkers = [];
+            const socMarkers = [];
+            $.each(schedData.batteries || {}, function (batteryName, group) {
+                $.each(group.buckets || [], function (_, b) {
+                    actionMarkers.push({
+                        time: Date.parse(b.bucket_start),
+                        size_seconds: b.bucket_size_seconds,
+                        end_time: Date.parse(b.bucket_start) + b.bucket_size_seconds * 1000,
+                        power_w: b.power_w,
+                        action: b.action,
+                        reason: b.reason,
+                        battery: batteryName
+                    });
+                    socMarkers.push({
+                        time: Date.parse(b.bucket_start),
+                        soc: b.predicted_soc,
+                        battery: batteryName
+                    });
+                });
+            });
+
+            const actionChart = Plot.plot({
+                width: 1200,
+                height: 320,
+                grid: true,
+                x: { type: "time", label: "Time" },
+                y: { label: "Planned battery power (W) — + charge / − discharge" },
+                color: {
+                    legend: true,
+                    domain: ["charge_from_grid", "charge_from_pv", "discharge_to_home", "discharge_to_grid", "export_only", "idle"],
+                    range:  ["#1f77b4", "#2ca02c", "#ff7f0e", "#d62728", "#9467bd", "#bbbbbb"]
+                },
+                marks: [
+                    Plot.ruleY([0]),
+                    Plot.axisX({ ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start" }),
+                    Plot.axisX({ ticks: "3 hours", tickFormat: "%H:%M" }),
+                    Plot.rect(actionMarkers, {
+                        x1: "time",
+                        x2: "end_time",
+                        y1: 0,
+                        y2: "power_w",
+                        fill: "action",
+                        channels: {
+                            title: function (d) {
+                                return d.battery + '\n' + planFormatTime(new Date(d.time))
+                                    + '\nAction: ' + d.action
+                                    + '\nPower: ' + d.power_w.toFixed(0) + ' W'
+                                    + (d.reason ? '\nReason: ' + d.reason : '');
+                            }
+                        },
+                        tip: true
+                    })
+                ]
+            });
+            $('#container-plan-action').empty().append(actionChart);
+
+            // -------- Predicted SoC chart --------
+            const socChart = Plot.plot({
+                width: 1200,
+                height: 240,
+                grid: true,
+                x: { type: "time", label: "Time" },
+                y: { label: "Predicted SoC (%)", domain: [0, 100] },
+                color: { legend: true, scheme: "blues" },
+                marks: [
+                    Plot.ruleY([0]),
+                    Plot.axisX({ ticks: "day", tickSize: 28, tickPadding: -9, tickFormat: " %A", textAnchor: "start" }),
+                    Plot.axisX({ ticks: "3 hours", tickFormat: "%H:%M" }),
+                    Plot.line(socMarkers, {
+                        x: "time", y: "soc", stroke: "battery", strokeWidth: 2, curve: "step-after"
+                    }),
+                    Plot.tip(socMarkers, Plot.pointerX({
+                        x: "time", y: "soc",
+                        title: function (d) {
+                            return d.battery + '\n' + planFormatTime(new Date(d.time)) + '\n' + d.soc.toFixed(1) + ' %';
+                        }
+                    }))
+                ]
+            });
+            $('#container-plan-soc').empty().append(socChart);
+        });
+    }
+
+    // Populate provider/battery selectors and load the plan.
+    $('#sel-plan-provider').on('change', function () {
+        loadPlan($(this).val(), $('#sel-plan-battery').val());
+    });
+    $('#sel-plan-battery').on('change', function () {
+        loadPlan($('#sel-plan-provider').val(), $(this).val());
+    });
+
+    // Reuse providers loaded for the price chart, but populate the plan
+    // selector independently because it might run before the prices ajax
+    // resolves. We attach a small poll on providerMap.
+    function populatePlanProviders() {
+        const $sel = $('#sel-plan-provider');
+        $sel.empty();
+        let any = false;
+        providerMap.forEach(function (energyTypes, providerName) {
+            if (energyTypes.indexOf('electricity') < 0) return;
+            $sel.append($('<option>').attr('value', providerName).text(providerName));
+            any = true;
+        });
+        if (any) {
+            $sel.trigger('change');
+        }
+    }
+    // Load battery sources for the battery selector.
+    $.ajax({ url: "{{$.ContextRoot}}api/battery/sources/" + yesterday.toISOString().split('T')[0] }).done(function (data) {
+        const $sel = $('#sel-plan-battery');
+        $sel.empty();
+        $sel.append($('<option>').attr('value', '').text('All batteries'));
+        if (data && data.sources) {
+            $.each(data.sources, function (_, name) {
+                $sel.append($('<option>').attr('value', name).text(name));
+            });
+        }
+    });
+    // Wait for providerMap to be populated by the price-providers ajax above,
+    // then populate the plan selector. Poll briefly to avoid ordering races.
+    let planInitTries = 0;
+    const planInit = setInterval(function () {
+        planInitTries++;
+        if (providerMap.size > 0) {
+            clearInterval(planInit);
+            populatePlanProviders();
+        } else if (planInitTries > 50) {
+            clearInterval(planInit);
+            // Still draw an empty plan with default battery selection.
+            loadPlan('', '');
+        }
+    }, 200);
 
 });
 </script>

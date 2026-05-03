@@ -164,6 +164,14 @@ type Repository interface {
 	BatteryStates(from time.Time, till time.Time, sourceName string, aggregate *AggregateConfiguration) ([]*BatteryStatesRecord, error)
 	BatteryStateAtTime(moment time.Time, sourceName string, role constants.EnergySourceRole, timeMatchType MatchType) (*BatteryStateRecord, error)
 
+	StoreForecast(record *ForecastRecord) error
+	Forecasts(from time.Time, till time.Time, modelName string, kind string) ([]*ForecastRecord, error)
+	ForecastAtTime(moment time.Time, modelName string, kind string, timeMatchType MatchType) (*ForecastRecord, error)
+
+	StoreBatterySchedule(record *BatteryScheduleRecord) error
+	BatterySchedules(from time.Time, till time.Time, batteryName string) ([]*BatteryScheduleRecord, error)
+	BatteryScheduleAtTime(moment time.Time, batteryName string, timeMatchType MatchType) (*BatteryScheduleRecord, error)
+
 	Initialize() error
 	Close()
 }
@@ -268,4 +276,27 @@ type GasCostsRecord struct {
 	EndTime   time.Time
 	Name      string
 	Costs     map[AggregateFunction]*gas.Costs
+}
+
+// ForecastRecord is a single forecast bucket persisted in storage.
+type ForecastRecord struct {
+	BucketStart time.Time
+	BucketSize  time.Duration
+	GeneratedAt time.Time
+	ModelName   string
+	Kind        string
+	Watts       float32
+	Confidence  float32
+}
+
+// BatteryScheduleRecord is a single planned battery action bucket persisted in storage.
+type BatteryScheduleRecord struct {
+	BucketStart  time.Time
+	BucketSize   time.Duration
+	GeneratedAt  time.Time
+	BatteryName  string
+	Action       string
+	PowerW       float32
+	PredictedSoC float32
+	Reason       string
 }

@@ -8,17 +8,19 @@ import (
 	"enman/internal/http/api"
 	"enman/internal/http/api/battery"
 	"enman/internal/http/api/electricity"
+	"enman/internal/http/api/forecasts"
 	"enman/internal/http/api/gas"
 	"enman/internal/http/api/prices"
 	"enman/internal/log"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/sessions"
 	"html/template"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/sessions"
 )
 
 const (
@@ -104,6 +106,7 @@ func NewServer(config *config.Http, system *domain.System, repository domain.Rep
 			"/battery":     battery.NewApi(system, repository).Router(nil),
 			"/gas":         gas.NewApi(system, repository).Router(nil),
 			"/prices":      prices.NewApi(system, repository).Router(nil),
+			"/forecasts":   forecasts.NewApi(system, repository).Router(nil),
 		}))
 	})
 

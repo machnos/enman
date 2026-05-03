@@ -19,12 +19,13 @@ import (
 	"enman/internal/price_importers/energyzero"
 	"enman/internal/price_importers/entsoe"
 	"flag"
-	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -91,18 +92,26 @@ func main() {
 		system.AddAcLoad(acLoad.Name,
 			constants.EnergySourceRole(acLoad.Role),
 			acLoad.PercentageFromGrid,
+			acLoad.ForecastExclude,
 			energyMeters,
 		)
 	}
-	for _, battery := range configuration.Batteries {
-		energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRoleBattery, battery.Meters)
-		if err != nil {
-			log.Fatalf("unable to probe battery meter: %s", err.Error())
-			syscall.Exit(-1)
+	if configuration.Batteries != nil {
+		for _, b := range configuration.Batteries.Banks {
+			energyMeters, err = meters.ProbeEnergyMeters(constants.EnergySourceRoleBattery, b.Meters)
+			if err != nil {
+				log.Fatalf("unable to probe battery meter: %s", err.Error())
+				syscall.Exit(-1)
+			}
+			system.AddBattery(domain.NewBattery(
+				b.Name,
+				b.Capacity,
+				b.Voltage,
+				b.ChargingCoefficient,
+				b.DischargingCoefficient,
+				energyMeters,
+			))
 		}
-		system.AddBattery(battery.Name,
-			energyMeters,
-		)
 	}
 
 	// Setup repository
@@ -123,10 +132,66 @@ func main() {
 		return values.EnergyType() == prices.EnergyTypeGas
 	})
 
-	// Setup grid target consumption calculator
-	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system)
+	// Setup grid target consumption calculator (battery scheduler may attach as bias provider below).
+	var batteryScheduler *domain.BatteryScheduler
+	if configuration.BatteryOptimizer != nil && configuration.BatteryOptimizer.Enabled {
+		optimizerCfg := domain.OptimizerConfig{
+			BucketSize:              configuration.BatteryOptimizer.BucketSize,
+			Horizon:                 configuration.BatteryOptimizer.Horizon,
+			MinSoC:                  configuration.BatteryOptimizer.MinSoC,
+			MaxSoC:                  configuration.BatteryOptimizer.MaxSoC,
+			RoundTripEfficiency:     0.9,
+			MinArbitrageMargin:      configuration.BatteryOptimizer.MinArbitrageMargin,
+			CycleCostPerKwhAt100Soh: configuration.BatteryOptimizer.CycleCostPerKwhAt100Soh,
+			CycleCostPerKwhAt70Soh:  configuration.BatteryOptimizer.CycleCostPerKwhAt70Soh,
+		}
+		if configuration.Batteries != nil && configuration.Batteries.RoundTripEfficiency > 0 {
+			optimizerCfg.RoundTripEfficiency = configuration.Batteries.RoundTripEfficiency
+		}
+		schedulerCfg := domain.BatterySchedulerConfig{
+			OptimizerConfig:        optimizerCfg,
+			ProviderName:           configuration.BatteryOptimizer.ProviderName,
+			ReoptimizationInterval: configuration.BatteryOptimizer.ReoptimizationInterval,
+		}
+		if configuration.Pvs != nil && configuration.Pvs.PvStateController != nil {
+			schedulerCfg.BatteryRestartPercentage = float32(configuration.Pvs.PvStateController.BatteryRestartPercentage)
+			schedulerCfg.BatteryCutoffPercentage = float32(configuration.Pvs.PvStateController.BatteryCutoffPercentage)
+		}
+		batteryScheduler = domain.NewBatteryScheduler(system, repository, domain.NewGreedyOptimizer(), schedulerCfg)
+	}
+
+	gridTargetConsumptionCalculator, err := domain.NewGridTargetConsumptionCalculator(system, batteryScheduler)
 	if err != nil {
 		log.Warningf("Unable to start grid target consumption calculator: %s", err.Error())
+	}
+
+	// Setup forecaster service if optimizer is enabled.
+	var forecasterService *domain.ForecasterService
+	if configuration.BatteryOptimizer != nil && configuration.BatteryOptimizer.Enabled {
+		bucketSize := configuration.BatteryOptimizer.BucketSize
+		if bucketSize <= 0 {
+			bucketSize = 15 * time.Minute
+		}
+		horizon := configuration.BatteryOptimizer.Horizon
+		if horizon <= 0 {
+			horizon = 36 * time.Hour
+		}
+		interval := configuration.BatteryOptimizer.ReoptimizationInterval
+		if interval <= 0 {
+			interval = 5 * time.Minute
+		}
+		weeks := int(configuration.BatteryOptimizer.HistoryWeeks)
+		if weeks <= 0 {
+			weeks = 4
+		}
+		modelName := configuration.BatteryOptimizer.ForecastModelName
+		loadF := domain.NewHistoricalLoadForecaster(system, repository, modelName, weeks)
+		pvF := domain.NewHistoricalPvForecaster(system, repository, modelName, weeks)
+		forecasterService = domain.NewForecasterService(system, repository, bucketSize, horizon, interval, loadF, pvF)
+		syncGroup.Go(func() error { return forecasterService.Start(syncGroupContext) })
+	}
+	if batteryScheduler != nil {
+		syncGroup.Go(func() error { return batteryScheduler.Start(syncGroupContext) })
 	}
 
 	// Set price importers

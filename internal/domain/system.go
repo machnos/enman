@@ -2,7 +2,6 @@ package domain
 
 import (
 	"context"
-	"enman/internal/domain/battery"
 	"enman/internal/domain/constants"
 	"enman/internal/domain/electricity"
 	"enman/internal/domain/gas"
@@ -68,11 +67,12 @@ func (s *System) AcLoads() []*AcLoad {
 	return s.acLoads
 }
 
-func (s *System) AddAcLoad(name string, role constants.EnergySourceRole, percentageFromGrid uint8, meters []EnergyMeter) *System {
+func (s *System) AddAcLoad(name string, role constants.EnergySourceRole, percentageFromGrid uint8, forecastExclude bool, meters []EnergyMeter) *System {
 	s.acLoads = append(s.acLoads, &AcLoad{
 		name:               name,
 		role:               role,
 		percentageFromGrid: percentageFromGrid,
+		forecastExclude:    forecastExclude,
 		meters:             meters,
 		state:              electricity.NewState(),
 		usage:              electricity.NewUsage(),
@@ -84,12 +84,8 @@ func (s *System) Batteries() []*Battery {
 	return s.batteries
 }
 
-func (s *System) AddBattery(name string, meters []EnergyMeter) *System {
-	s.batteries = append(s.batteries, &Battery{
-		name:   name,
-		meters: meters,
-		state:  battery.NewState(),
-	})
+func (s *System) AddBattery(b *Battery) *System {
+	s.batteries = append(s.batteries, b)
 	return s
 }
 

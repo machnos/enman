@@ -17,8 +17,8 @@ func Test_GridTargetConsumptionCalculation(t *testing.T) {
 	percentageFromGrid := uint8(rand.Int31n(100))
 	mockController := &MockGridController{}
 	system.SetGrid("Grid", 230, 25, 3, targetConsumption, nil, mockController)
-	system.AddAcLoad("EvCharger1", constants.EnergySourceRoleEvCharger, percentageFromGrid, nil)
-	calculator, err := NewGridTargetConsumptionCalculator(system)
+	system.AddAcLoad("EvCharger1", constants.EnergySourceRoleEvCharger, percentageFromGrid, false, nil)
+	calculator, err := NewGridTargetConsumptionCalculator(system, nil)
 	defer calculator.Stop()
 	if err != nil {
 		t.Error(err)

@@ -5,11 +5,12 @@ import (
 	"enman/internal/http/api"
 	"enman/internal/log"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
-	"net/http"
-	"time"
 )
 
 const (
@@ -19,6 +20,7 @@ const (
 	errorCodeEndDateBeforeStartDate = errorCodeBatteryRoot + "-03"
 	errorCodeUnableToLoadStates     = errorCodeBatteryRoot + "-04"
 	errorCodeUnableToLoadSources    = errorCodeBatteryRoot + "-07"
+	errorCodeUnableToLoadSchedule   = errorCodeBatteryRoot + "-08"
 )
 
 type Api struct {
@@ -111,6 +113,52 @@ func (api *Api) states(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, rsp)
 }
 
+func (api *Api) schedule(w http.ResponseWriter, r *http.Request) {
+	type bucket struct {
+		BucketStart  time.Time `json:"bucket_start"`
+		BucketSize   int64     `json:"bucket_size_seconds"`
+		GeneratedAt  time.Time `json:"generated_at"`
+		Action       string    `json:"action"`
+		PowerW       float32   `json:"power_w"`
+		PredictedSoC float32   `json:"predicted_soc"`
+		Reason       string    `json:"reason"`
+	}
+	type batteryGroup struct {
+		Buckets []*bucket `json:"buckets"`
+	}
+	rsp := struct {
+		Batteries map[string]*batteryGroup `json:"batteries"`
+	}{Batteries: make(map[string]*batteryGroup)}
+
+	startTime, endTime, ok := api.ValidateStartAndEndParams(w, r, errorCodeStartDateParseError, errorCodeEndDateParseError, errorCodeEndDateBeforeStartDate)
+	if !ok {
+		return
+	}
+	records, err := api.Repository.BatterySchedules(startTime, endTime, chi.URLParam(r, "batteryName"))
+	if err != nil {
+		log.Error(err.Error())
+		api.ApiError(w, r, http.StatusInternalServerError, errorCodeUnableToLoadSchedule, err.Error())
+		return
+	}
+	for _, rec := range records {
+		group, exists := rsp.Batteries[rec.BatteryName]
+		if !exists {
+			group = &batteryGroup{}
+			rsp.Batteries[rec.BatteryName] = group
+		}
+		group.Buckets = append(group.Buckets, &bucket{
+			BucketStart:  rec.BucketStart,
+			BucketSize:   int64(rec.BucketSize.Seconds()),
+			GeneratedAt:  rec.GeneratedAt,
+			Action:       rec.Action,
+			PowerW:       rec.PowerW,
+			PredictedSoC: rec.PredictedSoC,
+			Reason:       rec.Reason,
+		})
+	}
+	render.JSON(w, r, rsp)
+}
+
 func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Router) {
 	return func(r chi.Router) {
 		r.Use(middleware.AllowContentType("application/json"))
@@ -120,6 +168,10 @@ func (api *Api) Router(subRoutes map[string]func(r chi.Router)) func(r chi.Route
 		r.Get(fmt.Sprintf("/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}", api.TimePattern), api.states)
 		r.Get(fmt.Sprintf("/{sourceName}/states/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.states)
+		r.Get(fmt.Sprintf("/schedule/{start:%s}", api.TimePattern), api.schedule)
+		r.Get(fmt.Sprintf("/schedule/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.schedule)
+		r.Get(fmt.Sprintf("/{batteryName}/schedule/{start:%s}", api.TimePattern), api.schedule)
+		r.Get(fmt.Sprintf("/{batteryName}/schedule/{start:%s}/{end:%s}", api.TimePattern, api.TimePattern), api.schedule)
 		if subRoutes != nil {
 			for path, route := range subRoutes {
 				r.Route(path, route)

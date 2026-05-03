@@ -15,12 +15,23 @@ type GridTargetConsumptionCalculator struct {
 	tickerDoneChannel chan bool
 	meterValues       sync.Map
 	lastSetTo         int
+	biasProvider      BiasProvider
 }
 
-func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionCalculator, error) {
+// BiasProvider is implemented by anything that contributes a watt-bias to the
+// grid target consumption setpoint (positive = pull from grid, negative = push to grid).
+// The BatteryScheduler implements this interface.
+type BiasProvider interface {
+	ActiveBiasW() float32
+}
+
+// NewGridTargetConsumptionCalculator constructs the calculator. biasProvider is
+// optional; when non-nil its watts are added to the setpoint each tick (Bias mode).
+func NewGridTargetConsumptionCalculator(system *System, biasProvider BiasProvider) (*GridTargetConsumptionCalculator, error) {
 	calculator := &GridTargetConsumptionCalculator{
-		system:    system,
-		lastSetTo: system.Grid().targetConsumption,
+		system:       system,
+		lastSetTo:    system.Grid().targetConsumption,
+		biasProvider: biasProvider,
 	}
 	if system.Grid().controller == nil {
 		return nil, fmt.Errorf("no grid controller configured")
@@ -53,6 +64,10 @@ func NewGridTargetConsumptionCalculator(system *System) (*GridTargetConsumptionC
 					data.reset()
 					return true
 				})
+				if calculator.biasProvider != nil {
+					addition += int(calculator.biasProvider.ActiveBiasW())
+				}
+				addition = calculator.clampSetpoint(addition)
 				if calculator.lastSetTo != addition {
 					err := calculator.system.Grid().controller.SetTargetConsumption(addition)
 					if err != nil {
@@ -135,4 +150,26 @@ func (m *meterData) average() int {
 
 func (m *meterData) addition() int {
 	return (m.average() * int(m.percentageFromGrid)) / 100
+}
+
+// clampSetpoint clamps the desired setpoint to ± Grid.MaxCurrent × Voltage × Phases
+// (when the grid configuration provides those numbers) and to the int16 register range.
+func (g *GridTargetConsumptionCalculator) clampSetpoint(value int) int {
+	upper := math.MaxInt16
+	lower := math.MinInt16
+	grid := g.system.Grid()
+	if grid != nil && grid.MaxCurrentPerPhase() > 0 && grid.Voltage() > 0 && grid.Phases() > 0 {
+		bound := int(float32(grid.Voltage()) * grid.MaxCurrentPerPhase() * float32(grid.Phases()))
+		if bound < upper {
+			upper = bound
+			lower = -bound
+		}
+	}
+	if value > upper {
+		return upper
+	}
+	if value < lower {
+		return lower
+	}
+	return value
 }
